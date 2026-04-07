@@ -3,8 +3,8 @@
     <n-message-provider>
       <div class="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#e2e8f0_100%)] text-slate-900">
         <header class="border-b border-slate-200 bg-white/90 shadow-sm backdrop-blur">
-          <div class="mx-auto max-w-7xl px-4 py-4 md:px-6 lg:px-8">
-            <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Well Time Series App</h1>
+          <div class="px-3 py-3 md:px-4 lg:px-5">
+            <h1 class="text-xl font-semibold tracking-tight text-slate-900">Well Time Series App</h1>
           </div>
         </header>
 
