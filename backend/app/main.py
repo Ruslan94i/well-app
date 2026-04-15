@@ -24,5 +24,4 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 @app.get("/", tags=["root"])
 def root() -> dict[str, str]:
-    return {"message": "Well Time Series API is running"}
-
+    return {"message": "Анализ скважинной динамики API is running"}

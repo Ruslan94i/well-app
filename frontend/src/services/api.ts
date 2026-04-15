@@ -14,3 +14,8 @@ export async function fetchWellTimeseries(
   const response = await api.get<TimeSeriesPoint[]>(`/wells/${wellId}/timeseries`, { params })
   return response.data
 }
+
+export async function fetchWellIds(): Promise<string[]> {
+  const response = await api.get<string[]>('/wells')
+  return response.data
+}

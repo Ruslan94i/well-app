@@ -1,17 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  background: #f8fafc;
-  color: #0f172a;
+  background: #0f172a;
+  color: #e5e7eb;
+  --app-bg: #0f172a;
+  --panel-bg: #1e293b;
+  --card-bg: #1f2937;
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border-color: #374151;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--app-bg);
+  color: var(--text-primary);
 }
 
 #app {
@@ -19,8 +26,8 @@ body {
 }
 
 .panel {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 24px rgba(148, 163, 184, 0.12);
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+  background: color-mix(in srgb, var(--panel-bg) 94%, transparent);
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32);
   backdrop-filter: blur(10px);
 }

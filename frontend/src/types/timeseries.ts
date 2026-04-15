@@ -1,18 +1,25 @@
 export interface TimeSeriesPoint {
   date: string
-  qliq: number
-  qoil: number
-  qliq_vfm: number
-  water_cut: number
-  intake_pressure: number
-  esp_frequency: number
-  load: number
+  qliq: number | null
+  qoil: number | null
+  qgas: number | null
+  gas_factor: number | null
+  gas_liquid_factor: number | null
+  qliq_wfm: number | null
+  qliq_vfm: number | null
+  water_cut: number | null
+  intake_pressure: number | null
+  esp_frequency: number | null
+  load: number | null
 }
 
 export type SeriesKey =
   | 'qliq'
   | 'qoil'
-  | 'qliq_vfm'
+  | 'qgas'
+  | 'gas_factor'
+  | 'gas_liquid_factor'
+  | 'qliq_wfm'
   | 'water_cut'
   | 'intake_pressure'
   | 'esp_frequency'
@@ -34,7 +41,7 @@ export interface VisibleDateRange {
   endDate: string
 }
 
-export type InteractionMode = 'navigate' | 'annotate'
+export type InteractionMode = 'navigate' | 'annotate' | 'modelTuning'
 
 export interface EventInterval {
   id: string
@@ -68,6 +75,9 @@ export interface HierarchicalEventTracks {
   installedEspPeriods: EspInstallationPeriod[]
   dailyCauses: DailyCauseBand[]
   opzEvents: OpzEventFlag[]
+  espWashEvents: OpzEventFlag[]
+  modelEventIntervals: EventInterval[]
+  modelRootCauseIntervals: EventInterval[]
 }
 
 export type EpisodeType =
@@ -90,10 +100,14 @@ export type RootCause =
   | 'telemetry_issue'
   | 'unknown'
 
+export type ConfidenceLevel = 'low' | 'medium' | 'high'
+export type WellGroupId = string
+
 export interface EpisodeFormState {
   episodeType: EpisodeType
   rootCause: RootCause
-  confidence: number
+  confidenceEvent: ConfidenceLevel
+  confidenceCause: ConfidenceLevel
   comment: string
 }
 
@@ -101,23 +115,32 @@ export type AnnotationKind = 'event' | 'rootCause'
 
 interface AnnotationBase extends SelectedInterval {
   id: string
+  wellId: string
+  wellGroupId: WellGroupId | null
   annotationKind: AnnotationKind
-  confidence: number
   comment: string
 }
 
 export interface SavedEventAnnotation extends AnnotationBase {
   annotationKind: 'event'
   eventType: EpisodeType
+  confidenceEvent: ConfidenceLevel
 }
 
 export interface SavedRootCauseAnnotation extends AnnotationBase {
   annotationKind: 'rootCause'
   rootCause: RootCause
+  confidenceCause: ConfidenceLevel
 }
 
 export type SavedAnnotation = SavedEventAnnotation | SavedRootCauseAnnotation
 
 export interface TimelineAnnotationClickPayload {
-  annotationId: string
+  annotationId?: string
+  source: 'manual' | 'model'
+  layer: 'event' | 'rootCause'
+  label: string
+  startDate: string
+  endDate: string
+  durationDays: number
 }

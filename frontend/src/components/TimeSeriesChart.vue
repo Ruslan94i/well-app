@@ -1,5 +1,5 @@
 ﻿<template>
-  <div ref="chartEl" class="h-[720px] w-full"></div>
+  <div ref="chartEl" class="h-[920px] w-full"></div>
 </template>
 
 <script setup lang="ts">
@@ -43,7 +43,9 @@ interface PlotlySelectedPoint {
 }
 
 interface SavedAnnotationCustomdata {
-  annotationId: string
+  annotationId?: string
+  source: 'manual' | 'model'
+  layer: 'event' | 'rootCause'
   annotationKind: string
   startDate: string
   endDate: string
@@ -61,6 +63,19 @@ interface AnnotationLaneAssignment {
   lanes: number[]
   laneCount: number
 }
+
+interface TrackLayoutRow {
+  axis: 'y6' | 'y7' | 'y8' | 'y9' | 'y10' | 'y11'
+  label: string
+  labelColor: string
+  domain: [number, number]
+  range: [number, number]
+}
+
+const TRACK_LABEL_COLUMN_X = -0.16
+const MAIN_CHART_DOMAIN_START = 0.278
+const TRACK_PANEL_TOP = 0.248
+const TRACK_MAIN_GAP = 0.03
 
 interface PlotlyRelayoutEvent {
   'xaxis.range[0]'?: string
@@ -96,13 +111,16 @@ const seriesConfig: Record<
   SeriesKey,
   { label: string; color: string; axis: string; width?: number; dash?: 'solid' | 'dot' }
 > = {
-  qliq: { label: 'QLIQ', color: '#111111', axis: 'y', width: 2.8 },
-  qoil: { label: 'QOIL', color: '#8b5e3c', axis: 'y', width: 2.8 },
-  qliq_vfm: { label: 'QLIQ VFM', color: '#111111', axis: 'y', width: 2, dash: 'dot' },
-  water_cut: { label: 'Water Cut', color: '#7dd3fc', axis: 'y2', width: 2.2 },
-  intake_pressure: { label: 'Intake Pressure', color: '#dc2626', axis: 'y3', width: 1.4 },
-  esp_frequency: { label: 'ESP Frequency', color: '#2563eb', axis: 'y4', width: 1.4 },
-  load: { label: 'Load', color: '#16a34a', axis: 'y5', width: 1.4 }
+  qliq: { label: 'Дебит жидкости', color: '#e5e7eb', axis: 'y', width: 2.8 },
+  qoil: { label: 'Дебит нефти', color: '#c4a484', axis: 'y', width: 2.8 },
+  qgas: { label: 'Добыча газа', color: '#fdba74', axis: 'y12', width: 2.1 },
+  gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
+  gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
+  qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' },
+  water_cut: { label: 'Обводненность', color: '#7dd3fc', axis: 'y2', width: 2.2 },
+  intake_pressure: { label: 'Давление на приеме', color: '#f87171', axis: 'y3', width: 1.4 },
+  esp_frequency: { label: 'Частота ЭЦН', color: '#2563eb', axis: 'y4', width: 1.4 },
+  load: { label: 'Загрузка', color: '#16a34a', axis: 'y5', width: 1.4 }
 }
 
 function getAnnotationColor(label: string): string {
@@ -135,6 +153,36 @@ function getRootCauseColor(label: string): string {
   return colorMap[label] ?? '#64748b'
 }
 
+function getEventTypeLabel(label: string): string {
+  const labelMap: Record<string, string> = {
+    decline: 'снижение',
+    instability: 'нестабильность',
+    water_cut_growth: 'рост обводненности',
+    downtime: 'останов',
+    recovery: 'восстановление',
+    regime_change: 'смена режима',
+    post_intervention: 'после вмешательства',
+    unknown: 'неизвестно'
+  }
+
+  return labelMap[label] ?? label
+}
+
+function getRootCauseLabel(label: string): string {
+  const labelMap: Record<string, string> = {
+    esp_degradation: 'деградация ЭЦН',
+    water_breakthrough: 'прорыв воды',
+    unstable_operation: 'нестабильная работа',
+    downtime_vsp: 'останов ВСП',
+    opz_effect: 'эффект ОПЗ',
+    esp_replacement: 'замена ЭЦН',
+    telemetry_issue: 'ошибка телеметрии',
+    unknown: 'неизвестно'
+  }
+
+  return labelMap[label] ?? label
+}
+
 function getEspColor(espId: string): string {
   const palette = ['#9ca3af', '#64748b', '#94a3b8', '#475569', '#7c8aa0', '#8b9db2']
   const hash = espId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
@@ -143,7 +191,16 @@ function getEspColor(espId: string): string {
 
 function getEspSegmentLabel(startDate: string, endDate: string, espId: string): string {
   const durationDays = calculateDurationDays(startDate, endDate)
-  return durationDays >= 24 ? espId : ''
+
+  if (durationDays >= 24) {
+    return espId
+  }
+
+  if (durationDays >= 14) {
+    return espId.length > 9 ? `${espId.slice(0, 9)}...` : espId
+  }
+
+  return ''
 }
 
 function calculateDurationDays(startDate: string, endDate: string): number {
@@ -175,13 +232,14 @@ function toTimestamp(value: string): number {
   return new Date(value).getTime()
 }
 
-function buildStableRange(values: number[]): [number, number] {
-  if (values.length === 0) {
+function buildStableRange(values: Array<number | null>): [number, number] {
+  const filteredValues = values.filter((value): value is number => Number.isFinite(value))
+  if (filteredValues.length === 0) {
     return [0, 1]
   }
 
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  const min = Math.min(...filteredValues)
+  const max = Math.max(...filteredValues)
 
   if (min === max) {
     const pad = Math.max(Math.abs(min) * 0.1, 1)
@@ -192,7 +250,49 @@ function buildStableRange(values: number[]): [number, number] {
   return [min - pad, max + pad]
 }
 
-function getSeriesValues(key: SeriesKey): number[] {
+function getNiceStep(rawStep: number): number {
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(rawStep, 1e-9)))
+  const normalized = rawStep / magnitude
+
+  if (normalized <= 1) return 1 * magnitude
+  if (normalized <= 2) return 2 * magnitude
+  if (normalized <= 2.5) return 2.5 * magnitude
+  if (normalized <= 5) return 5 * magnitude
+  return 10 * magnitude
+}
+
+function buildNiceAxis(values: Array<number | null>, desiredTicks = 5): { range: [number, number]; dtick: number; tick0: number } {
+  const filteredValues = values.filter((value): value is number => Number.isFinite(value))
+  if (filteredValues.length === 0) {
+    return {
+      range: [0, 1],
+      dtick: 0.2,
+      tick0: 0
+    }
+  }
+
+  let min = Math.min(...filteredValues)
+  let max = Math.max(...filteredValues)
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.1, 1)
+    min -= pad
+    max += pad
+  }
+
+  const rawStep = (max - min) / Math.max(desiredTicks - 1, 1)
+  const dtick = getNiceStep(rawStep)
+  const niceMin = Math.floor(min / dtick) * dtick
+  const niceMax = Math.ceil(max / dtick) * dtick
+
+  return {
+    range: [Number(niceMin.toFixed(6)), Number(niceMax.toFixed(6))],
+    dtick: Number(dtick.toFixed(6)),
+    tick0: Number(niceMin.toFixed(6))
+  }
+}
+
+function getSeriesValues(key: SeriesKey): Array<number | null> {
   return props.data.map((item) => item[key])
 }
 
@@ -236,21 +336,40 @@ function buildAnnotationLaneAssignment(annotations: SavedAnnotation[]): Annotati
 }
 
 function getSelectionShapes() {
-  const shapes: Array<Record<string, unknown>> = props.eventTracks.opzEvents.map((item) => ({
-    type: 'line',
-    xref: 'x',
-    yref: 'paper',
-    x0: item.date,
-    x1: item.date,
-    y0: 0.37,
-    y1: 1,
-    line: {
-      color: 'rgba(217,119,6,0.48)',
-      width: 1.2,
-      dash: 'dot'
-    },
-    layer: 'below'
-  }))
+  const trackLayout = getTrackLayoutRows()
+  const markerGuideShapes: Array<Record<string, unknown>> = [
+    ...props.eventTracks.opzEvents.map((item) => ({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: item.date,
+      x1: item.date,
+      y0: trackLayout.mainDomain[0],
+      y1: 1,
+      line: {
+        color: 'rgba(217,119,6,0.48)',
+        width: 1.2,
+        dash: 'dot'
+      },
+      layer: 'below'
+    })),
+    ...props.eventTracks.espWashEvents.map((item) => ({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: item.date,
+      x1: item.date,
+      y0: trackLayout.mainDomain[0],
+      y1: 1,
+      line: {
+        color: 'rgba(34,211,238,0.42)',
+        width: 1.2,
+        dash: 'dot'
+      },
+      layer: 'below'
+    }))
+  ]
+  const shapes: Array<Record<string, unknown>> = markerGuideShapes
 
   if (!props.selectedInterval) {
     return shapes
@@ -264,9 +383,9 @@ function getSelectionShapes() {
     x1: props.selectedInterval.endDate,
     y0: 0,
     y1: 1,
-    fillcolor: 'rgba(15,118,110,0.14)',
+    fillcolor: 'rgba(56,189,248,0.12)',
     line: {
-      color: 'rgba(15,118,110,0.65)',
+      color: 'rgba(125,211,252,0.58)',
       width: 1.5
     },
     layer: 'below'
@@ -280,7 +399,7 @@ function buildMainTraces() {
   const baseRange = buildStableRange([
     ...getSeriesValues('qliq'),
     ...getSeriesValues('qoil'),
-    ...getSeriesValues('qliq_vfm')
+    ...getSeriesValues('qliq_wfm')
   ])
 
   const visibleSeries = props.activeSeries.map((seriesKey) => {
@@ -309,7 +428,7 @@ function buildMainTraces() {
             y: props.eventTracks.opzEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.04),
             type: 'scatter',
             mode: 'markers',
-            name: 'OPZ',
+            name: 'ОПЗ',
             yaxis: 'y',
             marker: {
               symbol: 'diamond',
@@ -326,7 +445,37 @@ function buildMainTraces() {
               comment: item.comment
             })),
             hovertemplate:
-              '<b>OPZ</b><br>%{customdata.date}<br>%{customdata.operationType}<br>%{customdata.comment}<extra></extra>'
+              '<b>ОПЗ</b><br>%{customdata.date}<br>%{customdata.operationType}<br>%{customdata.comment}<extra></extra>'
+          }
+        ]
+      : []
+
+  const espWashTrace =
+    props.eventTracks.espWashEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.espWashEvents.map((item) => item.date),
+            y: props.eventTracks.espWashEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.08),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'Промывка ЭЦН',
+            yaxis: 'y',
+            marker: {
+              symbol: 'triangle-up',
+              size: 10,
+              color: '#22d3ee',
+              line: {
+                color: '#0e7490',
+                width: 1.2
+              }
+            },
+            customdata: props.eventTracks.espWashEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              comment: item.comment
+            })),
+            hovertemplate:
+              '<b>Промывка ЭЦН</b><br>%{customdata.date}<br>%{customdata.operationType}<br>%{customdata.comment}<extra></extra>'
           }
         ]
       : []
@@ -336,7 +485,7 @@ function buildMainTraces() {
     y: x.map(() => baseRange[0]),
     type: 'scatter',
     mode: 'markers',
-    name: 'Selection Helper',
+    name: 'Выделение',
     yaxis: 'y',
     showlegend: false,
     hoverinfo: 'skip',
@@ -346,7 +495,7 @@ function buildMainTraces() {
     }
   }
 
-  return [...visibleSeries, ...opzTrace, selectionHelper]
+  return [...visibleSeries, ...opzTrace, ...espWashTrace, selectionHelper]
 }
 
 function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'event' | 'rootCause') {
@@ -386,20 +535,67 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
       showlegend: false,
       customdata: trackAnnotations.map((item) => ({
         annotationId: item.id,
-        annotationKind: item.annotationKind,
+        source: 'manual' as const,
+        layer: item.annotationKind,
+        annotationKind: item.annotationKind === 'event' ? 'Событие' : 'Причина',
         startDate: item.startDate,
         endDate: item.endDate,
         durationDays: item.durationDays,
-        categoryLabel: item.annotationKind === 'event' ? item.eventType : item.rootCause
+        categoryLabel: item.annotationKind === 'event' ? getEventTypeLabel(item.eventType) : getRootCauseLabel(item.rootCause)
       })),
       hovertemplate:
         '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
-        'Duration: %{customdata.durationDays} days<extra></extra>'
+        'Длительность: %{customdata.durationDays} сут.<extra></extra>'
+    }
+  ]
+}
+
+function buildModelTrackTrace(trackAxis: 'y10' | 'y11', trackType: 'event' | 'rootCause') {
+  const intervals =
+    trackType === 'event' ? props.eventTracks.modelEventIntervals : props.eventTracks.modelRootCauseIntervals
+
+  if (intervals.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: intervals.map((item) => toDurationMs(item.startDate, item.endDate)),
+      base: intervals.map((item) => item.startDate),
+      y: intervals.map(() => 0.5),
+      width: 0.58,
+      marker: {
+        color: intervals.map((item) => item.color),
+        opacity: 0.58,
+        line: {
+          color: intervals.map((item) => item.color),
+          width: 1.2,
+          dash: 'dot'
+        }
+      },
+      yaxis: trackAxis,
+      showlegend: false,
+      customdata: intervals.map((item) => ({
+        source: 'model' as const,
+        layer: trackType,
+        annotationKind: trackType === 'event' ? 'Эпизод' : 'Режим',
+        label: item.label,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        durationDays: calculateDurationDays(item.startDate, item.endDate),
+        categoryLabel: item.label
+      })),
+      hovertemplate:
+        '<b>%{customdata.annotationKind}</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Длительность: %{customdata.durationDays} сут.<extra></extra>'
     }
   ]
 }
 
 function buildTrackTraces() {
+  const showManualTracks = shouldShowManualTracks()
   const espInstallationTrace =
     props.eventTracks.installedEspPeriods.length > 0
       ? [
@@ -413,7 +609,7 @@ function buildTrackTraces() {
             marker: {
               color: props.eventTracks.installedEspPeriods.map((item) => getEspColor(item.espId)),
               line: {
-                color: props.eventTracks.installedEspPeriods.map(() => 'rgba(255,255,255,0.8)'),
+                color: props.eventTracks.installedEspPeriods.map(() => 'rgba(226,232,240,0.52)'),
                 width: 0.9
               }
             },
@@ -425,10 +621,10 @@ function buildTrackTraces() {
             textposition: 'inside',
             insidetextanchor: 'middle',
             textfont: {
-              size: 10,
+              size: 11,
               color: '#f8fafc'
             },
-            cliponaxis: false,
+            cliponaxis: true,
             customdata: props.eventTracks.installedEspPeriods.map((item) => ({
               espId: item.espId,
               startDate: item.startDate,
@@ -449,15 +645,19 @@ function buildTrackTraces() {
             x: props.eventTracks.dailyCauses.map(() => 86400000),
             base: props.eventTracks.dailyCauses.map((item) => item.date),
             y: props.eventTracks.dailyCauses.map(() => 0.5),
-            width: 0.94,
+            width: 0.82,
             marker: {
               color: props.eventTracks.dailyCauses.map((item) => item.color),
-              opacity: 0.75
+              opacity: 0.62,
+              line: {
+                color: 'rgba(51,65,85,0.9)',
+                width: 0.4
+              }
             },
             yaxis: 'y7',
             showlegend: false,
             customdata: props.eventTracks.dailyCauses.map((item) => item.label),
-            hovertemplate: '%{base}<br>%{customdata}<extra></extra>'
+            hovertemplate: '<b>Суточная причина</b><br>%{base}<br>%{customdata}<extra></extra>'
           }
         ]
       : []
@@ -465,8 +665,10 @@ function buildTrackTraces() {
   return [
     ...espInstallationTrace,
     ...dailyCauseTraces,
-    ...buildSavedAnnotationTrace('y8', 'event'),
-    ...buildSavedAnnotationTrace('y9', 'rootCause')
+    ...(showManualTracks ? buildSavedAnnotationTrace('y8', 'event') : []),
+    ...(showManualTracks ? buildSavedAnnotationTrace('y9', 'rootCause') : []),
+    ...buildModelTrackTrace('y10', 'event'),
+    ...buildModelTrackTrace('y11', 'rootCause')
   ]
 }
 
@@ -477,65 +679,97 @@ function getSavedAnnotationTrackRange(annotationKind: 'event' | 'rootCause'): [n
   return [0, Math.max(2, laneCount + 1.6)]
 }
 
-function buildAnnotations() {
-  const annotations: Array<Record<string, unknown>> = [
-    {
-      xref: 'paper',
-      yref: 'paper',
-      x: 0,
-      y: 0.345,
-      xanchor: 'left',
-      yanchor: 'middle',
-      text: '<b>Installed ESP</b>',
-      showarrow: false,
-      font: { size: 12, color: '#64748b' }
-    },
-    {
-      xref: 'paper',
-      yref: 'paper',
-      x: 0,
-      y: 0.26,
-      xanchor: 'left',
-      yanchor: 'middle',
-      text: '<b>Daily causes</b>',
-      showarrow: false,
-      font: { size: 12, color: '#64748b' }
-    },
-    {
-      xref: 'paper',
-      yref: 'paper',
-      x: 0,
-      y: 0.165,
-      xanchor: 'left',
-      yanchor: 'middle',
-      text: '<b>Event Type</b>',
-      showarrow: false,
-      font: { size: 12, color: '#64748b' }
-    },
-    {
-      xref: 'paper',
-      yref: 'paper',
-      x: 0,
-      y: 0.075,
-      xanchor: 'left',
-      yanchor: 'middle',
-      text: '<b>Root Cause</b>',
-      showarrow: false,
-      font: { size: 12, color: '#64748b' }
+function shouldShowManualTracks(): boolean {
+  return props.interactionMode === 'annotate'
+}
+
+function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
+  const eventRange = getSavedAnnotationTrackRange('event')
+  const rootCauseRange = getSavedAnnotationTrackRange('rootCause')
+  const eventLaneCount = Math.max(1, Math.ceil(eventRange[1] - 1.6))
+  const rootCauseLaneCount = Math.max(1, Math.ceil(rootCauseRange[1] - 1.6))
+
+  const rowSpecs = [
+    { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.56, range: [0, 1] as [number, number] },
+    { axis: 'y7' as const, label: 'Суточные причины', labelColor: '#94a3b8', heightUnits: 0.3, range: [0, 1] as [number, number] },
+    { axis: 'y8' as const, label: 'Эпизоды (пользователь)', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
+    { axis: 'y9' as const, label: 'Режимы (пользователь)', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange },
+    { axis: 'y10' as const, label: 'Эпизоды (модель)', labelColor: '#cbd5e1', heightUnits: 0.62, range: [0, 1] as [number, number] },
+    { axis: 'y11' as const, label: 'Режимы (модель)', labelColor: '#cbd5e1', heightUnits: 0.62, range: [0, 1] as [number, number] }
+  ].filter((row) => shouldShowManualTracks() || (row.axis !== 'y8' && row.axis !== 'y9'))
+
+  const trackPanelHeight = TRACK_PANEL_TOP
+  const rowGap = 0.006
+  const totalTrackUnits = rowSpecs.reduce((sum, row) => sum + row.heightUnits, 0)
+  const availableHeight = trackPanelHeight - rowGap * Math.max(0, rowSpecs.length - 1)
+
+  let cursor = 0
+  const rowsBottomToTop = [...rowSpecs].reverse().map((row, index) => {
+    const rowHeight = availableHeight * (row.heightUnits / totalTrackUnits)
+    const domain: [number, number] = [cursor, cursor + rowHeight]
+    cursor += rowHeight
+
+    if (index < rowSpecs.length - 1) {
+      cursor += rowGap
     }
-  ]
+
+    return {
+      ...row,
+      domain
+    }
+  })
+
+  const rows = rowsBottomToTop.reverse()
+  const separatorYs = rowsBottomToTop
+    .slice(1)
+    .map((row) => row.domain[1] + rowGap / 2)
+
+  return {
+    rows,
+    mainDomain: [MAIN_CHART_DOMAIN_START, 1],
+    separatorYs
+  }
+}
+
+function getTrackRowByAxis(
+  rows: TrackLayoutRow[],
+  axis: TrackLayoutRow['axis']
+): TrackLayoutRow {
+  const row = rows.find((item) => item.axis === axis)
+
+  if (!row) {
+    throw new Error(`Track row not found for axis ${axis}`)
+  }
+
+  return row
+}
+
+function buildAnnotations() {
+  const trackLayout = getTrackLayoutRows()
+  const annotations: Array<Record<string, unknown>> = trackLayout.rows.map((row) => ({
+    xref: 'paper',
+    yref: 'paper',
+    x: TRACK_LABEL_COLUMN_X,
+    y: (row.domain[0] + row.domain[1]) / 2,
+    xanchor: 'left',
+    yanchor: 'middle',
+    text: `<b>${row.label}</b>`,
+    showarrow: false,
+    align: 'left',
+    font: { size: 11, color: row.labelColor }
+  }))
 
   if (props.data.length === 0) {
     annotations.push({
       xref: 'paper',
       yref: 'paper',
       x: 0.5,
-      y: 0.68,
+      y: (trackLayout.mainDomain[0] + trackLayout.mainDomain[1]) / 2,
       xanchor: 'center',
       yanchor: 'middle',
-      text: 'No time series data loaded',
+      text: 'Данные временных рядов не загружены',
       showarrow: false,
-      font: { size: 16, color: '#64748b' }
+      font: { size: 16, color: '#9ca3af' }
     })
   }
 
@@ -558,14 +792,69 @@ function renderChart() {
     return
   }
 
+  const hasGasProductionSeries = props.activeSeries.includes('qgas')
+  const hasGasFactorSeries =
+    props.activeSeries.includes('gas_factor') || props.activeSeries.includes('gas_liquid_factor')
   const firstDate = props.data[0]?.date
   const lastDate = props.data[props.data.length - 1]?.date
+  const mainAxisConfig = buildNiceAxis([
+    ...getSeriesValues('qliq'),
+    ...getSeriesValues('qoil'),
+    ...getSeriesValues('qliq_wfm')
+  ], 6)
+  const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
+  const waterAxisConfig = buildNiceAxis(getSeriesValues('water_cut'), 5)
+  const pressureAxisConfig = buildNiceAxis(getSeriesValues('intake_pressure'), 5)
+  const frequencyAxisConfig = buildNiceAxis(getSeriesValues('esp_frequency'), 4)
+  const loadAxisConfig = buildNiceAxis(getSeriesValues('load'), 5)
+  const factorAxisConfig = buildNiceAxis([
+    ...getSeriesValues('gas_factor'),
+    ...getSeriesValues('gas_liquid_factor')
+  ], 5)
+  const trackLayout = getTrackLayoutRows()
+  const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
+  const dailyRow = getTrackRowByAxis(trackLayout.rows, 'y7')
+  const modelEventRow = getTrackRowByAxis(trackLayout.rows, 'y10')
+  const modelRootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y11')
+  const eventRow = shouldShowManualTracks() ? getTrackRowByAxis(trackLayout.rows, 'y8') : null
+  const rootCauseRow = shouldShowManualTracks() ? getTrackRowByAxis(trackLayout.rows, 'y9') : null
+  const layoutShapes = [
+    ...getSelectionShapes(),
+    {
+      type: 'line',
+      xref: 'paper',
+      yref: 'paper',
+      x0: 0,
+      x1: 0,
+      y0: trackLayout.rows[trackLayout.rows.length - 1]?.domain[0] ?? 0,
+      y1: trackLayout.rows[0]?.domain[1] ?? 0,
+      line: {
+        color: 'rgba(71,85,105,0.45)',
+        width: 1
+      },
+      layer: 'below'
+    },
+    ...trackLayout.separatorYs.map((y) => ({
+      type: 'line',
+      xref: 'paper',
+      yref: 'paper',
+      x0: 0,
+      x1: 1,
+      y0: y,
+      y1: y,
+      line: {
+        color: 'rgba(71,85,105,0.38)',
+        width: 1
+      },
+      layer: 'below'
+    }))
+  ]
 
   const layout = {
     paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: '#ffffff',
-    font: { color: '#334155', family: 'Segoe UI, sans-serif' },
-    margin: { l: 78, r: 136, t: 36, b: 58 },
+    plot_bgcolor: '#0f172a',
+    font: { color: '#e5e7eb', family: 'Segoe UI, sans-serif' },
+    margin: { l: 190, r: 170, t: 24, b: 42 },
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
     selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined,
     hovermode: 'x unified',
@@ -576,129 +865,215 @@ function renderChart() {
       yanchor: 'bottom',
       y: 1.02,
       xanchor: 'left',
-      x: 0
+      x: 0,
+      bgcolor: 'rgba(15,23,42,0.82)',
+      bordercolor: 'rgba(55,65,81,0.85)',
+      borderwidth: 1,
+      font: {
+        color: '#e5e7eb',
+        size: 11
+      }
+    },
+    hoverlabel: {
+      bgcolor: '#111827',
+      bordercolor: '#374151',
+      font: {
+        color: '#e5e7eb',
+        size: 11
+      }
     },
     xaxis: {
-      title: 'Date',
+      title: 'Дата',
       type: 'date',
       range: props.visibleDateRange
         ? [props.visibleDateRange.startDate, props.visibleDateRange.endDate]
         : undefined,
       tickformat: '%Y-%m-%d',
       showgrid: true,
-      gridcolor: 'rgba(148,163,184,0.18)',
-      linecolor: 'rgba(148,163,184,0.45)',
+      titlefont: { color: '#cbd5e1', size: 11 },
+      tickfont: { color: '#cbd5e1', size: 10 },
+      gridcolor: 'rgba(71,85,105,0.28)',
+      linecolor: 'rgba(100,116,139,0.6)',
       zeroline: false,
       rangeslider: { visible: false }
     },
     yaxis: {
-      title: 'Qliq / Qoil',
-      domain: [0.38, 1],
-      range: buildStableRange([
-        ...getSeriesValues('qliq'),
-        ...getSeriesValues('qoil'),
-        ...getSeriesValues('qliq_vfm')
-      ]),
+      title: 'Дебит жидкости / дебит нефти',
+      domain: trackLayout.mainDomain,
+      range: mainAxisConfig.range,
       autorange: false,
       fixedrange: true,
-      titlefont: { color: '#334155', size: 11 },
-      tickfont: { color: '#475569', size: 10 },
-      tickformat: '.0f',
-      nticks: 6,
-      gridcolor: 'rgba(148,163,184,0.18)',
+      titlefont: { color: '#e5e7eb', size: 11 },
+      tickfont: { color: '#e5e7eb', size: 10 },
+      tickmode: 'linear',
+      tick0: mainAxisConfig.tick0,
+      dtick: mainAxisConfig.dtick,
+      gridcolor: 'rgba(71,85,105,0.28)',
+      linecolor: 'rgba(100,116,139,0.6)',
       zeroline: false
     },
     yaxis2: {
-      title: 'Water cut',
+      title: 'Обводненность',
       overlaying: 'y',
       side: 'right',
-      position: 0.91,
-      range: buildStableRange(getSeriesValues('water_cut')),
+      position: 0.885,
+      range: waterAxisConfig.range,
       autorange: false,
       fixedrange: true,
-      titlefont: { color: '#475569', size: 11 },
-      tickfont: { color: '#64748b', size: 10 },
-      tickformat: '.0f',
-      nticks: 5,
+      titlefont: { color: '#7dd3fc', size: 11 },
+      tickfont: { color: '#7dd3fc', size: 10 },
+      tickmode: 'linear',
+      tick0: waterAxisConfig.tick0,
+      dtick: waterAxisConfig.dtick,
       showgrid: false
     },
     yaxis3: {
-      title: 'Intake pressure',
+      title: 'Давление на приеме',
       overlaying: 'y',
       side: 'right',
-      position: 0.95,
-      range: buildStableRange(getSeriesValues('intake_pressure')),
+      position: 0.92,
+      range: pressureAxisConfig.range,
       autorange: false,
       fixedrange: true,
-      titlefont: { color: '#475569', size: 11 },
-      tickfont: { color: '#64748b', size: 10 },
-      tickformat: '.0f',
-      nticks: 5,
+      titlefont: { color: '#f87171', size: 11 },
+      tickfont: { color: '#f87171', size: 10 },
+      tickmode: 'linear',
+      tick0: pressureAxisConfig.tick0,
+      dtick: pressureAxisConfig.dtick,
       showgrid: false
     },
     yaxis4: {
-      title: 'ESP frequency',
+      title: 'Частота ЭЦН',
       overlaying: 'y',
       side: 'right',
-      position: 0.985,
-      range: buildStableRange(getSeriesValues('esp_frequency')),
+      position: 0.955,
+      range: frequencyAxisConfig.range,
       autorange: false,
       fixedrange: true,
-      titlefont: { color: '#475569', size: 11 },
-      tickfont: { color: '#64748b', size: 10 },
-      tickformat: '.1f',
-      nticks: 4,
+      titlefont: { color: '#2563eb', size: 11 },
+      tickfont: { color: '#2563eb', size: 10 },
+      tickmode: 'linear',
+      tick0: frequencyAxisConfig.tick0,
+      dtick: frequencyAxisConfig.dtick,
       showgrid: false
     },
     yaxis5: {
-      title: 'Load',
+      title: 'Загрузка',
       overlaying: 'y',
       side: 'left',
       anchor: 'free',
       position: 0,
-      range: buildStableRange(getSeriesValues('load')),
+      range: loadAxisConfig.range,
       autorange: false,
       fixedrange: true,
-      titlefont: { color: '#475569', size: 11 },
-      tickfont: { color: '#64748b', size: 10 },
-      tickformat: '.0f',
-      nticks: 5,
+      titlefont: { color: '#16a34a', size: 11 },
+      tickfont: { color: '#16a34a', size: 10 },
+      tickmode: 'linear',
+      tick0: loadAxisConfig.tick0,
+      dtick: loadAxisConfig.dtick,
       showgrid: false
     },
     yaxis6: {
-      domain: [0.305, 0.36],
-      range: [0, 1],
+      domain: espRow.domain,
+      range: espRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
       zeroline: false
     },
     yaxis7: {
-      domain: [0.225, 0.275],
-      range: [0, 1],
+      domain: dailyRow.domain,
+      range: dailyRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
       zeroline: false
     },
-    yaxis8: {
-      domain: [0.12, 0.195],
-      range: getSavedAnnotationTrackRange('event'),
+    yaxis10: {
+      domain: modelEventRow.domain,
+      range: modelEventRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
       zeroline: false
     },
-    yaxis9: {
-      domain: [0.03, 0.095],
-      range: getSavedAnnotationTrackRange('rootCause'),
+    yaxis11: {
+      domain: modelRootCauseRow.domain,
+      range: modelRootCauseRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
       zeroline: false
     },
-    shapes: getSelectionShapes(),
+    shapes: layoutShapes,
     annotations: buildAnnotations()
+  }
+
+  if (hasGasProductionSeries) {
+    Object.assign(layout, {
+      yaxis12: {
+        title: 'Добыча газа',
+        overlaying: 'y',
+        side: 'left',
+        anchor: 'free',
+        position: 0.065,
+        range: gasAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#fdba74', size: 11 },
+        tickfont: { color: '#fdba74', size: 10 },
+        tickmode: 'linear',
+        tick0: gasAxisConfig.tick0,
+        dtick: gasAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
+  if (hasGasFactorSeries) {
+    Object.assign(layout, {
+      yaxis13: {
+        title: 'Газовые факторы',
+        overlaying: 'y',
+        side: 'right',
+        position: 0.985,
+        range: factorAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#c084fc', size: 11 },
+        tickfont: { color: '#c084fc', size: 10 },
+        tickmode: 'linear',
+        tick0: factorAxisConfig.tick0,
+        dtick: factorAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
+  if (eventRow) {
+    Object.assign(layout, {
+      yaxis8: {
+        domain: eventRow.domain,
+        range: eventRow.range,
+        fixedrange: true,
+        showgrid: false,
+        showticklabels: false,
+        zeroline: false
+      }
+    })
+  }
+
+  if (rootCauseRow) {
+    Object.assign(layout, {
+      yaxis9: {
+        domain: rootCauseRow.domain,
+        range: rootCauseRow.range,
+        fixedrange: true,
+        showgrid: false,
+        showticklabels: false,
+        zeroline: false
+      }
+    })
   }
 
   const config = {
@@ -747,8 +1122,16 @@ function attachEventHandlers() {
     const points = (eventData.points as Array<{ customdata?: unknown }> | undefined) ?? []
     const customdata = points[0]?.customdata as SavedAnnotationCustomdata | undefined
 
-    if (customdata?.annotationId) {
-      emit('annotation-clicked', { annotationId: customdata.annotationId })
+    if (customdata?.layer) {
+      emit('annotation-clicked', {
+        annotationId: customdata.annotationId,
+        source: customdata.source,
+        layer: customdata.layer,
+        label: customdata.categoryLabel,
+        startDate: customdata.startDate,
+        endDate: customdata.endDate,
+        durationDays: customdata.durationDays
+      })
     }
   })
 
