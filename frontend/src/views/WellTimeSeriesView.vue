@@ -566,7 +566,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { fetchWellIds, fetchWellTimeseries } from '@/services/api'
-import { generateMockEventTracks } from '@/services/mockEventTracksV2'
+import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
+import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
+import { generateMockTimeseries } from '@/services/mockTimeseries'
 import type {
   AnnotationKind,
   ConfidenceLevel,
@@ -1015,8 +1017,12 @@ const groupMigrationTarget = ref<WellGroupId | typeof CREATE_NEW_GROUP_OPTION | 
 const newGroupName = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const useMockTelemetry = import.meta.env.VITE_USE_MOCK_TELEMETRY === 'true'
+const useMockEvents = import.meta.env.VITE_USE_MOCK_EVENTS === 'true'
 
-const eventTracks = computed(() => generateMockEventTracks(chartData.value))
+const eventTracks = computed(() =>
+  useMockEvents ? generateOldMockEventTracks(chartData.value) : generateMockEventTracksV2(chartData.value)
+)
 const groupMigrationOptions = computed(() => [
   ...wellGroupOptions.value,
   { label: 'Создать новую группу...', value: CREATE_NEW_GROUP_OPTION }
@@ -1580,19 +1586,24 @@ async function loadData() {
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
   episodeForm.value = createDefaultEpisodeForm()
+  const [start, end] = dateRange.value ?? []
+  const params = {
+    date_from: toIsoDate(start),
+    date_to: toIsoDate(end)
+  }
 
   try {
-    const [start, end] = dateRange.value ?? []
-    const data = await fetchWellTimeseries(selectedWell.value, {
-      date_from: toIsoDate(start),
-      date_to: toIsoDate(end)
-    })
+    const data = useMockTelemetry
+      ? generateMockTimeseries(selectedWell.value, params)
+      : await fetchWellTimeseries(selectedWell.value, params)
 
     chartData.value = data
     visibleDateRange.value = getFullDateRange(data)
   } catch {
-    chartData.value = []
-    visibleDateRange.value = null
+    const fallbackData = generateMockTimeseries(selectedWell.value, params)
+
+    chartData.value = fallbackData
+    visibleDateRange.value = getFullDateRange(fallbackData)
     errorMessage.value = 'Не удалось загрузить временные ряды. Убедитесь, что backend запущен на http://localhost:8000.'
     message.error(errorMessage.value)
   } finally {
