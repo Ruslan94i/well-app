@@ -1,52 +1,59 @@
-Well Dynamics (well-app)
-🚀 Quick start
-1. Clone repo
+# Well App
 
-git clone https://github.com/Ruslan94i/well-dynamics-internal.git
-cd well-app
+Прототип интерфейса для анализа временных рядов, событий и мок-данных по скважинам.
 
-🖥 Backend
+## Быстрый запуск
 
-cd backend
+Открой Git Bash в корне проекта и выполни:
 
-python -m venv .venv
+```bash
+./run-dev.sh
+```
 
-Windows:
+Если не запускается:
 
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe -m uvicorn app.main --reload
+```bash
+bash run-dev.sh
+```
 
-Backend:
-http://127.0.0.1:8000
+## Что поднимется
 
-🌐 Frontend
+* Backend: `http://127.0.0.1:8000`
+* Frontend: обычно `http://localhost:5173`
+  если порт занят, Vite выберет следующий: `5174`, `5175` и т.д.
 
-cd frontend
+## Настройки frontend
 
-npm install
-npm run dev
+Создай файл `frontend/.env`:
 
-Frontend:
-http://localhost:5173 (or next port)
-
-⚙️ Environment
-
-Create:
-
-frontend/.env
-
+```env
 VITE_API_BASE_URL=http://127.0.0.1:8000
 VITE_USE_MOCK_TELEMETRY=true
 VITE_USE_MOCK_EVENTS=true
+```
 
-📊 Notes
-Mock telemetry is enabled by default
-Event tracks are generated on frontend
-Backend is optional for demo
-🎯 Purpose
+## Ручной запуск
 
-Prototype for:
+### Backend
 
-well production monitoring
-event tracking (ESP, OPZ, causes)
-time series visualization
+```bash
+cd backend
+py -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m uvicorn app.main:app --reload
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Что уже настроено
+
+* включён mock-режим telemetry
+* есть fallback на mock data при ошибке API
+* восстановлены mock time series
+* восстановлены mock event tracks
