@@ -1,110 +1,52 @@
-# Анализ скважинной динамики
+Well Dynamics (well-app)
+🚀 Quick start
+1. Clone repo
 
-Минимальное full-stack приложение для визуализации временных рядов по скважине.
+git clone https://github.com/Ruslan94i/well-dynamics-internal.git
+cd well-app
 
-Стек:
-- Backend: FastAPI, SQLAlchemy, Polars, NumPy
-- Frontend: Vue 3, Vite, Tailwind CSS, Naive UI, Plotly
+🖥 Backend
 
-## Структура проекта
-
-```text
-well-app/
-  backend/
-    app/
-      api/
-        routes/
-      core/
-      db/
-        models/
-      schemas/
-      services/
-      main.py
-    requirements.txt
-  frontend/
-    src/
-      components/
-      services/
-      types/
-      views/
-    package.json
-    vite.config.ts
-  README.md
-```
-
-## Backend
-
-### 1. Создать виртуальное окружение
-
-```powershell
 cd backend
+
 python -m venv .venv
-.venv\Scripts\activate
-```
 
-### 2. Установить зависимости
+Windows:
 
-```powershell
-pip install -r requirements.txt
-```
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m uvicorn app.main --reload
 
-### 3. Запустить сервер
+Backend:
+http://127.0.0.1:8000
 
-```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+🌐 Frontend
 
-Backend будет доступен по адресу: `http://localhost:8000`
-
-Swagger UI: `http://localhost:8000/docs`
-
-## Frontend
-
-### 1. Установить зависимости
-
-```powershell
 cd frontend
-copy .env.example .env
+
 npm install
-```
-
-### 2. Запустить dev server
-
-```powershell
 npm run dev
-```
 
-Frontend будет доступен по адресу: `http://localhost:5173`
+Frontend:
+http://localhost:5173 (or next port)
 
-## Основной endpoint
+⚙️ Environment
 
-`GET /api/wells/{well_id}/timeseries`
+Create:
 
-Query params:
-- `date_from`
-- `date_to`
+frontend/.env
 
-Пример:
+VITE_API_BASE_URL=http://127.0.0.1:8000
+VITE_USE_MOCK_TELEMETRY=true
+VITE_USE_MOCK_EVENTS=true
 
-```text
-http://localhost:8000/api/wells/WELL-101/timeseries?date_from=2025-10-01&date_to=2026-03-31
-```
+📊 Notes
+Mock telemetry is enabled by default
+Event tracks are generated on frontend
+Backend is optional for demo
+🎯 Purpose
 
-## Что уже реализовано
+Prototype for:
 
-- mock data на 180 дней
-- фильтрация по диапазону дат
-- Polars-преобразование перед возвратом JSON
-- структура под SQLAlchemy model для daily telemetry
-- экран выбора скважины
-- выбор диапазона дат
-- переключение рядов
-- Plotly-график с несколькими осями Y
-
-## Что пока не входит
-
-- реальная БД
-- загрузка файлов
-- ML
-- разметка эпизодов
-- авторизация
+well production monitoring
+event tracking (ESP, OPZ, causes)
+time series visualization
