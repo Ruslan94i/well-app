@@ -16,6 +16,32 @@
 bash run-dev.sh
 ```
 
+## Запуск через Docker Compose
+
+1. Создай корневой `.env` из шаблона:
+
+```bash
+cp .env.example .env
+```
+
+2. При необходимости измени порты в `.env`:
+
+```env
+BACKEND_PORT=8000
+FRONTEND_PORT=5173
+```
+
+3. Запусти сервисы:
+
+```bash
+docker compose up --build
+```
+
+После запуска будут доступны:
+
+* Backend: `http://localhost:<BACKEND_PORT из .env>`
+* Frontend: `http://localhost:<FRONTEND_PORT из .env>`
+
 ## Что поднимется
 
 * Backend: `http://127.0.0.1:8000`

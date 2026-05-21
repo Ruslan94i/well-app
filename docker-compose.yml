@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-5173}"]'
+    ports:
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${BACKEND_PORT:-8000}/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT:-5173}
+      VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+      VITE_USE_MOCK_TELEMETRY: ${VITE_USE_MOCK_TELEMETRY:-true}
+      VITE_USE_MOCK_EVENTS: ${VITE_USE_MOCK_EVENTS:-true}
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+    depends_on:
+      backend:
+        condition: service_healthy
