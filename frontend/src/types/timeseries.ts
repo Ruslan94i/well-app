@@ -94,25 +94,13 @@ export interface HierarchicalEventTracks {
   modelRootCauseIntervals: EventInterval[]
 }
 
-export type EpisodeType =
-  | 'decline'
-  | 'instability'
-  | 'water_cut_growth'
-  | 'downtime'
-  | 'recovery'
-  | 'regime_change'
-  | 'post_intervention'
-  | 'unknown'
+export interface AnnotationClassOption {
+  label: string
+  value: string
+}
 
-export type RootCause =
-  | 'esp_degradation'
-  | 'water_breakthrough'
-  | 'unstable_operation'
-  | 'downtime_vsp'
-  | 'opz_effect'
-  | 'esp_replacement'
-  | 'telemetry_issue'
-  | 'unknown'
+export type EpisodeType = string
+export type RootCause = string
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 export type WellGroupId = string

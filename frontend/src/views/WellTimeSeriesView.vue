@@ -261,7 +261,7 @@
               v-else
               class="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-4 text-sm text-slate-400"
             >
-              Нажмите на интервал на дорожке `Эпизоды (модель)` или `Режимы (модель)`, чтобы открыть аналитическое сравнение.
+              Нажмите на сохранённый эпизод или режим на timeline, чтобы открыть аналитическое сравнение.
             </div>
           </template>
 
@@ -332,9 +332,25 @@
 
           <div v-if="selectedInterval" class="mt-3 space-y-4 rounded-xl border border-slate-700 bg-slate-800/90 p-4">
 
-            <div>
-              <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Тип эпизода</label>
-              <n-select v-model:value="episodeForm.episodeType" size="medium" :options="episodeTypeOptions" class="w-full" />
+            <div class="space-y-2">
+              <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Класс эпизода</label>
+              <n-select
+                v-model:value="episodeForm.episodeType"
+                size="medium"
+                :options="episodeTypeOptions"
+                clearable
+                filterable
+                placeholder="Выберите класс эпизода"
+                class="w-full"
+              />
+              <div class="flex gap-2">
+                <n-input
+                  v-model:value="newEpisodeClassName"
+                  size="medium"
+                  placeholder="Новый класс эпизода"
+                />
+                <n-button secondary size="medium" @click="addEpisodeClass">Добавить</n-button>
+              </div>
             </div>
 
             <div>
@@ -349,12 +365,28 @@
                   />
                 </div>
               </n-radio-group>
-              <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить событие</n-button>
+              <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить эпизод</n-button>
             </div>
 
-            <div>
-              <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Режим</label>
-              <n-select v-model:value="episodeForm.rootCause" size="medium" :options="rootCauseOptions" class="w-full" />
+            <div class="space-y-2">
+              <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Класс режима</label>
+              <n-select
+                v-model:value="episodeForm.rootCause"
+                size="medium"
+                :options="rootCauseOptions"
+                clearable
+                filterable
+                placeholder="Выберите класс режима"
+                class="w-full"
+              />
+              <div class="flex gap-2">
+                <n-input
+                  v-model:value="newModeClassName"
+                  size="medium"
+                  placeholder="Новый класс режима"
+                />
+                <n-button secondary size="medium" @click="addModeClass">Добавить</n-button>
+              </div>
             </div>
 
             <div>
@@ -369,7 +401,7 @@
                   />
                 </div>
               </n-radio-group>
-              <n-button class="mt-2" type="primary" secondary size="medium" @click="saveRootCause">Сохранить причину</n-button>
+              <n-button class="mt-2" type="primary" secondary size="medium" @click="saveRootCause">Сохранить режим</n-button>
             </div>
 
             <div>
@@ -565,11 +597,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
+import { buildEspInstallationPeriods } from '@/data/espInstallations'
 import { fetchWellIds, fetchWellTimeseries } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
 import type {
+  AnnotationClassOption,
   AnnotationKind,
   ConfidenceLevel,
   EpisodeFormState,
@@ -591,6 +625,13 @@ const message = useMessage()
 const chartRef = ref<InstanceType<typeof TimeSeriesChart> | null>(null)
 let groupSaveFeedbackTimeout: ReturnType<typeof setTimeout> | null = null
 const CREATE_NEW_GROUP_OPTION = '__create_new_group__'
+const DEFAULT_FIELD_CODE = 'Ic'
+const DEFAULT_WELL_ID = 'Ic_805'
+const MARKUP_STORAGE_KEYS = {
+  annotations: 'wellInsight.markup.annotations.v1',
+  episodeClasses: 'wellInsight.markup.episodeClasses.v1',
+  modeClasses: 'wellInsight.markup.modeClasses.v1'
+}
 
 const defaultWellOptions: { label: string; value: string }[] = []
 const wellOptions = ref(defaultWellOptions)
@@ -624,32 +665,10 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' }
 ]
 
-const episodeTypeOptions: { label: string; value: EpisodeType }[] = [
-  { label: 'снижение', value: 'decline' },
-  { label: 'нестабильность', value: 'instability' },
-  { label: 'рост обводненности', value: 'water_cut_growth' },
-  { label: 'останов', value: 'downtime' },
-  { label: 'восстановление', value: 'recovery' },
-  { label: 'смена режима', value: 'regime_change' },
-  { label: 'после вмешательства', value: 'post_intervention' },
-  { label: 'неизвестно', value: 'unknown' }
-]
-
-const rootCauseOptions: { label: string; value: RootCause }[] = [
-  { label: 'деградация ЭЦН', value: 'esp_degradation' },
-  { label: 'прорыв воды', value: 'water_breakthrough' },
-  { label: 'нестабильная работа', value: 'unstable_operation' },
-  { label: 'останов ВСП', value: 'downtime_vsp' },
-  { label: 'эффект ОПЗ', value: 'opz_effect' },
-  { label: 'замена ЭЦН', value: 'esp_replacement' },
-  { label: 'ошибка телеметрии', value: 'telemetry_issue' },
-  { label: 'неизвестно', value: 'unknown' }
-]
-
 function createDefaultEpisodeForm(): EpisodeFormState {
   return {
-    episodeType: 'unknown',
-    rootCause: 'unknown',
+    episodeType: '',
+    rootCause: '',
     confidenceEvent: 'medium',
     confidenceCause: 'medium',
     comment: ''
@@ -868,11 +887,11 @@ function createDefaultModelSettings(): ModelGroupSettings {
 }
 
 function getEpisodeTypeLabel(value: EpisodeType): string {
-  return episodeTypeOptions.find((option) => option.value === value)?.label ?? value
+  return episodeTypeOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
 function getRootCauseLabel(value: RootCause): string {
-  return rootCauseOptions.find((option) => option.value === value)?.label ?? value
+  return rootCauseOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
 function getWellGroupLabel(value: WellGroupId | null | undefined): string {
@@ -951,8 +970,8 @@ function simulateModelQuality(groupId: WellGroupId, settings: ModelGroupSettings
   return Math.max(0.5, Math.min(0.94, Number(rawScore.toFixed(2))))
 }
 
-const selectedWell = ref(defaultWellOptions[0]?.value ?? '')
-const navigationGroupId = ref<WellGroupId | null>(baseWellGroupOptions[0]?.value ?? null)
+const selectedWell = ref(DEFAULT_WELL_ID)
+const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(DEFAULT_FIELD_CODE))
 const dateRange = ref<[number, number] | null>(null)
 const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_pressure', 'esp_frequency', 'active_power']
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
@@ -962,7 +981,7 @@ const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null
 const visibleDateRange = ref<VisibleDateRange | null>(null)
 const interactionMode = ref<InteractionMode>('navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
-const modelSelectedGroupId = ref<WellGroupId>(baseWellGroupOptions[0]?.value ?? 'field-au')
+const modelSelectedGroupId = ref<WellGroupId>(getFieldGroupId(DEFAULT_FIELD_CODE))
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -984,19 +1003,31 @@ const modelQualityByGroup = ref<Record<string, number>>({})
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
+const episodeTypeOptions = ref<AnnotationClassOption[]>([])
+const rootCauseOptions = ref<AnnotationClassOption[]>([])
 const editingAnnotationId = ref<string | null>(null)
 const editingAnnotationKind = ref<AnnotationKind | null>(null)
 const groupSaveFeedback = ref<'idle' | 'saved'>('idle')
 const groupMigrationTarget = ref<WellGroupId | typeof CREATE_NEW_GROUP_OPTION | null>(null)
 const newGroupName = ref('')
+const newEpisodeClassName = ref('')
+const newModeClassName = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const useMockTelemetry = import.meta.env.VITE_USE_MOCK_TELEMETRY === 'true'
 const useMockEvents = import.meta.env.VITE_USE_MOCK_EVENTS === 'true'
 
-const eventTracks = computed(() =>
-  useMockEvents ? generateOldMockEventTracks(chartData.value) : generateMockEventTracksV2(chartData.value)
-)
+const eventTracks = computed(() => {
+  const tracks = useMockEvents ? generateOldMockEventTracks(chartData.value) : generateMockEventTracksV2(chartData.value)
+
+  return {
+    ...tracks,
+    installedEspPeriods: buildEspInstallationPeriods(selectedWell.value, chartData.value),
+    dailyCauses: [],
+    modelEventIntervals: [],
+    modelRootCauseIntervals: []
+  }
+})
 const groupMigrationOptions = computed(() => [
   ...wellGroupOptions.value,
   { label: 'Создать новую группу...', value: CREATE_NEW_GROUP_OPTION }
@@ -1049,11 +1080,11 @@ const currentTabTitle = computed(() => {
 })
 const currentTabDescription = computed(() => {
   if (interactionMode.value === 'navigate') {
-    return 'Анализ работы скважины во времени: сверху — телеметрия, снизу — интерпретация (суточные причины, эпизоды и режимы)'
+    return 'Анализ работы скважины во времени: сверху — телеметрия, снизу — сохранённые эпизоды и режимы'
   }
 
   if (interactionMode.value === 'annotate') {
-    return 'Разметка интервалов: выделяйте эпизоды и режимы, чтобы описать поведение скважины и обучить модель'
+    return 'Разметка интервалов: выделяйте начало и конец, затем сохраняйте пользовательский эпизод или режим'
   }
 
   return 'Подбор параметров модели: настройте влияние факторов и оцените качество (R²) для выбранной группы скважин'
@@ -1144,8 +1175,8 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
     durationDays: episode.durationDays
   }
   episodeForm.value = {
-    episodeType: episode.annotationKind === 'event' ? episode.eventType : 'unknown',
-    rootCause: episode.annotationKind === 'rootCause' ? episode.rootCause : 'unknown',
+    episodeType: episode.annotationKind === 'event' ? episode.eventType : '',
+    rootCause: episode.annotationKind === 'rootCause' ? episode.rootCause : '',
     confidenceEvent: episode.annotationKind === 'event' ? episode.confidenceEvent : 'medium',
     confidenceCause: episode.annotationKind === 'rootCause' ? episode.confidenceCause : 'medium',
     comment: episode.comment
@@ -1188,6 +1219,111 @@ function buildInterval(startDate: string, endDate: string): SelectedInterval {
     endDate: normalizedEnd,
     durationDays: Math.max(1, Math.floor((toTimestamp(normalizedEnd) - toTimestamp(normalizedStart)) / 86400000) + 1)
   }
+}
+
+function readStoredValue<T>(key: string, fallbackValue: T): T {
+  try {
+    const rawValue = localStorage.getItem(key)
+    return rawValue ? (JSON.parse(rawValue) as T) : fallbackValue
+  } catch {
+    return fallbackValue
+  }
+}
+
+function writeStoredValue<T>(key: string, value: T): void {
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+function normalizeClassOptions(options: unknown): AnnotationClassOption[] {
+  if (!Array.isArray(options)) {
+    return []
+  }
+
+  const seenValues = new Set<string>()
+
+  return options
+    .map((option) => ({
+      label: String((option as AnnotationClassOption).label ?? '').trim(),
+      value: String((option as AnnotationClassOption).value ?? (option as AnnotationClassOption).label ?? '').trim()
+    }))
+    .filter((option) => {
+      const normalizedValue = option.value.toLocaleLowerCase('ru')
+
+      if (!option.label || !option.value || seenValues.has(normalizedValue)) {
+        return false
+      }
+
+      seenValues.add(normalizedValue)
+      return true
+    })
+}
+
+function restorePersistentMarkup(): void {
+  savedAnnotations.value = readStoredValue<SavedAnnotation[]>(MARKUP_STORAGE_KEYS.annotations, [])
+  episodeTypeOptions.value = normalizeClassOptions(
+    readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.episodeClasses, [])
+  )
+  rootCauseOptions.value = normalizeClassOptions(
+    readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.modeClasses, [])
+  )
+}
+
+function addAnnotationClass(kind: AnnotationKind): string | null {
+  const className = (kind === 'event' ? newEpisodeClassName.value : newModeClassName.value).trim()
+
+  if (!className) {
+    message.error(kind === 'event' ? 'Введите название класса эпизода.' : 'Введите название класса режима.')
+    return null
+  }
+
+  const options = kind === 'event' ? episodeTypeOptions : rootCauseOptions
+  const existingOption = options.value.find(
+    (option) => option.value.toLocaleLowerCase('ru') === className.toLocaleLowerCase('ru')
+  )
+
+  if (existingOption) {
+    if (kind === 'event') {
+      episodeForm.value.episodeType = existingOption.value
+      newEpisodeClassName.value = ''
+    } else {
+      episodeForm.value.rootCause = existingOption.value
+      newModeClassName.value = ''
+    }
+
+    return existingOption.value
+  }
+
+  const option = { label: className, value: className }
+  options.value = [...options.value, option].sort((left, right) => left.label.localeCompare(right.label, 'ru'))
+
+  if (kind === 'event') {
+    episodeForm.value.episodeType = option.value
+    newEpisodeClassName.value = ''
+  } else {
+    episodeForm.value.rootCause = option.value
+    newModeClassName.value = ''
+  }
+
+  message.success(kind === 'event' ? 'Класс эпизода добавлен.' : 'Класс режима добавлен.')
+  return option.value
+}
+
+function addEpisodeClass(): void {
+  addAnnotationClass('event')
+}
+
+function addModeClass(): void {
+  addAnnotationClass('rootCause')
+}
+
+function resolveDraftClass(kind: AnnotationKind): string | null {
+  const selectedValue = kind === 'event' ? episodeForm.value.episodeType : episodeForm.value.rootCause
+
+  if (selectedValue) {
+    return selectedValue
+  }
+
+  return addAnnotationClass(kind)
 }
 
 function getAverageMetric(points: TimeSeriesPoint[], key: keyof AnalysisWindowMetrics): number | null {
@@ -1809,8 +1945,9 @@ function saveEvent() {
     return
   }
 
-  if (!episodeForm.value.episodeType) {
-    message.error('Выберите тип эпизода.')
+  const eventType = resolveDraftClass('event')
+
+  if (!eventType) {
     return
   }
 
@@ -1827,7 +1964,7 @@ function saveEvent() {
         ...selectedInterval.value,
         wellId: selectedWell.value,
         wellGroupId: currentWellGroupId.value,
-        eventType: episodeForm.value.episodeType,
+        eventType,
         confidenceEvent: episodeForm.value.confidenceEvent,
         comment: episodeForm.value.comment
       }
@@ -1843,7 +1980,7 @@ function saveEvent() {
     wellGroupId: currentWellGroupId.value,
     ...selectedInterval.value,
     annotationKind: 'event',
-    eventType: episodeForm.value.episodeType,
+    eventType,
     confidenceEvent: episodeForm.value.confidenceEvent,
     comment: episodeForm.value.comment
   }
@@ -1860,8 +1997,9 @@ function saveRootCause() {
     return
   }
 
-  if (!episodeForm.value.rootCause) {
-    message.error('Выберите причину.')
+  const rootCause = resolveDraftClass('rootCause')
+
+  if (!rootCause) {
     return
   }
 
@@ -1878,7 +2016,7 @@ function saveRootCause() {
         ...selectedInterval.value,
         wellId: selectedWell.value,
         wellGroupId: currentWellGroupId.value,
-        rootCause: episodeForm.value.rootCause,
+        rootCause,
         confidenceCause: episodeForm.value.confidenceCause,
         comment: episodeForm.value.comment
       }
@@ -1894,7 +2032,7 @@ function saveRootCause() {
     wellGroupId: currentWellGroupId.value,
     ...selectedInterval.value,
     annotationKind: 'rootCause',
-    rootCause: episodeForm.value.rootCause,
+    rootCause,
     confidenceCause: episodeForm.value.confidenceCause,
     comment: episodeForm.value.comment
   }
@@ -1922,6 +2060,30 @@ function deleteAnnotation() {
   episodeForm.value = createDefaultEpisodeForm()
   message.success('Аннотация удалена.')
 }
+
+watch(
+  savedAnnotations,
+  (annotations) => {
+    writeStoredValue(MARKUP_STORAGE_KEYS.annotations, annotations)
+  },
+  { deep: true }
+)
+
+watch(
+  episodeTypeOptions,
+  (options) => {
+    writeStoredValue(MARKUP_STORAGE_KEYS.episodeClasses, options)
+  },
+  { deep: true }
+)
+
+watch(
+  rootCauseOptions,
+  (options) => {
+    writeStoredValue(MARKUP_STORAGE_KEYS.modeClasses, options)
+  },
+  { deep: true }
+)
 
 watch(
   selectedWell,
@@ -1962,6 +2124,8 @@ watch(navigationGroupId, (groupId) => {
 })
 
 onMounted(async () => {
+  restorePersistentMarkup()
+
   wellGroupOptions.value.forEach((group) => {
     const settings = ensureModelSettings(group.value)
     modelQualityByGroup.value[group.value] = simulateModelQuality(group.value, settings)

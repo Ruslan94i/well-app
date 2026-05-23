@@ -1,9 +1,29 @@
 ﻿<template>
-  <div ref="chartEl" class="h-[920px] w-full"></div>
+  <div class="relative h-[920px] w-full">
+    <div ref="chartEl" class="h-full w-full" @wheel.prevent="handleChartWheel"></div>
+    <button
+      type="button"
+      class="absolute left-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-lg leading-none text-slate-100 shadow-lg transition hover:border-sky-400 hover:text-sky-200 disabled:pointer-events-none disabled:opacity-30"
+      :disabled="!canPanLeft"
+      title="Прокрутить график влево"
+      @click="panVisibleRange(-1)"
+    >
+      ‹
+    </button>
+    <button
+      type="button"
+      class="absolute right-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-lg leading-none text-slate-100 shadow-lg transition hover:border-sky-400 hover:text-sky-200 disabled:pointer-events-none disabled:opacity-30"
+      :disabled="!canPanRight"
+      title="Прокрутить график вправо"
+      @click="panVisibleRange(1)"
+    >
+      ›
+    </button>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Plotly from 'plotly.js-dist-min'
 import type {
   HierarchicalEventTracks,
@@ -39,7 +59,14 @@ type PlotlyElement = HTMLDivElement & {
 }
 
 interface PlotlySelectedPoint {
-  x?: string | number
+  x?: string | number | Date
+}
+
+interface PlotlySelectedEvent {
+  points?: PlotlySelectedPoint[]
+  range?: {
+    x?: [string | number | Date, string | number | Date]
+  }
 }
 
 interface SavedAnnotationCustomdata {
@@ -65,7 +92,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y6' | 'y7' | 'y8' | 'y9' | 'y10' | 'y11'
+  axis: 'y6' | 'y8' | 'y9'
   label: string
   labelColor: string
   domain: [number, number]
@@ -76,6 +103,12 @@ const TRACK_LABEL_COLUMN_X = -0.16
 const MAIN_CHART_DOMAIN_START = 0.278
 const TRACK_PANEL_TOP = 0.248
 const TRACK_MAIN_GAP = 0.03
+const CHART_MARGIN_LEFT = 205
+const CHART_MARGIN_RIGHT = 195
+const MS_PER_DAY = 86400000
+const MIN_VISIBLE_RANGE_MS = MS_PER_DAY * 2
+const X_AXIS_ZOOM_FACTOR = 0.82
+const X_AXIS_PAN_RATIO = 0.35
 
 interface PlotlyRelayoutEvent {
   'xaxis.range[0]'?: string
@@ -130,64 +163,25 @@ const seriesConfig: Record<
   qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' }
 }
 
-function getAnnotationColor(label: string): string {
-  const colorMap: Record<string, string> = {
-    decline: '#c2410c',
-    instability: '#7c3aed',
-    water_cut_growth: '#2563eb',
-    downtime: '#475569',
-    recovery: '#2f855a',
-    regime_change: '#0f766e',
-    post_intervention: '#be185d',
-    unknown: '#64748b'
-  }
+function getPaletteColor(label: string, palette: string[]): string {
+  const hash = label.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return palette[hash % palette.length] ?? palette[0] ?? '#64748b'
+}
 
-  return colorMap[label] ?? '#64748b'
+function getAnnotationColor(label: string): string {
+  return getPaletteColor(label || 'episode', ['#38bdf8', '#f97316', '#22c55e', '#eab308', '#ec4899', '#a855f7', '#14b8a6'])
 }
 
 function getRootCauseColor(label: string): string {
-  const colorMap: Record<string, string> = {
-    esp_degradation: '#b45309',
-    water_breakthrough: '#1d4ed8',
-    unstable_operation: '#6d28d9',
-    downtime_vsp: '#334155',
-    opz_effect: '#0f766e',
-    esp_replacement: '#0891b2',
-    telemetry_issue: '#be123c',
-    unknown: '#64748b'
-  }
-
-  return colorMap[label] ?? '#64748b'
+  return getPaletteColor(label || 'mode', ['#94a3b8', '#60a5fa', '#f59e0b', '#10b981', '#c084fc', '#f472b6', '#2dd4bf'])
 }
 
 function getEventTypeLabel(label: string): string {
-  const labelMap: Record<string, string> = {
-    decline: 'снижение',
-    instability: 'нестабильность',
-    water_cut_growth: 'рост обводненности',
-    downtime: 'останов',
-    recovery: 'восстановление',
-    regime_change: 'смена режима',
-    post_intervention: 'после вмешательства',
-    unknown: 'неизвестно'
-  }
-
-  return labelMap[label] ?? label
+  return label || 'Без класса'
 }
 
 function getRootCauseLabel(label: string): string {
-  const labelMap: Record<string, string> = {
-    esp_degradation: 'деградация ЭЦН',
-    water_breakthrough: 'прорыв воды',
-    unstable_operation: 'нестабильная работа',
-    downtime_vsp: 'останов ВСП',
-    opz_effect: 'эффект ОПЗ',
-    esp_replacement: 'замена ЭЦН',
-    telemetry_issue: 'ошибка телеметрии',
-    unknown: 'неизвестно'
-  }
-
-  return labelMap[label] ?? label
+  return label || 'Без класса'
 }
 
 function getEspColor(espId: string): string {
@@ -199,15 +193,13 @@ function getEspColor(espId: string): string {
 function getEspSegmentLabel(startDate: string, endDate: string, espId: string): string {
   const durationDays = calculateDurationDays(startDate, endDate)
 
-  if (durationDays >= 24) {
-    return espId
+  if (durationDays < 14) {
+    return ''
   }
 
-  if (durationDays >= 14) {
-    return espId.length > 9 ? `${espId.slice(0, 9)}...` : espId
-  }
+  const maxLength = durationDays >= 120 ? 24 : durationDays >= 60 ? 18 : durationDays >= 30 ? 14 : 9
 
-  return ''
+  return espId.length > maxLength ? `${espId.slice(0, maxLength)}...` : espId
 }
 
 function calculateDurationDays(startDate: string, endDate: string): number {
@@ -229,6 +221,55 @@ function normalizeSelectedInterval(startValue: string, endValue: string): Select
     endDate,
     durationDays: calculateDurationDays(startDate, endDate)
   }
+}
+
+function normalizePlotlyDateValue(value: string | number | Date | undefined): string | null {
+  if (value === undefined) {
+    return null
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
+  }
+
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10)
+  }
+
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return null
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmedValue)) {
+    return trimmedValue.slice(0, 10)
+  }
+
+  const numericValue = Number(trimmedValue)
+  const date = new Date(Number.isFinite(numericValue) ? numericValue : trimmedValue)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10)
+}
+
+function getSelectedDatesFromPlotlyEvent(eventData: Record<string, unknown>): string[] {
+  const selectionData = eventData as PlotlySelectedEvent
+  const datesFromPoints = (selectionData.points ?? [])
+    .map((point) => normalizePlotlyDateValue(point.x))
+    .filter((value): value is string => Boolean(value))
+
+  if (datesFromPoints.length > 0) {
+    return [...new Set(datesFromPoints)].sort()
+  }
+
+  const range = selectionData.range?.x
+  if (!range) {
+    return []
+  }
+
+  const startDate = normalizePlotlyDateValue(range[0])
+  const endDate = normalizePlotlyDateValue(range[1])
+
+  return startDate && endDate ? [startDate, endDate].sort() : []
 }
 
 function toDurationMs(startDate: string, endDate: string): number {
@@ -498,7 +539,8 @@ function buildMainTraces() {
     hoverinfo: 'skip',
     marker: {
       size: 18,
-      opacity: 0
+      color: 'rgba(255,255,255,0.01)',
+      opacity: 0.01
     }
   }
 
@@ -544,7 +586,7 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
         annotationId: item.id,
         source: 'manual' as const,
         layer: item.annotationKind,
-        annotationKind: item.annotationKind === 'event' ? 'Событие' : 'Причина',
+        annotationKind: item.annotationKind === 'event' ? 'Эпизод' : 'Режим',
         startDate: item.startDate,
         endDate: item.endDate,
         durationDays: item.durationDays,
@@ -557,52 +599,7 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
   ]
 }
 
-function buildModelTrackTrace(trackAxis: 'y10' | 'y11', trackType: 'event' | 'rootCause') {
-  const intervals =
-    trackType === 'event' ? props.eventTracks.modelEventIntervals : props.eventTracks.modelRootCauseIntervals
-
-  if (intervals.length === 0) {
-    return []
-  }
-
-  return [
-    {
-      type: 'bar',
-      orientation: 'h',
-      x: intervals.map((item) => toDurationMs(item.startDate, item.endDate)),
-      base: intervals.map((item) => item.startDate),
-      y: intervals.map(() => 0.5),
-      width: 0.58,
-      marker: {
-        color: intervals.map((item) => item.color),
-        opacity: 0.58,
-        line: {
-          color: intervals.map((item) => item.color),
-          width: 1.2,
-          dash: 'dot'
-        }
-      },
-      yaxis: trackAxis,
-      showlegend: false,
-      customdata: intervals.map((item) => ({
-        source: 'model' as const,
-        layer: trackType,
-        annotationKind: trackType === 'event' ? 'Эпизод' : 'Режим',
-        label: item.label,
-        startDate: item.startDate,
-        endDate: item.endDate,
-        durationDays: calculateDurationDays(item.startDate, item.endDate),
-        categoryLabel: item.label
-      })),
-      hovertemplate:
-        '<b>%{customdata.annotationKind}</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
-        'Длительность: %{customdata.durationDays} сут.<extra></extra>'
-    }
-  ]
-}
-
 function buildTrackTraces() {
-  const showManualTracks = shouldShowManualTracks()
   const espInstallationTrace =
     props.eventTracks.installedEspPeriods.length > 0
       ? [
@@ -643,39 +640,10 @@ function buildTrackTraces() {
         ]
       : []
 
-  const dailyCauseTraces =
-    props.eventTracks.dailyCauses.length > 0
-      ? [
-          {
-            type: 'bar',
-            orientation: 'h',
-            x: props.eventTracks.dailyCauses.map(() => 86400000),
-            base: props.eventTracks.dailyCauses.map((item) => item.date),
-            y: props.eventTracks.dailyCauses.map(() => 0.5),
-            width: 0.82,
-            marker: {
-              color: props.eventTracks.dailyCauses.map((item) => item.color),
-              opacity: 0.62,
-              line: {
-                color: 'rgba(51,65,85,0.9)',
-                width: 0.4
-              }
-            },
-            yaxis: 'y7',
-            showlegend: false,
-            customdata: props.eventTracks.dailyCauses.map((item) => item.label),
-            hovertemplate: '<b>Суточная причина</b><br>%{base}<br>%{customdata}<extra></extra>'
-          }
-        ]
-      : []
-
   return [
     ...espInstallationTrace,
-    ...dailyCauseTraces,
-    ...(showManualTracks ? buildSavedAnnotationTrace('y8', 'event') : []),
-    ...(showManualTracks ? buildSavedAnnotationTrace('y9', 'rootCause') : []),
-    ...buildModelTrackTrace('y10', 'event'),
-    ...buildModelTrackTrace('y11', 'rootCause')
+    ...buildSavedAnnotationTrace('y8', 'event'),
+    ...buildSavedAnnotationTrace('y9', 'rootCause')
   ]
 }
 
@@ -686,10 +654,6 @@ function getSavedAnnotationTrackRange(annotationKind: 'event' | 'rootCause'): [n
   return [0, Math.max(2, laneCount + 1.6)]
 }
 
-function shouldShowManualTracks(): boolean {
-  return props.interactionMode === 'annotate'
-}
-
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
   const eventRange = getSavedAnnotationTrackRange('event')
   const rootCauseRange = getSavedAnnotationTrackRange('rootCause')
@@ -698,12 +662,9 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
 
   const rowSpecs = [
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.56, range: [0, 1] as [number, number] },
-    { axis: 'y7' as const, label: 'Суточные причины', labelColor: '#94a3b8', heightUnits: 0.3, range: [0, 1] as [number, number] },
-    { axis: 'y8' as const, label: 'Эпизоды (пользователь)', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
-    { axis: 'y9' as const, label: 'Режимы (пользователь)', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange },
-    { axis: 'y10' as const, label: 'Эпизоды (модель)', labelColor: '#cbd5e1', heightUnits: 0.62, range: [0, 1] as [number, number] },
-    { axis: 'y11' as const, label: 'Режимы (модель)', labelColor: '#cbd5e1', heightUnits: 0.62, range: [0, 1] as [number, number] }
-  ].filter((row) => shouldShowManualTracks() || (row.axis !== 'y8' && row.axis !== 'y9'))
+    { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
+    { axis: 'y9' as const, label: 'Режимы', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange }
+  ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
   const rowGap = 0.006
@@ -794,6 +755,142 @@ function getFullVisibleDateRange(): VisibleDateRange | null {
   return { startDate, endDate }
 }
 
+function parseIsoDateMs(value: string | undefined): number | null {
+  if (!value) {
+    return null
+  }
+
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function formatIsoDateMs(value: number): string {
+  return new Date(value).toISOString().slice(0, 10)
+}
+
+function getFullDateRangeMs(): [number, number] | null {
+  const fullRange = getFullVisibleDateRange()
+  const startMs = parseIsoDateMs(fullRange?.startDate)
+  const endMs = parseIsoDateMs(fullRange?.endDate)
+
+  return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
+}
+
+function getCurrentDateRangeMs(): [number, number] | null {
+  const fallbackRange = getFullVisibleDateRange()
+  const startMs = parseIsoDateMs(props.visibleDateRange?.startDate ?? fallbackRange?.startDate)
+  const endMs = parseIsoDateMs(props.visibleDateRange?.endDate ?? fallbackRange?.endDate)
+
+  return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
+}
+
+function clampDateRangeMs(startMs: number, endMs: number, fullRange: [number, number]): [number, number] {
+  const [fullStartMs, fullEndMs] = fullRange
+  const fullSpan = fullEndMs - fullStartMs
+  const rawStartMs = Math.min(startMs, endMs)
+  const rawEndMs = Math.max(startMs, endMs)
+  const span = Math.min(Math.max(rawEndMs - rawStartMs, MIN_VISIBLE_RANGE_MS), fullSpan)
+
+  if (span >= fullSpan) {
+    return fullRange
+  }
+
+  let nextStartMs = rawStartMs
+  let nextEndMs = rawStartMs + span
+
+  if (nextStartMs < fullStartMs) {
+    nextStartMs = fullStartMs
+    nextEndMs = nextStartMs + span
+  }
+
+  if (nextEndMs > fullEndMs) {
+    nextEndMs = fullEndMs
+    nextStartMs = nextEndMs - span
+  }
+
+  return [nextStartMs, nextEndMs]
+}
+
+function setVisibleDateRange(range: [number, number]) {
+  if (!chartEl.value) {
+    return
+  }
+
+  const nextRange = {
+    startDate: formatIsoDateMs(range[0]),
+    endDate: formatIsoDateMs(range[1])
+  }
+
+  void Plotly.relayout(chartEl.value, {
+    'xaxis.range[0]': nextRange.startDate,
+    'xaxis.range[1]': nextRange.endDate
+  })
+  emit('visible-range-changed', nextRange)
+}
+
+function handleChartWheel(event: WheelEvent) {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!chartEl.value || !fullRange || !currentRange) {
+    return
+  }
+
+  const [currentStartMs, currentEndMs] = currentRange
+  const currentSpan = currentEndMs - currentStartMs
+  const fullSpan = fullRange[1] - fullRange[0]
+  const nextSpan =
+    event.deltaY < 0
+      ? Math.max(currentSpan * X_AXIS_ZOOM_FACTOR, MIN_VISIBLE_RANGE_MS)
+      : Math.min(currentSpan / X_AXIS_ZOOM_FACTOR, fullSpan)
+
+  if (Math.abs(nextSpan - currentSpan) < MS_PER_DAY / 2) {
+    return
+  }
+
+  const rect = chartEl.value.getBoundingClientRect()
+  const plotLeft = rect.left + CHART_MARGIN_LEFT
+  const plotRight = rect.right - CHART_MARGIN_RIGHT
+  const plotWidth = Math.max(1, plotRight - plotLeft)
+  const pointerRatio = Math.min(1, Math.max(0, (event.clientX - plotLeft) / plotWidth))
+  const anchorMs = currentStartMs + currentSpan * pointerRatio
+  const nextStartMs = anchorMs - nextSpan * pointerRatio
+  const nextEndMs = anchorMs + nextSpan * (1 - pointerRatio)
+
+  setVisibleDateRange(clampDateRangeMs(nextStartMs, nextEndMs, fullRange))
+}
+
+function panVisibleRange(direction: -1 | 1) {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!fullRange || !currentRange) {
+    return
+  }
+
+  const currentSpan = currentRange[1] - currentRange[0]
+  const fullSpan = fullRange[1] - fullRange[0]
+
+  if (currentSpan >= fullSpan) {
+    return
+  }
+
+  const offset = currentSpan * X_AXIS_PAN_RATIO * direction
+  setVisibleDateRange(clampDateRangeMs(currentRange[0] + offset, currentRange[1] + offset, fullRange))
+}
+
+const canPanLeft = computed(() => {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+  return Boolean(fullRange && currentRange && currentRange[0] > fullRange[0] + MS_PER_DAY / 2)
+})
+
+const canPanRight = computed(() => {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+  return Boolean(fullRange && currentRange && currentRange[1] < fullRange[1] - MS_PER_DAY / 2)
+})
+
 function renderChart() {
   if (!chartEl.value) {
     return
@@ -838,11 +935,8 @@ function renderChart() {
   ], 5)
   const trackLayout = getTrackLayoutRows()
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
-  const dailyRow = getTrackRowByAxis(trackLayout.rows, 'y7')
-  const modelEventRow = getTrackRowByAxis(trackLayout.rows, 'y10')
-  const modelRootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y11')
-  const eventRow = shouldShowManualTracks() ? getTrackRowByAxis(trackLayout.rows, 'y8') : null
-  const rootCauseRow = shouldShowManualTracks() ? getTrackRowByAxis(trackLayout.rows, 'y9') : null
+  const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
+  const rootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const layoutShapes = [
     ...getSelectionShapes(),
     {
@@ -879,7 +973,7 @@ function renderChart() {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: '#0f172a',
     font: { color: '#e5e7eb', family: 'Segoe UI, sans-serif' },
-    margin: { l: 205, r: 195, t: 24, b: 42 },
+    margin: { l: CHART_MARGIN_LEFT, r: CHART_MARGIN_RIGHT, t: 24, b: 42 },
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
     selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined,
     hovermode: 'x unified',
@@ -985,30 +1079,6 @@ function renderChart() {
     yaxis6: {
       domain: espRow.domain,
       range: espRow.range,
-      fixedrange: true,
-      showgrid: false,
-      showticklabels: false,
-      zeroline: false
-    },
-    yaxis7: {
-      domain: dailyRow.domain,
-      range: dailyRow.range,
-      fixedrange: true,
-      showgrid: false,
-      showticklabels: false,
-      zeroline: false
-    },
-    yaxis10: {
-      domain: modelEventRow.domain,
-      range: modelEventRow.range,
-      fixedrange: true,
-      showgrid: false,
-      showticklabels: false,
-      zeroline: false
-    },
-    yaxis11: {
-      domain: modelRootCauseRow.domain,
-      range: modelRootCauseRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
@@ -1151,11 +1221,7 @@ function attachEventHandlers() {
 
     suppressBackgroundClick()
 
-    const points = (eventData.points as PlotlySelectedPoint[] | undefined) ?? []
-    const xValues = points
-      .map((point) => point.x)
-      .filter((value): value is string => typeof value === 'string')
-      .sort()
+    const xValues = getSelectedDatesFromPlotlyEvent(eventData)
 
     if (xValues.length > 0) {
       const startDate = xValues[0]
