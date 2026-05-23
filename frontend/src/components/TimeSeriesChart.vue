@@ -112,15 +112,22 @@ const seriesConfig: Record<
   { label: string; color: string; axis: string; width?: number; dash?: 'solid' | 'dot' }
 > = {
   qliq: { label: 'Дебит жидкости', color: '#e5e7eb', axis: 'y', width: 2.8 },
-  qoil: { label: 'Дебит нефти', color: '#c4a484', axis: 'y', width: 2.8 },
-  qgas: { label: 'Добыча газа', color: '#fdba74', axis: 'y12', width: 2.1 },
+  buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
+  casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
+  load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 1.4 },
+  water_cut: { label: 'Обводненность', color: '#7dd3fc', axis: 'y2', width: 2.2 },
+  intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
+  esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 1.4 },
+  active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 1.3 },
+  bdpv_volume_rate: { label: 'БДПВ Объем в пересчете на сутки', color: '#38bdf8', axis: 'y15', width: 1.3 },
+  bdpv_water_flow: { label: 'БДПВ Расход воды', color: '#06b6d4', axis: 'y15', width: 1.3, dash: 'dot' },
+  collector_pressure: { label: 'Давление в коллекторе', color: '#facc15', axis: 'y3', width: 1.35 },
+  full_power: { label: 'Полная мощность', color: '#14b8a6', axis: 'y14', width: 1.3 },
+  qgas: { label: 'Расход газа на сутки', color: '#fdba74', axis: 'y12', width: 2.1 },
+  qoil: { label: 'Расход нефти', color: '#c4a484', axis: 'y', width: 2.8 },
   gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
   gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
-  qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' },
-  water_cut: { label: 'Обводненность', color: '#7dd3fc', axis: 'y2', width: 2.2 },
-  intake_pressure: { label: 'Давление на приеме', color: '#f87171', axis: 'y3', width: 1.4 },
-  esp_frequency: { label: 'Частота ЭЦН', color: '#2563eb', axis: 'y4', width: 1.4 },
-  load: { label: 'Загрузка', color: '#16a34a', axis: 'y5', width: 1.4 }
+  qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' }
 }
 
 function getAnnotationColor(label: string): string {
@@ -795,6 +802,9 @@ function renderChart() {
   const hasGasProductionSeries = props.activeSeries.includes('qgas')
   const hasGasFactorSeries =
     props.activeSeries.includes('gas_factor') || props.activeSeries.includes('gas_liquid_factor')
+  const hasPowerSeries = props.activeSeries.includes('active_power') || props.activeSeries.includes('full_power')
+  const hasBdpvSeries =
+    props.activeSeries.includes('bdpv_volume_rate') || props.activeSeries.includes('bdpv_water_flow')
   const firstDate = props.data[0]?.date
   const lastDate = props.data[props.data.length - 1]?.date
   const mainAxisConfig = buildNiceAxis([
@@ -803,10 +813,25 @@ function renderChart() {
     ...getSeriesValues('qliq_wfm')
   ], 6)
   const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
-  const waterAxisConfig = buildNiceAxis(getSeriesValues('water_cut'), 5)
-  const pressureAxisConfig = buildNiceAxis(getSeriesValues('intake_pressure'), 5)
+  const percentAxisConfig = buildNiceAxis([
+    ...getSeriesValues('water_cut'),
+    ...getSeriesValues('load')
+  ], 5)
+  const pressureAxisConfig = buildNiceAxis([
+    ...getSeriesValues('buffer_pressure'),
+    ...getSeriesValues('casing_pressure'),
+    ...getSeriesValues('intake_pressure'),
+    ...getSeriesValues('collector_pressure')
+  ], 5)
   const frequencyAxisConfig = buildNiceAxis(getSeriesValues('esp_frequency'), 4)
-  const loadAxisConfig = buildNiceAxis(getSeriesValues('load'), 5)
+  const powerAxisConfig = buildNiceAxis([
+    ...getSeriesValues('active_power'),
+    ...getSeriesValues('full_power')
+  ], 5)
+  const bdpvAxisConfig = buildNiceAxis([
+    ...getSeriesValues('bdpv_volume_rate'),
+    ...getSeriesValues('bdpv_water_flow')
+  ], 5)
   const factorAxisConfig = buildNiceAxis([
     ...getSeriesValues('gas_factor'),
     ...getSeriesValues('gas_liquid_factor')
@@ -854,7 +879,7 @@ function renderChart() {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: '#0f172a',
     font: { color: '#e5e7eb', family: 'Segoe UI, sans-serif' },
-    margin: { l: 190, r: 170, t: 24, b: 42 },
+    margin: { l: 205, r: 195, t: 24, b: 42 },
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
     selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined,
     hovermode: 'x unified',
@@ -913,22 +938,22 @@ function renderChart() {
       zeroline: false
     },
     yaxis2: {
-      title: 'Обводненность',
+      title: 'Обводненность / загрузка',
       overlaying: 'y',
       side: 'right',
       position: 0.885,
-      range: waterAxisConfig.range,
+      range: percentAxisConfig.range,
       autorange: false,
       fixedrange: true,
       titlefont: { color: '#7dd3fc', size: 11 },
       tickfont: { color: '#7dd3fc', size: 10 },
       tickmode: 'linear',
-      tick0: waterAxisConfig.tick0,
-      dtick: waterAxisConfig.dtick,
+      tick0: percentAxisConfig.tick0,
+      dtick: percentAxisConfig.dtick,
       showgrid: false
     },
     yaxis3: {
-      title: 'Давление на приеме',
+      title: 'Давления',
       overlaying: 'y',
       side: 'right',
       position: 0.92,
@@ -955,22 +980,6 @@ function renderChart() {
       tickmode: 'linear',
       tick0: frequencyAxisConfig.tick0,
       dtick: frequencyAxisConfig.dtick,
-      showgrid: false
-    },
-    yaxis5: {
-      title: 'Загрузка',
-      overlaying: 'y',
-      side: 'left',
-      anchor: 'free',
-      position: 0,
-      range: loadAxisConfig.range,
-      autorange: false,
-      fixedrange: true,
-      titlefont: { color: '#16a34a', size: 11 },
-      tickfont: { color: '#16a34a', size: 10 },
-      tickmode: 'linear',
-      tick0: loadAxisConfig.tick0,
-      dtick: loadAxisConfig.dtick,
       showgrid: false
     },
     yaxis6: {
@@ -1012,11 +1021,11 @@ function renderChart() {
   if (hasGasProductionSeries) {
     Object.assign(layout, {
       yaxis12: {
-        title: 'Добыча газа',
+        title: 'Расход газа',
         overlaying: 'y',
         side: 'left',
         anchor: 'free',
-        position: 0.065,
+        position: 0.05,
         range: gasAxisConfig.range,
         autorange: false,
         fixedrange: true,
@@ -1025,6 +1034,48 @@ function renderChart() {
         tickmode: 'linear',
         tick0: gasAxisConfig.tick0,
         dtick: gasAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
+  if (hasPowerSeries) {
+    Object.assign(layout, {
+      yaxis14: {
+        title: 'Мощность',
+        overlaying: 'y',
+        side: 'left',
+        anchor: 'free',
+        position: 0.105,
+        range: powerAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#a3e635', size: 11 },
+        tickfont: { color: '#a3e635', size: 10 },
+        tickmode: 'linear',
+        tick0: powerAxisConfig.tick0,
+        dtick: powerAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
+  if (hasBdpvSeries) {
+    Object.assign(layout, {
+      yaxis15: {
+        title: 'БДПВ',
+        overlaying: 'y',
+        side: 'left',
+        anchor: 'free',
+        position: 0.16,
+        range: bdpvAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#38bdf8', size: 11 },
+        tickfont: { color: '#38bdf8', size: 10 },
+        tickmode: 'linear',
+        tick0: bdpvAxisConfig.tick0,
+        dtick: bdpvAxisConfig.dtick,
         showgrid: false
       }
     })

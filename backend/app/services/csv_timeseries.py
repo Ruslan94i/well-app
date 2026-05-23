@@ -17,23 +17,39 @@ NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
 COLUMN_MAPPING = {
     "well_id": "Скважина",
     "date": "Дата",
-    "qliq": "Дебит жидкости (среднеуплотненный)",
-    "qoil": "Дебит нефти",
-    "water_cut": "Обводненность, %",
-    "intake_pressure": "Давление на приеме насоса",
-    "esp_frequency": "Частота вращения двигателя",
+    "qliq": "Дебит жидкости",
+    "buffer_pressure": "Давление буферное",
+    "casing_pressure": "Давление затрубное",
     "load": "Загрузка",
+    "water_cut": "Обводненность",
+    "intake_pressure": "Р на приеме насоса",
+    "esp_frequency": "Частота вращения двиг.",
+    "active_power": "Активная мощность",
+    "bdpv_volume_rate": "БДПВ Объем в пересчете на сутки",
+    "bdpv_water_flow": "БДПВ Расход воды",
+    "collector_pressure": "Давление в коллекторе",
+    "full_power": "Полная мощность",
+    "qgas": "Расход газа на сутки",
+    "qoil": "Расход нефти",
     "gas_factor": "Газовый фактор",
     "gas_liquid_factor": "Газожидкостной фактор",
     "qliq_wfm": "Уплотненный дебит (виртуальный расходомер)",
 }
 NUMERIC_COLUMNS = [
     "qliq",
-    "qoil",
+    "buffer_pressure",
+    "casing_pressure",
+    "load",
     "water_cut",
     "intake_pressure",
     "esp_frequency",
-    "load",
+    "active_power",
+    "bdpv_volume_rate",
+    "bdpv_water_flow",
+    "collector_pressure",
+    "full_power",
+    "qgas",
+    "qoil",
     "gas_factor",
     "gas_liquid_factor",
     "qliq_wfm",
@@ -41,31 +57,45 @@ NUMERIC_COLUMNS = [
 RESPONSE_COLUMNS = [
     "date",
     "qliq",
+    "buffer_pressure",
+    "casing_pressure",
+    "load",
+    "water_cut",
+    "intake_pressure",
+    "esp_frequency",
+    "active_power",
+    "bdpv_volume_rate",
+    "bdpv_water_flow",
+    "collector_pressure",
+    "full_power",
     "qoil",
     "qgas",
     "gas_factor",
     "gas_liquid_factor",
     "qliq_wfm",
     "qliq_vfm",
-    "water_cut",
-    "intake_pressure",
-    "esp_frequency",
-    "load",
 ]
 FRAME_SCHEMA = {
     "well_id": pl.Utf8,
     "date": pl.Date,
     "qliq": pl.Float64,
+    "buffer_pressure": pl.Float64,
+    "casing_pressure": pl.Float64,
+    "load": pl.Float64,
+    "water_cut": pl.Float64,
+    "intake_pressure": pl.Float64,
+    "esp_frequency": pl.Float64,
+    "active_power": pl.Float64,
+    "bdpv_volume_rate": pl.Float64,
+    "bdpv_water_flow": pl.Float64,
+    "collector_pressure": pl.Float64,
+    "full_power": pl.Float64,
     "qoil": pl.Float64,
     "qgas": pl.Float64,
     "gas_factor": pl.Float64,
     "gas_liquid_factor": pl.Float64,
     "qliq_wfm": pl.Float64,
     "qliq_vfm": pl.Float64,
-    "water_cut": pl.Float64,
-    "intake_pressure": pl.Float64,
-    "esp_frequency": pl.Float64,
-    "load": pl.Float64,
 }
 
 
@@ -107,13 +137,20 @@ def _parse_float(value: str | None) -> float | None:
         return None
 
 
-@lru_cache(maxsize=1)
 def _load_timeseries_frame() -> pl.DataFrame:
-    logger.info("Loading well timeseries CSV from %s", CSV_FILE_PATH)
-
     if not CSV_FILE_PATH.exists():
         logger.error("CSV data file not found at %s", CSV_FILE_PATH)
         raise FileNotFoundError(f"CSV data file not found: {CSV_FILE_PATH}")
+
+    csv_stat = CSV_FILE_PATH.stat()
+    return _load_timeseries_frame_cached(csv_stat.st_mtime_ns, csv_stat.st_size)
+
+
+@lru_cache(maxsize=2)
+def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFrame:
+    logger.info("Loading well timeseries CSV from %s", CSV_FILE_PATH)
+
+    logger.debug("CSV cache key mtime_ns=%s size=%s", csv_mtime_ns, csv_size)
 
     with CSV_FILE_PATH.open("r", encoding="utf-8-sig", newline="") as csv_file:
         reader = csv.reader(csv_file, delimiter=";")
@@ -153,13 +190,25 @@ def _load_timeseries_frame() -> pl.DataFrame:
                 raw_value = _get_row_value(raw_row, column_indexes, source_name)
                 row[normalized_name] = _parse_float(raw_value)
 
+            qliq = row["qliq"]
             qoil = row["qoil"]
-            gas_factor = row["gas_factor"]
-            qgas = None
-            if isinstance(qoil, float) and isinstance(gas_factor, float):
-                qgas = round(qoil * gas_factor, 2)
+            qgas = row["qgas"]
 
-            row["qgas"] = qgas
+            if not isinstance(qgas, float) and isinstance(qoil, float) and isinstance(row["gas_factor"], float):
+                row["qgas"] = round(qoil * row["gas_factor"], 2)
+                qgas = row["qgas"]
+
+            if not isinstance(row["gas_factor"], float) and isinstance(qgas, float) and isinstance(qoil, float) and qoil:
+                row["gas_factor"] = round(qgas / qoil, 6)
+
+            if (
+                not isinstance(row["gas_liquid_factor"], float)
+                and isinstance(qgas, float)
+                and isinstance(qliq, float)
+                and qliq
+            ):
+                row["gas_liquid_factor"] = round(qgas / qliq, 6)
+
             row["qliq_vfm"] = row["qliq_wfm"]
             rows.append(row)
 

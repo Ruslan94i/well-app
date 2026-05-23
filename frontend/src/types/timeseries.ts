@@ -1,29 +1,43 @@
 export interface TimeSeriesPoint {
   date: string
   qliq: number | null
+  buffer_pressure: number | null
+  casing_pressure: number | null
+  load: number | null
+  water_cut: number | null
+  intake_pressure: number | null
+  esp_frequency: number | null
+  active_power: number | null
+  bdpv_volume_rate: number | null
+  bdpv_water_flow: number | null
+  collector_pressure: number | null
+  full_power: number | null
   qoil: number | null
   qgas: number | null
   gas_factor: number | null
   gas_liquid_factor: number | null
   qliq_wfm: number | null
   qliq_vfm: number | null
-  water_cut: number | null
-  intake_pressure: number | null
-  esp_frequency: number | null
-  load: number | null
 }
 
 export type SeriesKey =
   | 'qliq'
+  | 'buffer_pressure'
+  | 'casing_pressure'
+  | 'load'
+  | 'water_cut'
+  | 'intake_pressure'
+  | 'esp_frequency'
+  | 'active_power'
+  | 'bdpv_volume_rate'
+  | 'bdpv_water_flow'
+  | 'collector_pressure'
+  | 'full_power'
   | 'qoil'
   | 'qgas'
   | 'gas_factor'
   | 'gas_liquid_factor'
   | 'qliq_wfm'
-  | 'water_cut'
-  | 'intake_pressure'
-  | 'esp_frequency'
-  | 'load'
 
 export interface DateRangeValue {
   start: number | null

@@ -310,20 +310,43 @@ export function generateMockTimeseries(
       42,
       74
     )
+    const bufferPressure = clamp(
+      18.5 + 0.9 * Math.sin(index / 31) - 2.2 * downtime + 0.8 * replacementReset + (random() - 0.5) * 0.5,
+      0
+    )
+    const casingPressure = clamp(
+      19.8 + 1.1 * Math.cos(index / 27) - 1.6 * downtime + 0.5 * waterBreakthrough + (random() - 0.5) * 0.6,
+      0
+    )
+    const activePower = clamp(load * 4.25 + espFrequency * 1.15 + 0.08 * qliq + (random() - 0.5) * 6, 0)
+    const fullPower = clamp(activePower * 1.94 + 12 + (random() - 0.5) * 8, 0)
+    const collectorPressure = clamp(
+      21.2 - 0.006 * index + 0.5 * waterBreakthrough - 1.4 * downtime + (random() - 0.5) * 0.35,
+      0
+    )
+    const bdpvVolumeRate = clamp(18 * opzEffect + 6 * replacementReset + 2 * waterBreakthrough + (random() - 0.5) * 0.8, 0)
+    const bdpvWaterFlow = clamp(bdpvVolumeRate * waterCut / 100 + (random() - 0.5) * 0.2, 0)
 
     return {
       date,
       qliq: round(qliq),
+      buffer_pressure: round(bufferPressure),
+      casing_pressure: round(casingPressure),
+      load: round(load),
+      water_cut: round(waterCut),
+      intake_pressure: intakePressure,
+      esp_frequency: round(espFrequency),
+      active_power: round(activePower),
+      bdpv_volume_rate: round(bdpvVolumeRate),
+      bdpv_water_flow: round(bdpvWaterFlow),
+      collector_pressure: round(collectorPressure),
+      full_power: round(fullPower),
       qoil: round(qoil),
       qgas: round(qgas),
       gas_factor: round(gasFactor),
       gas_liquid_factor: round(gasLiquidFactor),
       qliq_wfm: round(qliqWfm),
-      qliq_vfm: round(qliqVfm),
-      water_cut: round(waterCut),
-      intake_pressure: intakePressure,
-      esp_frequency: round(espFrequency),
-      load: round(load)
+      qliq_vfm: round(qliqVfm)
     }
   })
 }

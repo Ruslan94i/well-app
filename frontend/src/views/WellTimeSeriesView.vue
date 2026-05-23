@@ -8,7 +8,7 @@
           </div>
 
           <div>
-            <label class="mb-2 block text-sm text-slate-300">Группа скважин</label>
+            <label class="mb-2 block text-sm text-slate-300">Месторождение</label>
             <n-select
               v-model:value="navigationGroupId"
               :options="wellGroupOptions"
@@ -592,42 +592,36 @@ const chartRef = ref<InstanceType<typeof TimeSeriesChart> | null>(null)
 let groupSaveFeedbackTimeout: ReturnType<typeof setTimeout> | null = null
 const CREATE_NEW_GROUP_OPTION = '__create_new_group__'
 
-const defaultWellOptions = [
-  { label: 'WELL-101', value: 'WELL-101' },
-  { label: 'WELL-102', value: 'WELL-102' },
-  { label: 'WELL-103', value: 'WELL-103' },
-  { label: 'WELL-104', value: 'WELL-104' },
-  { label: 'WELL-105', value: 'WELL-105' },
-  { label: 'WELL-201', value: 'WELL-201' },
-  { label: 'WELL-202', value: 'WELL-202' },
-  { label: 'WELL-203', value: 'WELL-203' },
-  { label: 'WELL-204', value: 'WELL-204' },
-  { label: 'WELL-301', value: 'WELL-301' },
-  { label: 'WELL-302', value: 'WELL-302' },
-  { label: 'WELL-303', value: 'WELL-303' },
-  { label: 'WELL-304', value: 'WELL-304' },
-  { label: 'WELL-305', value: 'WELL-305' },
-  { label: 'WELL-306', value: 'WELL-306' }
-]
+const defaultWellOptions: { label: string; value: string }[] = []
 const wellOptions = ref(defaultWellOptions)
 
-const baseWellGroupOptions: { label: string; value: WellGroupId }[] = [
-  { label: 'Группа 1', value: 'group-1' },
-  { label: 'Группа 2', value: 'group-2' },
-  { label: 'Группа 3', value: 'group-3' }
-]
+const knownFieldCodes = ['Au', 'Az', 'Da', 'Ic', 'Mc', 'Vt', 'Ya']
+const getFieldGroupId = (fieldCode: string): WellGroupId => `field-${fieldCode.toLowerCase()}`
+const formatFieldGroupLabel = (fieldCode: string): string =>
+  fieldCode === 'other' ? 'Без группы' : fieldCode
+const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownFieldCodes.map((fieldCode) => ({
+  label: formatFieldGroupLabel(fieldCode),
+  value: getFieldGroupId(fieldCode)
+}))
 
 const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Дебит жидкости', value: 'qliq' },
-  { label: 'Дебит нефти', value: 'qoil' },
-  { label: 'Добыча газа', value: 'qgas' },
+  { label: 'Давление буферное', value: 'buffer_pressure' },
+  { label: 'Давление затрубное', value: 'casing_pressure' },
+  { label: 'Загрузка', value: 'load' },
+  { label: 'Обводненность', value: 'water_cut' },
+  { label: 'Р на приеме насоса', value: 'intake_pressure' },
+  { label: 'Частота вращения двиг.', value: 'esp_frequency' },
+  { label: 'Активная мощность', value: 'active_power' },
+  { label: 'БДПВ Объем в пересчете на сутки', value: 'bdpv_volume_rate' },
+  { label: 'БДПВ Расход воды', value: 'bdpv_water_flow' },
+  { label: 'Давление в коллекторе', value: 'collector_pressure' },
+  { label: 'Полная мощность', value: 'full_power' },
+  { label: 'Расход газа на сутки', value: 'qgas' },
+  { label: 'Расход нефти', value: 'qoil' },
   { label: 'Газовый фактор', value: 'gas_factor' },
   { label: 'Газожидкостный фактор', value: 'gas_liquid_factor' },
-  { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' },
-  { label: 'Обводненность', value: 'water_cut' },
-  { label: 'Давление на приеме', value: 'intake_pressure' },
-  { label: 'Частота ЭЦН', value: 'esp_frequency' },
-  { label: 'Загрузка', value: 'load' }
+  { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' }
 ]
 
 const episodeTypeOptions: { label: string; value: EpisodeType }[] = [
@@ -898,7 +892,7 @@ function cloneModelSettings(settings: ModelGroupSettings): ModelGroupSettings {
 }
 
 function ensureModelSettings(groupId: WellGroupId | null | undefined): ModelGroupSettings {
-  const resolvedGroupId = groupId ?? wellGroupOptions.value[0]?.value ?? 'group-1'
+  const resolvedGroupId = groupId ?? wellGroupOptions.value[0]?.value ?? 'field-au'
 
   if (!modelSettingsByGroup.value[resolvedGroupId]) {
     modelSettingsByGroup.value = {
@@ -958,21 +952,17 @@ function simulateModelQuality(groupId: WellGroupId, settings: ModelGroupSettings
 }
 
 const selectedWell = ref(defaultWellOptions[0]?.value ?? '')
-const navigationGroupId = ref<WellGroupId | null>('group-1')
+const navigationGroupId = ref<WellGroupId | null>(baseWellGroupOptions[0]?.value ?? null)
 const dateRange = ref<[number, number] | null>(null)
-const hiddenGasSeries: SeriesKey[] = ['qgas', 'gas_factor', 'gas_liquid_factor']
-const activeSeries = ref<SeriesKey[]>(
-  seriesOptions
-    .map((series) => series.value)
-    .filter((series) => !hiddenGasSeries.includes(series))
-)
+const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_pressure', 'esp_frequency', 'active_power']
+const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
 const chartData = ref<TimeSeriesPoint[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
 const interactionMode = ref<InteractionMode>('navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
-const modelSelectedGroupId = ref<WellGroupId>('group-1')
+const modelSelectedGroupId = ref<WellGroupId>(baseWellGroupOptions[0]?.value ?? 'field-au')
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -992,23 +982,7 @@ const selectedModelFeatures = ref<string[]>([
 const modelSettingsByGroup = ref<Record<string, ModelGroupSettings>>({})
 const modelQualityByGroup = ref<Record<string, number>>({})
 const wellGroupOptions = ref(baseWellGroupOptions)
-const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({
-  'WELL-101': 'group-1',
-  'WELL-102': 'group-1',
-  'WELL-103': 'group-1',
-  'WELL-104': 'group-1',
-  'WELL-105': 'group-1',
-  'WELL-201': 'group-2',
-  'WELL-202': 'group-2',
-  'WELL-203': 'group-2',
-  'WELL-204': 'group-2',
-  'WELL-301': 'group-3',
-  'WELL-302': 'group-3',
-  'WELL-303': 'group-3',
-  'WELL-304': 'group-3',
-  'WELL-305': 'group-3',
-  'WELL-306': 'group-3'
-})
+const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
 const editingAnnotationId = ref<string | null>(null)
 const editingAnnotationKind = ref<AnnotationKind | null>(null)
@@ -1572,6 +1546,22 @@ function draftHasUnsavedChanges(): boolean {
   )
 }
 
+function getWellFieldCode(wellId: string): string {
+  const [fieldCode] = wellId.split('_')
+  return fieldCode?.trim() || 'other'
+}
+
+function buildWellGroupOptions(wellIds: string[]): { label: string; value: WellGroupId }[] {
+  const fieldCodes = Array.from(new Set(wellIds.map(getWellFieldCode))).sort((left, right) =>
+    left.localeCompare(right, 'ru')
+  )
+
+  return fieldCodes.map((fieldCode) => ({
+    label: formatFieldGroupLabel(fieldCode),
+    value: getFieldGroupId(fieldCode)
+  }))
+}
+
 async function loadData() {
   if (!selectedWell.value) {
     chartData.value = []
@@ -1612,13 +1602,8 @@ async function loadData() {
 }
 
 function createWellGroupAssignments(wellIds: string[]): Record<string, WellGroupId | null> {
-  const groupIds = baseWellGroupOptions.map((group) => group.value)
-
   return Object.fromEntries(
-    wellIds.map((wellId, index) => [
-      wellId,
-      wellGroupAssignments.value[wellId] ?? groupIds[index % Math.max(groupIds.length, 1)] ?? null
-    ])
+    wellIds.map((wellId) => [wellId, getFieldGroupId(getWellFieldCode(wellId))])
   )
 }
 
@@ -1630,10 +1615,24 @@ async function initializeWellOptions() {
     }
 
     wellOptions.value = wellIds.map((wellId) => ({ label: wellId, value: wellId }))
+    wellGroupOptions.value = buildWellGroupOptions(wellIds)
     wellGroupAssignments.value = createWellGroupAssignments(wellIds)
+    wellGroupOptions.value.forEach((group) => {
+      const settings = ensureModelSettings(group.value)
+      modelQualityByGroup.value[group.value] = simulateModelQuality(group.value, settings)
+    })
+
+    if (!wellGroupOptions.value.some((option) => option.value === navigationGroupId.value)) {
+      navigationGroupId.value = wellGroupOptions.value[0]?.value ?? null
+    }
+
+    if (!wellGroupOptions.value.some((option) => option.value === modelSelectedGroupId.value)) {
+      modelSelectedGroupId.value = wellGroupOptions.value[0]?.value ?? 'field-au'
+    }
 
     if (!wellIds.includes(selectedWell.value)) {
-      selectedWell.value = wellIds[0] ?? ''
+      const firstWellInCurrentGroup = filteredWellOptions.value[0]?.value
+      selectedWell.value = firstWellInCurrentGroup ?? wellIds[0] ?? ''
     }
   } catch {
     message.warning('Не удалось загрузить список скважин с backend. Используется локальный список.')
