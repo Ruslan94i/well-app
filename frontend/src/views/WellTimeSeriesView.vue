@@ -118,9 +118,16 @@
               :interaction-mode="interactionMode"
               :saved-annotations="currentWellAnnotations"
               :selected-annotation-id="editingAnnotationId"
+              :frequency-breakpoints="currentFrequencyBreakpoints"
+              :frequency-segments="frequencySegments"
+              :selected-frequency-breakpoint-id="selectedFrequencyBreakpointId"
+              :selected-frequency-segment-ids="selectedFrequencySegmentIds"
               :visible-date-range="visibleDateRange"
               @interval-selected="handleIntervalSelected"
               @annotation-clicked="handleAnnotationClicked"
+              @frequency-segment-clicked="handleFrequencySegmentClicked"
+              @frequency-segment-double-clicked="handleFrequencySegmentDoubleClicked"
+              @frequency-breakpoint-clicked="handleFrequencyBreakpointClicked"
               @visible-range-changed="handleVisibleRangeChanged"
               @background-clicked="handleChartBackgroundClicked"
             />
@@ -288,6 +295,49 @@
                 <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Группа</div>
                 <div class="min-w-0 text-slate-200">{{ currentWellGroupLabel }}</div>
               </div>
+              <div class="mt-3 border-t border-sky-500/20 pt-2">
+                <div class="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Границы</div>
+                <div class="grid gap-2 text-sm">
+                  <div class="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
+                    <div class="text-slate-300">Начало</div>
+                    <n-button
+                      size="tiny"
+                      secondary
+                      :disabled="!canShiftIntervalBoundary('start', -1)"
+                      @click="shiftIntervalBoundary('start', -1)"
+                    >
+                      -1 сут.
+                    </n-button>
+                    <n-button
+                      size="tiny"
+                      secondary
+                      :disabled="!canShiftIntervalBoundary('start', 1)"
+                      @click="shiftIntervalBoundary('start', 1)"
+                    >
+                      +1 сут.
+                    </n-button>
+                  </div>
+                  <div class="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
+                    <div class="text-slate-300">Конец</div>
+                    <n-button
+                      size="tiny"
+                      secondary
+                      :disabled="!canShiftIntervalBoundary('end', -1)"
+                      @click="shiftIntervalBoundary('end', -1)"
+                    >
+                      -1 сут.
+                    </n-button>
+                    <n-button
+                      size="tiny"
+                      secondary
+                      :disabled="!canShiftIntervalBoundary('end', 1)"
+                      @click="shiftIntervalBoundary('end', 1)"
+                    >
+                      +1 сут.
+                    </n-button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div
@@ -330,6 +380,81 @@
             </n-button>
           </div>
 
+          <div
+            v-if="interactionMode === 'annotate'"
+            class="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-3"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-xs uppercase tracking-[0.2em] text-slate-400">Штрихи частоты</div>
+              <div class="text-xs text-slate-400">{{ currentFrequencyBreakpoints.length }}</div>
+            </div>
+
+            <div
+              v-if="selectedFrequencySegments.length"
+              class="rounded-lg border border-sky-400/30 bg-sky-950/20 px-3 py-2"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Выбрано промежутков</div>
+                  <div class="mt-1 text-sm font-medium text-slate-100">{{ selectedFrequencySegments.length }}</div>
+                </div>
+                <n-button
+                  circle
+                  secondary
+                  size="small"
+                  :type="additiveFrequencySelectionArmed ? 'primary' : 'default'"
+                  title="Добавить ещё один промежуток"
+                  @click="armAdditiveFrequencySelection"
+                >
+                  +
+                </n-button>
+              </div>
+            </div>
+
+            <div v-if="selectedFrequencyBreakpoint" class="rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2">
+              <div class="grid grid-cols-[74px_minmax(0,1fr)] gap-x-2 gap-y-1 text-sm">
+                <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Дата</div>
+                <div class="font-medium text-slate-100">{{ selectedFrequencyBreakpoint.date }}</div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Тип</div>
+                <div class="text-slate-200">{{ getFrequencyBreakpointSourceLabel(selectedFrequencyBreakpoint.source) }}</div>
+                <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Причина</div>
+                <div class="text-slate-200">{{ selectedFrequencyBreakpoint.reason }}</div>
+              </div>
+              <n-button class="mt-2" block secondary type="warning" size="small" @click="mergeFrequencySegmentsAtSelectedBreakpoint">
+                Объединить промежутки
+              </n-button>
+            </div>
+
+            <div v-if="selectedInterval" class="grid grid-cols-2 gap-2">
+              <n-button
+                size="small"
+                secondary
+                :disabled="!canAddManualFrequencyBreakpoint(selectedInterval.startDate)"
+                @click="addManualFrequencyBreakpoint(selectedInterval.startDate)"
+              >
+                Штрих в начало
+              </n-button>
+              <n-button
+                size="small"
+                secondary
+                :disabled="!canAddManualFrequencyBreakpoint(selectedInterval.endDate)"
+                @click="addManualFrequencyBreakpoint(selectedInterval.endDate)"
+              >
+                Штрих в конец
+              </n-button>
+            </div>
+
+            <n-button
+              v-if="currentSuppressedFrequencyBreakpoints.length"
+              quaternary
+              size="small"
+              class="w-full"
+              @click="restoreAutoFrequencyBreakpoints"
+            >
+              Вернуть автоштрихи
+            </n-button>
+          </div>
+
           <div v-if="selectedInterval" class="mt-3 space-y-4 rounded-xl border border-slate-700 bg-slate-800/90 p-4">
 
             <div class="space-y-2">
@@ -365,6 +490,27 @@
                   />
                 </div>
               </n-radio-group>
+              <div class="mt-3 space-y-2">
+                <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия эпизода</label>
+                <n-select
+                  v-model:value="episodeForm.eventActions"
+                  size="medium"
+                  multiple
+                  clearable
+                  filterable
+                  :options="actionOptions"
+                  placeholder="Выберите мероприятия эпизода"
+                  class="w-full"
+                />
+                <div class="flex gap-2">
+                  <n-input
+                    v-model:value="newEventActionName"
+                    size="medium"
+                    placeholder="Новое мероприятие"
+                  />
+                  <n-button secondary size="medium" @click="addEventActionClass">Добавить</n-button>
+                </div>
+              </div>
               <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить эпизод</n-button>
             </div>
 
@@ -401,6 +547,27 @@
                   />
                 </div>
               </n-radio-group>
+              <div class="mt-3 space-y-2">
+                <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия режима</label>
+                <n-select
+                  v-model:value="episodeForm.rootCauseActions"
+                  size="medium"
+                  multiple
+                  clearable
+                  filterable
+                  :options="actionOptions"
+                  placeholder="Выберите мероприятия режима"
+                  class="w-full"
+                />
+                <div class="flex gap-2">
+                  <n-input
+                    v-model:value="newModeActionName"
+                    size="medium"
+                    placeholder="Новое мероприятие"
+                  />
+                  <n-button secondary size="medium" @click="addModeActionClass">Добавить</n-button>
+                </div>
+              </div>
               <n-button class="mt-2" type="primary" secondary size="medium" @click="saveRootCause">Сохранить режим</n-button>
             </div>
 
@@ -446,6 +613,9 @@
                 <div class="text-xs font-medium text-slate-200">{{ episode.startDate }} -> {{ episode.endDate }}</div>
                 <div class="mt-1 text-xs text-slate-400">
                   {{ episode.annotationKind === 'event' ? `Эпизод: ${getEpisodeTypeLabel(episode.eventType)}` : `Режим: ${getRootCauseLabel(episode.rootCause)}` }}
+                </div>
+                <div v-if="episode.actions.length" class="mt-1 text-xs text-slate-500">
+                  {{ episode.actions.join(', ') }}
                 </div>
               </button>
             </div>
@@ -598,7 +768,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { buildEspInstallationPeriods } from '@/data/espInstallations'
-import { fetchWellIds, fetchWellTimeseries } from '@/services/api'
+import { fetchMarkup, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -608,7 +778,14 @@ import type {
   ConfidenceLevel,
   EpisodeFormState,
   EpisodeType,
+  FrequencyBreakpoint,
+  FrequencyBreakpointClickPayload,
+  FrequencyBreakpointSuppression,
+  FrequencySegment,
+  FrequencySegmentClickPayload,
+  FrequencySegmentDoubleClickPayload,
   InteractionMode,
+  MarkupState,
   RootCause,
   SavedAnnotation,
   SavedEventAnnotation,
@@ -624,13 +801,19 @@ import type {
 const message = useMessage()
 const chartRef = ref<InstanceType<typeof TimeSeriesChart> | null>(null)
 let groupSaveFeedbackTimeout: ReturnType<typeof setTimeout> | null = null
+let markupSaveTimeout: ReturnType<typeof setTimeout> | null = null
+let lastMarkupSaveErrorAt = 0
 const CREATE_NEW_GROUP_OPTION = '__create_new_group__'
 const DEFAULT_FIELD_CODE = 'Ic'
 const DEFAULT_WELL_ID = 'Ic_805'
+const FREQUENCY_CHANGE_THRESHOLD = 0.1
 const MARKUP_STORAGE_KEYS = {
   annotations: 'wellInsight.markup.annotations.v1',
   episodeClasses: 'wellInsight.markup.episodeClasses.v1',
-  modeClasses: 'wellInsight.markup.modeClasses.v1'
+  modeClasses: 'wellInsight.markup.modeClasses.v1',
+  actionClasses: 'wellInsight.markup.actionClasses.v1',
+  manualFrequencyBreakpoints: 'wellInsight.markup.manualFrequencyBreakpoints.v1',
+  suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1'
 }
 
 const defaultWellOptions: { label: string; value: string }[] = []
@@ -671,6 +854,8 @@ function createDefaultEpisodeForm(): EpisodeFormState {
     rootCause: '',
     confidenceEvent: 'medium',
     confidenceCause: 'medium',
+    eventActions: [],
+    rootCauseActions: [],
     comment: ''
   }
 }
@@ -786,6 +971,8 @@ interface AnalysisDrillDown {
   confidence: 'Низкая' | 'Средняя' | 'Высокая'
   confidenceExplanation: string
 }
+
+type IntervalBoundary = 'start' | 'end'
 
 const modelAlgorithmOptions = [
   { value: 'catboost' as const, label: 'CatBoost', help: 'CatBoost — устойчив к шуму' },
@@ -1005,15 +1192,25 @@ const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
 const episodeTypeOptions = ref<AnnotationClassOption[]>([])
 const rootCauseOptions = ref<AnnotationClassOption[]>([])
+const actionOptions = ref<AnnotationClassOption[]>([])
+const manualFrequencyBreakpoints = ref<FrequencyBreakpoint[]>([])
+const suppressedFrequencyBreakpoints = ref<FrequencyBreakpointSuppression[]>([])
 const editingAnnotationId = ref<string | null>(null)
 const editingAnnotationKind = ref<AnnotationKind | null>(null)
+const selectedFrequencyBreakpointId = ref<string | null>(null)
+const selectedFrequencySegmentIds = ref<string[]>([])
+const additiveFrequencySelectionArmed = ref(false)
 const groupSaveFeedback = ref<'idle' | 'saved'>('idle')
 const groupMigrationTarget = ref<WellGroupId | typeof CREATE_NEW_GROUP_OPTION | null>(null)
 const newGroupName = ref('')
 const newEpisodeClassName = ref('')
 const newModeClassName = ref('')
+const newEventActionName = ref('')
+const newModeActionName = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const markupLoaded = ref(false)
+const markupSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const useMockTelemetry = import.meta.env.VITE_USE_MOCK_TELEMETRY === 'true'
 const useMockEvents = import.meta.env.VITE_USE_MOCK_EVENTS === 'true'
 
@@ -1135,7 +1332,7 @@ const analysisDrillDown = computed<AnalysisDrillDown | null>(() => {
     oilImpactLabel: oilDelta < 0 ? 'Потеря нефти за период' : 'Прирост нефти за период',
     potentialLiquid: constrainedPotential.liquid,
     potentialOil: constrainedPotential.oil,
-    actions: buildSuggestedActions(interval, before, during, after),
+    actions: interval.actions.length > 0 ? interval.actions : buildSuggestedActions(interval, before, during, after),
     confidence: confidence.level,
     confidenceExplanation: confidence.explanation
   }
@@ -1146,6 +1343,32 @@ function isInteractionMode(mode: InteractionMode): boolean {
 }
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
+const currentManualFrequencyBreakpoints = computed(() =>
+  manualFrequencyBreakpoints.value.filter((item) => item.wellId === selectedWell.value)
+)
+const currentSuppressedFrequencyBreakpoints = computed(() =>
+  suppressedFrequencyBreakpoints.value.filter((item) => item.wellId === selectedWell.value)
+)
+const autoFrequencyBreakpoints = computed(() => buildAutoFrequencyBreakpoints(chartData.value, selectedWell.value))
+const currentFrequencyBreakpoints = computed(() =>
+  mergeFrequencyBreakpoints(
+    autoFrequencyBreakpoints.value,
+    currentManualFrequencyBreakpoints.value,
+    currentSuppressedFrequencyBreakpoints.value
+  )
+)
+const frequencySegments = computed(() => buildFrequencySegments(chartData.value, selectedWell.value, currentFrequencyBreakpoints.value))
+const selectedFrequencySegments = computed(() => {
+  const selectedIds = new Set(selectedFrequencySegmentIds.value)
+  return frequencySegments.value.filter((segment) => selectedIds.has(segment.id))
+})
+const selectedFrequencyBreakpoint = computed<FrequencyBreakpoint | null>(() => {
+  if (!selectedFrequencyBreakpointId.value) {
+    return null
+  }
+
+  return currentFrequencyBreakpoints.value.find((item) => item.id === selectedFrequencyBreakpointId.value) ?? null
+})
 const isEditMode = computed(() => editingAnnotationId.value !== null)
 const annotationPanelTitle = computed(() => {
   if (editingAnnotationKind.value === 'event') {
@@ -1179,10 +1402,14 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
     rootCause: episode.annotationKind === 'rootCause' ? episode.rootCause : '',
     confidenceEvent: episode.annotationKind === 'event' ? episode.confidenceEvent : 'medium',
     confidenceCause: episode.annotationKind === 'rootCause' ? episode.confidenceCause : 'medium',
+    eventActions: episode.annotationKind === 'event' ? (episode.actions ?? []) : [],
+    rootCauseActions: episode.annotationKind === 'rootCause' ? (episode.actions ?? []) : [],
     comment: episode.comment
   }
   editingAnnotationId.value = episode.id
   editingAnnotationKind.value = episode.annotationKind
+  selectedFrequencyBreakpointId.value = null
+  clearFrequencySegmentSelection()
 }
 
 function getFullDateRange(data: TimeSeriesPoint[]): VisibleDateRange | null {
@@ -1198,6 +1425,11 @@ function getFullDateRange(data: TimeSeriesPoint[]): VisibleDateRange | null {
 
 function createAnnotationId(kind: AnnotationKind): string {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createFrequencyBreakpointId(source: FrequencyBreakpoint['source'], wellId: string, date?: string): string {
+  const suffix = date ? date.replace(/-/g, '') : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `frequency-${source}-${wellId}-${suffix}`
 }
 
 function toTimestamp(value: string): number {
@@ -1221,6 +1453,206 @@ function buildInterval(startDate: string, endDate: string): SelectedInterval {
   }
 }
 
+function normalizeFrequencyValue(value: number | null | undefined): number | null {
+  return Number.isFinite(value) ? Number(value) : null
+}
+
+function isPositiveFrequency(value: number | null): boolean {
+  return value !== null && value > 0
+}
+
+function formatFrequencyValue(value: number | null): string {
+  return value === null ? 'нет данных' : `${Number(value.toFixed(2))}`
+}
+
+function upsertAutoBreakpoint(
+  breakpointsByDate: Map<string, FrequencyBreakpoint>,
+  breakpoint: FrequencyBreakpoint
+): void {
+  const existingBreakpoint = breakpointsByDate.get(breakpoint.date)
+
+  if (!existingBreakpoint) {
+    breakpointsByDate.set(breakpoint.date, breakpoint)
+    return
+  }
+
+  breakpointsByDate.set(breakpoint.date, {
+    ...existingBreakpoint,
+    reason: `${existingBreakpoint.reason}; ${breakpoint.reason}`,
+    fromFrequency: existingBreakpoint.fromFrequency ?? breakpoint.fromFrequency,
+    toFrequency: existingBreakpoint.toFrequency ?? breakpoint.toFrequency
+  })
+}
+
+function buildAutoFrequencyBreakpoints(data: TimeSeriesPoint[], wellId: string): FrequencyBreakpoint[] {
+  const breakpointsByDate = new Map<string, FrequencyBreakpoint>()
+  let previousPoint: { date: string; frequency: number } | null = null
+
+  data.forEach((point) => {
+    const frequency = normalizeFrequencyValue(point.esp_frequency)
+
+    if (frequency === null) {
+      return
+    }
+
+    if (previousPoint) {
+      const previousFrequency = previousPoint.frequency
+      const previousIsPositive = isPositiveFrequency(previousFrequency)
+      const currentIsPositive = isPositiveFrequency(frequency)
+      let reason = ''
+
+      if (!previousIsPositive && currentIsPositive) {
+        reason = `Переход частоты ЭЦН от 0 до ${formatFrequencyValue(frequency)}`
+      } else if (previousIsPositive && !currentIsPositive) {
+        reason = `Переход частоты ЭЦН от ${formatFrequencyValue(previousFrequency)} до 0`
+      } else if (previousIsPositive && currentIsPositive) {
+        const changeRatio = Math.abs(frequency - previousFrequency) / Math.abs(previousFrequency)
+        if (changeRatio > FREQUENCY_CHANGE_THRESHOLD) {
+          reason = `Изменение частоты ЭЦН на ${Math.round(changeRatio * 100)}%`
+        }
+      }
+
+      if (reason) {
+        upsertAutoBreakpoint(breakpointsByDate, {
+          id: createFrequencyBreakpointId('auto', wellId, point.date),
+          wellId,
+          date: point.date,
+          source: 'auto',
+          reason,
+          fromFrequency: previousFrequency,
+          toFrequency: frequency
+        })
+      }
+    }
+
+    previousPoint = {
+      date: point.date,
+      frequency
+    }
+  })
+
+  return [...breakpointsByDate.values()].sort((left, right) => left.date.localeCompare(right.date))
+}
+
+function mergeFrequencyBreakpoints(
+  autoBreakpoints: FrequencyBreakpoint[],
+  manualBreakpoints: FrequencyBreakpoint[],
+  suppressedBreakpoints: FrequencyBreakpointSuppression[]
+): FrequencyBreakpoint[] {
+  const suppressedDates = new Set(suppressedBreakpoints.map((item) => item.date))
+  const breakpointsByDate = new Map<string, FrequencyBreakpoint>()
+
+  autoBreakpoints.forEach((breakpoint) => {
+    if (!suppressedDates.has(breakpoint.date)) {
+      breakpointsByDate.set(breakpoint.date, breakpoint)
+    }
+  })
+
+  manualBreakpoints.forEach((breakpoint) => {
+    breakpointsByDate.set(breakpoint.date, breakpoint)
+  })
+
+  return [...breakpointsByDate.values()].sort((left, right) => left.date.localeCompare(right.date))
+}
+
+function buildFrequencySegments(
+  data: TimeSeriesPoint[],
+  wellId: string,
+  breakpoints: FrequencyBreakpoint[]
+): FrequencySegment[] {
+  const fullRange = getFullDateRange(data)
+
+  if (!fullRange) {
+    return []
+  }
+
+  const boundaryDates = [
+    fullRange.startDate,
+    ...breakpoints.map((breakpoint) => breakpoint.date).filter((date) => date > fullRange.startDate && date <= fullRange.endDate)
+  ]
+  const uniqueBoundaryDates = [...new Set(boundaryDates)].sort()
+
+  return uniqueBoundaryDates
+    .map((startDate, index) => {
+      const nextBoundaryDate = uniqueBoundaryDates[index + 1]
+      const endDate = nextBoundaryDate ? shiftIsoDate(nextBoundaryDate, -1) : fullRange.endDate
+
+      if (endDate < startDate) {
+        return null
+      }
+
+      const interval = buildInterval(startDate, endDate)
+      return {
+        id: `frequency-segment-${wellId}-${interval.startDate}-${interval.endDate}`,
+        wellId,
+        ...interval
+      }
+    })
+    .filter((segment): segment is FrequencySegment => Boolean(segment))
+}
+
+function clampIsoDate(value: string, minDate: string, maxDate: string): string {
+  if (value < minDate) {
+    return minDate
+  }
+
+  if (value > maxDate) {
+    return maxDate
+  }
+
+  return value
+}
+
+function getShiftedIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): string | null {
+  if (!selectedInterval.value) {
+    return null
+  }
+
+  const fullRange = getFullDateRange(chartData.value)
+  if (!fullRange) {
+    return null
+  }
+
+  const currentDate = boundary === 'start' ? selectedInterval.value.startDate : selectedInterval.value.endDate
+  const nextDate = clampIsoDate(shiftIsoDate(currentDate, dayDelta), fullRange.startDate, fullRange.endDate)
+
+  if (boundary === 'start' && nextDate > selectedInterval.value.endDate) {
+    return null
+  }
+
+  if (boundary === 'end' && nextDate < selectedInterval.value.startDate) {
+    return null
+  }
+
+  return nextDate
+}
+
+function canShiftIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): boolean {
+  if (!selectedInterval.value) {
+    return false
+  }
+
+  const currentDate = boundary === 'start' ? selectedInterval.value.startDate : selectedInterval.value.endDate
+  const nextDate = getShiftedIntervalBoundary(boundary, dayDelta)
+  return Boolean(nextDate && nextDate !== currentDate)
+}
+
+function shiftIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): void {
+  if (!selectedInterval.value) {
+    return
+  }
+
+  const nextDate = getShiftedIntervalBoundary(boundary, dayDelta)
+  if (!nextDate) {
+    return
+  }
+
+  selectedInterval.value =
+    boundary === 'start'
+      ? buildInterval(nextDate, selectedInterval.value.endDate)
+      : buildInterval(selectedInterval.value.startDate, nextDate)
+}
+
 function readStoredValue<T>(key: string, fallbackValue: T): T {
   try {
     const rawValue = localStorage.getItem(key)
@@ -1228,10 +1660,6 @@ function readStoredValue<T>(key: string, fallbackValue: T): T {
   } catch {
     return fallbackValue
   }
-}
-
-function writeStoredValue<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value))
 }
 
 function normalizeClassOptions(options: unknown): AnnotationClassOption[] {
@@ -1258,14 +1686,213 @@ function normalizeClassOptions(options: unknown): AnnotationClassOption[] {
     })
 }
 
-function restorePersistentMarkup(): void {
-  savedAnnotations.value = readStoredValue<SavedAnnotation[]>(MARKUP_STORAGE_KEYS.annotations, [])
-  episodeTypeOptions.value = normalizeClassOptions(
-    readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.episodeClasses, [])
+function normalizeSavedAnnotations(annotations: unknown): SavedAnnotation[] {
+  if (!Array.isArray(annotations)) {
+    return []
+  }
+
+  return (annotations as SavedAnnotation[]).map((annotation) => ({
+    ...annotation,
+    actions: Array.isArray(annotation.actions) ? annotation.actions : []
+  }))
+}
+
+function normalizeFrequencyBreakpoints(breakpoints: unknown): FrequencyBreakpoint[] {
+  if (!Array.isArray(breakpoints)) {
+    return []
+  }
+
+  const seenDatesByWell = new Set<string>()
+
+  return (breakpoints as FrequencyBreakpoint[])
+    .map((breakpoint): FrequencyBreakpoint => {
+      const source: FrequencyBreakpoint['source'] = breakpoint.source === 'auto' ? 'auto' : 'manual'
+      const wellId = String(breakpoint.wellId ?? '').trim()
+      const date = String(breakpoint.date ?? '').slice(0, 10)
+
+      return {
+        id: String(breakpoint.id || createFrequencyBreakpointId(source, wellId, date)),
+        wellId,
+        date,
+        source,
+        reason: String(breakpoint.reason ?? ''),
+        fromFrequency: normalizeFrequencyValue(breakpoint.fromFrequency),
+        toFrequency: normalizeFrequencyValue(breakpoint.toFrequency)
+      }
+    })
+    .filter((breakpoint) => {
+      const key = `${breakpoint.wellId}:${breakpoint.date}`
+
+      if (!breakpoint.wellId || !/^\d{4}-\d{2}-\d{2}$/.test(breakpoint.date) || seenDatesByWell.has(key)) {
+        return false
+      }
+
+      seenDatesByWell.add(key)
+      return true
+    })
+    .sort((left, right) => left.wellId.localeCompare(right.wellId, 'ru') || left.date.localeCompare(right.date))
+}
+
+function normalizeFrequencyBreakpointSuppressions(suppressions: unknown): FrequencyBreakpointSuppression[] {
+  if (!Array.isArray(suppressions)) {
+    return []
+  }
+
+  const seenDatesByWell = new Set<string>()
+
+  return (suppressions as FrequencyBreakpointSuppression[])
+    .map((suppression) => ({
+      id: String(suppression.id || createFrequencyBreakpointId('auto', suppression.wellId, suppression.date)),
+      wellId: String(suppression.wellId ?? '').trim(),
+      date: String(suppression.date ?? '').slice(0, 10)
+    }))
+    .filter((suppression) => {
+      const key = `${suppression.wellId}:${suppression.date}`
+
+      if (!suppression.wellId || !/^\d{4}-\d{2}-\d{2}$/.test(suppression.date) || seenDatesByWell.has(key)) {
+        return false
+      }
+
+      seenDatesByWell.add(key)
+      return true
+    })
+    .sort((left, right) => left.wellId.localeCompare(right.wellId, 'ru') || left.date.localeCompare(right.date))
+}
+
+function normalizeMarkupState(markup: Partial<MarkupState> | null | undefined): MarkupState {
+  return {
+    annotations: normalizeSavedAnnotations(markup?.annotations),
+    episodeClasses: normalizeClassOptions(markup?.episodeClasses),
+    modeClasses: normalizeClassOptions(markup?.modeClasses),
+    actionClasses: normalizeClassOptions(markup?.actionClasses),
+    manualFrequencyBreakpoints: normalizeFrequencyBreakpoints(markup?.manualFrequencyBreakpoints),
+    suppressedFrequencyBreakpoints: normalizeFrequencyBreakpointSuppressions(markup?.suppressedFrequencyBreakpoints)
+  }
+}
+
+function buildCurrentMarkupState(): MarkupState {
+  return {
+    annotations: savedAnnotations.value,
+    episodeClasses: episodeTypeOptions.value,
+    modeClasses: rootCauseOptions.value,
+    actionClasses: actionOptions.value,
+    manualFrequencyBreakpoints: manualFrequencyBreakpoints.value,
+    suppressedFrequencyBreakpoints: suppressedFrequencyBreakpoints.value
+  }
+}
+
+function applyMarkupState(markup: MarkupState): void {
+  savedAnnotations.value = markup.annotations
+  episodeTypeOptions.value = markup.episodeClasses
+  rootCauseOptions.value = markup.modeClasses
+  actionOptions.value = markup.actionClasses
+  manualFrequencyBreakpoints.value = markup.manualFrequencyBreakpoints
+  suppressedFrequencyBreakpoints.value = markup.suppressedFrequencyBreakpoints
+}
+
+function hasMarkupStateData(markup: MarkupState): boolean {
+  return (
+    markup.annotations.length > 0 ||
+    markup.episodeClasses.length > 0 ||
+    markup.modeClasses.length > 0 ||
+    markup.actionClasses.length > 0 ||
+    markup.manualFrequencyBreakpoints.length > 0 ||
+    markup.suppressedFrequencyBreakpoints.length > 0
   )
-  rootCauseOptions.value = normalizeClassOptions(
-    readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.modeClasses, [])
-  )
+}
+
+function readLegacyMarkupState(): MarkupState | null {
+  const legacyMarkup = normalizeMarkupState({
+    annotations: readStoredValue<SavedAnnotation[]>(MARKUP_STORAGE_KEYS.annotations, []),
+    episodeClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.episodeClasses, []),
+    modeClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.modeClasses, []),
+    actionClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.actionClasses, []),
+    manualFrequencyBreakpoints: readStoredValue<FrequencyBreakpoint[]>(MARKUP_STORAGE_KEYS.manualFrequencyBreakpoints, []),
+    suppressedFrequencyBreakpoints: readStoredValue<FrequencyBreakpointSuppression[]>(MARKUP_STORAGE_KEYS.suppressedFrequencyBreakpoints, [])
+  })
+
+  return hasMarkupStateData(legacyMarkup) ? legacyMarkup : null
+}
+
+function clearLegacyMarkupState(): void {
+  Object.values(MARKUP_STORAGE_KEYS).forEach((key) => localStorage.removeItem(key))
+}
+
+async function persistMarkupNow(): Promise<boolean> {
+  if (!markupLoaded.value) {
+    return true
+  }
+
+  if (markupSaveTimeout) {
+    clearTimeout(markupSaveTimeout)
+    markupSaveTimeout = null
+  }
+
+  markupSaveState.value = 'saving'
+
+  try {
+    await saveMarkup(buildCurrentMarkupState())
+    markupSaveState.value = 'saved'
+    return true
+  } catch {
+    markupSaveState.value = 'error'
+
+    if (Date.now() - lastMarkupSaveErrorAt > 5000) {
+      message.error('Не удалось сохранить разметку на backend.')
+      lastMarkupSaveErrorAt = Date.now()
+    }
+
+    return false
+  }
+}
+
+function scheduleMarkupSave(): void {
+  if (!markupLoaded.value) {
+    return
+  }
+
+  if (markupSaveTimeout) {
+    clearTimeout(markupSaveTimeout)
+  }
+
+  markupSaveTimeout = setTimeout(() => {
+    markupSaveTimeout = null
+    void persistMarkupNow()
+  }, 500)
+}
+
+async function restorePersistentMarkup(): Promise<void> {
+  const legacyMarkup = readLegacyMarkupState()
+
+  try {
+    const backendMarkup = normalizeMarkupState(await fetchMarkup())
+
+    if (hasMarkupStateData(backendMarkup)) {
+      applyMarkupState(backendMarkup)
+      clearLegacyMarkupState()
+      return
+    }
+
+    if (legacyMarkup) {
+      applyMarkupState(legacyMarkup)
+      await saveMarkup(buildCurrentMarkupState())
+      clearLegacyMarkupState()
+      message.success('Разметка перенесена из браузера в backend.')
+      return
+    }
+
+    applyMarkupState(backendMarkup)
+  } catch {
+    if (legacyMarkup) {
+      applyMarkupState(legacyMarkup)
+      message.warning('Backend для разметки недоступен. Показана старая локальная копия из браузера.')
+      return
+    }
+
+    message.warning('Не удалось загрузить разметку с backend.')
+  } finally {
+    markupLoaded.value = true
+  }
 }
 
 function addAnnotationClass(kind: AnnotationKind): string | null {
@@ -1314,6 +1941,57 @@ function addEpisodeClass(): void {
 
 function addModeClass(): void {
   addAnnotationClass('rootCause')
+}
+
+function getDraftActionsTarget(kind: AnnotationKind): string[] {
+  return kind === 'event' ? episodeForm.value.eventActions : episodeForm.value.rootCauseActions
+}
+
+function setDraftActionsTarget(kind: AnnotationKind, actions: string[]): void {
+  if (kind === 'event') {
+    episodeForm.value.eventActions = actions
+    return
+  }
+
+  episodeForm.value.rootCauseActions = actions
+}
+
+function addActionClass(kind: AnnotationKind): string | null {
+  const actionInput = kind === 'event' ? newEventActionName : newModeActionName
+  const actionName = actionInput.value.trim()
+
+  if (!actionName) {
+    message.error('Введите название мероприятия.')
+    return null
+  }
+
+  const existingOption = actionOptions.value.find(
+    (option) => option.value.toLocaleLowerCase('ru') === actionName.toLocaleLowerCase('ru')
+  )
+
+  if (existingOption) {
+    const currentActions = getDraftActionsTarget(kind)
+    if (!currentActions.includes(existingOption.value)) {
+      setDraftActionsTarget(kind, [...currentActions, existingOption.value])
+    }
+    actionInput.value = ''
+    return existingOption.value
+  }
+
+  const option = { label: actionName, value: actionName }
+  actionOptions.value = [...actionOptions.value, option].sort((left, right) => left.label.localeCompare(right.label, 'ru'))
+  setDraftActionsTarget(kind, [...getDraftActionsTarget(kind), option.value])
+  actionInput.value = ''
+  message.success('Мероприятие добавлено.')
+  return option.value
+}
+
+function addEventActionClass(): void {
+  addActionClass('event')
+}
+
+function addModeActionClass(): void {
+  addActionClass('rootCause')
 }
 
 function resolveDraftClass(kind: AnnotationKind): string | null {
@@ -1503,6 +2181,20 @@ function getAnnotationCategory(annotation: SavedAnnotation): string {
   return annotation.annotationKind === 'event' ? annotation.eventType : annotation.rootCause
 }
 
+function getAnnotationActions(annotation: SavedAnnotation): string[] {
+  return annotation.actions ?? []
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  const sortedLeft = [...left].sort()
+  const sortedRight = [...right].sort()
+  return sortedLeft.every((value, index) => value === sortedRight[index])
+}
+
 function annotationsOverlap(left: SelectedInterval, right: SelectedInterval): boolean {
   return toTimestamp(left.startDate) <= toTimestamp(right.endDate) && toTimestamp(right.startDate) <= toTimestamp(left.endDate)
 }
@@ -1524,6 +2216,7 @@ function createSplitAnnotation(
         eventType: annotation.eventType,
         confidenceEvent: annotation.confidenceEvent,
         comment: annotation.comment,
+        actions: annotation.actions ?? [],
         ...interval
       }
   }
@@ -1536,6 +2229,7 @@ function createSplitAnnotation(
     rootCause: annotation.rootCause,
     confidenceCause: annotation.confidenceCause,
     comment: annotation.comment,
+    actions: annotation.actions ?? [],
     ...interval
   }
 }
@@ -1591,6 +2285,7 @@ function mergeAdjacentAnnotations(
       previous &&
       previous.annotationKind === annotation.annotationKind &&
       getAnnotationCategory(previous) === getAnnotationCategory(annotation) &&
+      areStringArraysEqual(getAnnotationActions(previous), getAnnotationActions(annotation)) &&
       toTimestamp(annotation.startDate) <= toTimestamp(previous.endDate) + 86400000
     ) {
       const preferredAnnotation =
@@ -1606,6 +2301,7 @@ function mergeAdjacentAnnotations(
               eventType: preferredAnnotation.eventType,
               confidenceEvent: preferredAnnotation.confidenceEvent,
               comment: preferredAnnotation.comment,
+              actions: getAnnotationActions(preferredAnnotation),
               ...mergedInterval
             }
           : {
@@ -1616,6 +2312,7 @@ function mergeAdjacentAnnotations(
               rootCause: preferredAnnotation.rootCause,
               confidenceCause: preferredAnnotation.confidenceCause,
               comment: preferredAnnotation.comment,
+              actions: getAnnotationActions(preferredAnnotation),
               ...mergedInterval
             }
 
@@ -1670,6 +2367,7 @@ function draftHasUnsavedChanges(): boolean {
       intervalChanged ||
       existingAnnotation.eventType !== episodeForm.value.episodeType ||
       existingAnnotation.confidenceEvent !== episodeForm.value.confidenceEvent ||
+      !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.eventActions) ||
       existingAnnotation.comment !== episodeForm.value.comment
     )
   }
@@ -1678,8 +2376,19 @@ function draftHasUnsavedChanges(): boolean {
     intervalChanged ||
     existingAnnotation.rootCause !== episodeForm.value.rootCause ||
     existingAnnotation.confidenceCause !== episodeForm.value.confidenceCause ||
+    !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.rootCauseActions) ||
     existingAnnotation.comment !== episodeForm.value.comment
   )
+}
+
+function getDraftIntervalsForNewAnnotation(): SelectedInterval[] {
+  const frequencyIntervals = selectedFrequencySegments.value.map((segment) => buildInterval(segment.startDate, segment.endDate))
+
+  if (frequencyIntervals.length > 0) {
+    return frequencyIntervals
+  }
+
+  return selectedInterval.value ? [selectedInterval.value] : []
 }
 
 function getWellFieldCode(wellId: string): string {
@@ -1711,6 +2420,8 @@ async function loadData() {
   selectedAnalysisInterval.value = null
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
+  selectedFrequencyBreakpointId.value = null
+  clearFrequencySegmentSelection()
   episodeForm.value = createDefaultEpisodeForm()
   const [start, end] = dateRange.value ?? []
   const params = {
@@ -1850,8 +2561,114 @@ function recalculateModelQuality() {
   message.success(`Качество для ${getWellGroupLabel(groupId)} пересчитано.`)
 }
 
+function getFrequencyBreakpointSourceLabel(source: FrequencyBreakpoint['source']): string {
+  return source === 'auto' ? 'Авто' : 'Ручной'
+}
+
+function clearFrequencySegmentSelection(): void {
+  selectedFrequencySegmentIds.value = []
+  additiveFrequencySelectionArmed.value = false
+}
+
+function armAdditiveFrequencySelection(): void {
+  additiveFrequencySelectionArmed.value = true
+}
+
+function canAddManualFrequencyBreakpoint(date: string | null | undefined): boolean {
+  if (!date || !selectedWell.value) {
+    return false
+  }
+
+  const fullRange = getFullDateRange(chartData.value)
+  if (!fullRange || date < fullRange.startDate || date > fullRange.endDate) {
+    return false
+  }
+
+  return !currentFrequencyBreakpoints.value.some((breakpoint) => breakpoint.date === date)
+}
+
+async function addManualFrequencyBreakpoint(
+  date: string | null | undefined,
+  options?: { clearSelections?: boolean; selectBreakpoint?: boolean }
+): Promise<void> {
+  if (!date || !selectedWell.value) {
+    return
+  }
+
+  if (!canAddManualFrequencyBreakpoint(date)) {
+    message.warning('На этой дате уже есть штрих или дата вне диапазона.')
+    return
+  }
+
+  const breakpoint: FrequencyBreakpoint = {
+    id: createFrequencyBreakpointId('manual', selectedWell.value),
+    wellId: selectedWell.value,
+    date,
+    source: 'manual',
+    reason: 'Ручной штрих',
+    fromFrequency: null,
+    toFrequency: null
+  }
+
+  manualFrequencyBreakpoints.value = [...manualFrequencyBreakpoints.value, breakpoint].sort(
+    (left, right) => left.wellId.localeCompare(right.wellId, 'ru') || left.date.localeCompare(right.date)
+  )
+  if (options?.clearSelections) {
+    clearFrequencySegmentSelection()
+    selectedInterval.value = null
+    editingAnnotationId.value = null
+    editingAnnotationKind.value = null
+  }
+  selectedFrequencyBreakpointId.value = options?.selectBreakpoint === false ? null : breakpoint.id
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Штрих частоты добавлен.' : 'Штрих добавлен в интерфейсе, но не сохранён на backend.'
+  )
+}
+
+async function mergeFrequencySegmentsAtSelectedBreakpoint(): Promise<void> {
+  const breakpoint = selectedFrequencyBreakpoint.value
+  if (!breakpoint) {
+    return
+  }
+
+  if (breakpoint.source === 'manual') {
+    manualFrequencyBreakpoints.value = manualFrequencyBreakpoints.value.filter((item) => item.id !== breakpoint.id)
+  } else if (!currentSuppressedFrequencyBreakpoints.value.some((item) => item.date === breakpoint.date)) {
+    suppressedFrequencyBreakpoints.value = [
+      ...suppressedFrequencyBreakpoints.value,
+      {
+        id: createFrequencyBreakpointId('auto', breakpoint.wellId, breakpoint.date),
+        wellId: breakpoint.wellId,
+        date: breakpoint.date
+      }
+    ]
+  }
+
+  selectedFrequencyBreakpointId.value = null
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Соседние промежутки объединены.' : 'Промежутки объединены в интерфейсе, но не сохранены на backend.'
+  )
+}
+
+async function restoreAutoFrequencyBreakpoints(): Promise<void> {
+  if (!selectedWell.value || currentSuppressedFrequencyBreakpoints.value.length === 0) {
+    return
+  }
+
+  suppressedFrequencyBreakpoints.value = suppressedFrequencyBreakpoints.value.filter((item) => item.wellId !== selectedWell.value)
+  selectedFrequencyBreakpointId.value = null
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Автоштрихи восстановлены.' : 'Автоштрихи восстановлены в интерфейсе, но не сохранены на backend.'
+  )
+}
+
 function handleIntervalSelected(value: SelectedInterval | null) {
   selectedInterval.value = value
+  selectedFrequencyBreakpointId.value = null
+  clearFrequencySegmentSelection()
 
   if (!value) {
     editingAnnotationId.value = null
@@ -1862,6 +2679,48 @@ function handleIntervalSelected(value: SelectedInterval | null) {
   if (!editingAnnotationId.value) {
     episodeForm.value = createDefaultEpisodeForm()
   }
+}
+
+function handleFrequencySegmentClicked(payload: FrequencySegmentClickPayload) {
+  if (interactionMode.value !== 'annotate') {
+    return
+  }
+
+  selectedFrequencyBreakpointId.value = null
+  selectedInterval.value = buildInterval(payload.startDate, payload.endDate)
+  editingAnnotationId.value = null
+  editingAnnotationKind.value = null
+  episodeForm.value = createDefaultEpisodeForm()
+
+  if (additiveFrequencySelectionArmed.value) {
+    if (!selectedFrequencySegmentIds.value.includes(payload.id)) {
+      selectedFrequencySegmentIds.value = [...selectedFrequencySegmentIds.value, payload.id]
+    }
+    additiveFrequencySelectionArmed.value = false
+    return
+  }
+
+  selectedFrequencySegmentIds.value = [payload.id]
+}
+
+async function handleFrequencySegmentDoubleClicked(payload: FrequencySegmentDoubleClickPayload) {
+  if (interactionMode.value !== 'annotate') {
+    return
+  }
+
+  await addManualFrequencyBreakpoint(payload.date, {
+    clearSelections: true,
+    selectBreakpoint: false
+  })
+}
+
+function handleFrequencyBreakpointClicked(payload: FrequencyBreakpointClickPayload) {
+  if (interactionMode.value !== 'annotate') {
+    return
+  }
+
+  clearFrequencySegmentSelection()
+  selectedFrequencyBreakpointId.value = payload.id
 }
 
 function handleAnnotationClicked(payload: TimelineAnnotationClickPayload) {
@@ -1900,6 +2759,8 @@ function resetAnnotationSelection() {
   selectedInterval.value = null
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
+  selectedFrequencyBreakpointId.value = null
+  clearFrequencySegmentSelection()
   episodeForm.value = createDefaultEpisodeForm()
 }
 
@@ -1939,8 +2800,10 @@ function handleChartBackgroundClicked() {
   clearSelection({ force: true })
 }
 
-function saveEvent() {
-  if (!selectedInterval.value) {
+async function saveEvent() {
+  const draftIntervals = getDraftIntervalsForNewAnnotation()
+
+  if (!selectedInterval.value && draftIntervals.length === 0) {
     message.error('Перед сохранением эпизода выберите интервал.')
     return
   }
@@ -1952,6 +2815,10 @@ function saveEvent() {
   }
 
   if (editingAnnotationId.value && editingAnnotationKind.value === 'event') {
+    if (!selectedInterval.value) {
+      return
+    }
+
     const index = savedAnnotations.value.findIndex((item) => item.id === editingAnnotationId.value)
     if (index >= 0) {
       const existingAnnotation = savedAnnotations.value[index]
@@ -1966,33 +2833,52 @@ function saveEvent() {
         wellGroupId: currentWellGroupId.value,
         eventType,
         confidenceEvent: episodeForm.value.confidenceEvent,
-        comment: episodeForm.value.comment
+        comment: episodeForm.value.comment,
+        actions: episodeForm.value.eventActions
       }
       normalizeAnnotationsForLayer(updatedAnnotation)
-      message.success('Аннотация эпизода обновлена.')
+      const saved = await persistMarkupNow()
+      message[saved ? 'success' : 'warning'](
+        saved ? 'Аннотация эпизода обновлена.' : 'Аннотация обновлена в интерфейсе, но не сохранена на backend.'
+      )
       return
     }
   }
 
-  const newAnnotation: SavedEventAnnotation = {
+  const newAnnotations: SavedEventAnnotation[] = draftIntervals.map((interval) => ({
     id: createAnnotationId('event'),
     wellId: selectedWell.value,
     wellGroupId: currentWellGroupId.value,
-    ...selectedInterval.value,
+    ...interval,
     annotationKind: 'event',
     eventType,
     confidenceEvent: episodeForm.value.confidenceEvent,
-    comment: episodeForm.value.comment
+    comment: episodeForm.value.comment,
+    actions: episodeForm.value.eventActions
+  }))
+
+  newAnnotations.forEach((annotation) => normalizeAnnotationsForLayer(annotation))
+
+  if (newAnnotations.length === 1) {
+    editingAnnotationId.value = newAnnotations[0]?.id ?? null
+    editingAnnotationKind.value = 'event'
+  } else {
+    editingAnnotationId.value = null
+    editingAnnotationKind.value = null
   }
 
-  normalizeAnnotationsForLayer(newAnnotation)
-  editingAnnotationId.value = newAnnotation.id
-  editingAnnotationKind.value = 'event'
-  message.success('Аннотация эпизода сохранена.')
+  const saved = await persistMarkupNow()
+  const successMessage =
+    newAnnotations.length > 1 ? `Аннотации эпизода сохранены: ${newAnnotations.length}.` : 'Аннотация эпизода сохранена.'
+  message[saved ? 'success' : 'warning'](
+    saved ? successMessage : 'Аннотация создана в интерфейсе, но не сохранена на backend.'
+  )
 }
 
-function saveRootCause() {
-  if (!selectedInterval.value) {
+async function saveRootCause() {
+  const draftIntervals = getDraftIntervalsForNewAnnotation()
+
+  if (!selectedInterval.value && draftIntervals.length === 0) {
     message.error('Перед сохранением режима выберите интервал.')
     return
   }
@@ -2004,6 +2890,10 @@ function saveRootCause() {
   }
 
   if (editingAnnotationId.value && editingAnnotationKind.value === 'rootCause') {
+    if (!selectedInterval.value) {
+      return
+    }
+
     const index = savedAnnotations.value.findIndex((item) => item.id === editingAnnotationId.value)
     if (index >= 0) {
       const existingAnnotation = savedAnnotations.value[index]
@@ -2018,32 +2908,49 @@ function saveRootCause() {
         wellGroupId: currentWellGroupId.value,
         rootCause,
         confidenceCause: episodeForm.value.confidenceCause,
-        comment: episodeForm.value.comment
+        comment: episodeForm.value.comment,
+        actions: episodeForm.value.rootCauseActions
       }
       normalizeAnnotationsForLayer(updatedAnnotation)
-      message.success('Аннотация режима обновлена.')
+      const saved = await persistMarkupNow()
+      message[saved ? 'success' : 'warning'](
+        saved ? 'Аннотация режима обновлена.' : 'Аннотация обновлена в интерфейсе, но не сохранена на backend.'
+      )
       return
     }
   }
 
-  const newAnnotation: SavedRootCauseAnnotation = {
+  const newAnnotations: SavedRootCauseAnnotation[] = draftIntervals.map((interval) => ({
     id: createAnnotationId('rootCause'),
     wellId: selectedWell.value,
     wellGroupId: currentWellGroupId.value,
-    ...selectedInterval.value,
+    ...interval,
     annotationKind: 'rootCause',
     rootCause,
     confidenceCause: episodeForm.value.confidenceCause,
-    comment: episodeForm.value.comment
+    comment: episodeForm.value.comment,
+    actions: episodeForm.value.rootCauseActions
+  }))
+
+  newAnnotations.forEach((annotation) => normalizeAnnotationsForLayer(annotation))
+
+  if (newAnnotations.length === 1) {
+    editingAnnotationId.value = newAnnotations[0]?.id ?? null
+    editingAnnotationKind.value = 'rootCause'
+  } else {
+    editingAnnotationId.value = null
+    editingAnnotationKind.value = null
   }
 
-  normalizeAnnotationsForLayer(newAnnotation)
-  editingAnnotationId.value = newAnnotation.id
-  editingAnnotationKind.value = 'rootCause'
-  message.success('Аннотация режима сохранена.')
+  const saved = await persistMarkupNow()
+  const successMessage =
+    newAnnotations.length > 1 ? `Аннотации режима сохранены: ${newAnnotations.length}.` : 'Аннотация режима сохранена.'
+  message[saved ? 'success' : 'warning'](
+    saved ? successMessage : 'Аннотация создана в интерфейсе, но не сохранена на backend.'
+  )
 }
 
-function deleteAnnotation() {
+async function deleteAnnotation() {
   if (!editingAnnotationId.value) {
     return
   }
@@ -2058,29 +2965,56 @@ function deleteAnnotation() {
   editingAnnotationKind.value = null
   selectedInterval.value = null
   episodeForm.value = createDefaultEpisodeForm()
-  message.success('Аннотация удалена.')
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Аннотация удалена.' : 'Аннотация удалена в интерфейсе, но не сохранена на backend.'
+  )
 }
 
 watch(
   savedAnnotations,
-  (annotations) => {
-    writeStoredValue(MARKUP_STORAGE_KEYS.annotations, annotations)
+  () => {
+    scheduleMarkupSave()
   },
   { deep: true }
 )
 
 watch(
   episodeTypeOptions,
-  (options) => {
-    writeStoredValue(MARKUP_STORAGE_KEYS.episodeClasses, options)
+  () => {
+    scheduleMarkupSave()
   },
   { deep: true }
 )
 
 watch(
   rootCauseOptions,
-  (options) => {
-    writeStoredValue(MARKUP_STORAGE_KEYS.modeClasses, options)
+  () => {
+    scheduleMarkupSave()
+  },
+  { deep: true }
+)
+
+watch(
+  actionOptions,
+  () => {
+    scheduleMarkupSave()
+  },
+  { deep: true }
+)
+
+watch(
+  manualFrequencyBreakpoints,
+  () => {
+    scheduleMarkupSave()
+  },
+  { deep: true }
+)
+
+watch(
+  suppressedFrequencyBreakpoints,
+  () => {
+    scheduleMarkupSave()
   },
   { deep: true }
 )
@@ -2090,6 +3024,8 @@ watch(
   (wellId) => {
     groupMigrationTarget.value = wellGroupAssignments.value[wellId] ?? null
     newGroupName.value = ''
+    selectedFrequencyBreakpointId.value = null
+    clearFrequencySegmentSelection()
   },
   { immediate: true }
 )
@@ -2124,7 +3060,7 @@ watch(navigationGroupId, (groupId) => {
 })
 
 onMounted(async () => {
-  restorePersistentMarkup()
+  await restorePersistentMarkup()
 
   wellGroupOptions.value.forEach((group) => {
     const settings = ensureModelSettings(group.value)

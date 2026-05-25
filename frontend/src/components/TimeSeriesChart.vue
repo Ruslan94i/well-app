@@ -1,6 +1,11 @@
 ﻿<template>
   <div class="relative h-[920px] w-full">
-    <div ref="chartEl" class="h-full w-full" @wheel.prevent="handleChartWheel"></div>
+    <div
+      ref="chartEl"
+      class="frequency-chart h-full w-full"
+      :class="{ 'frequency-segment-hover': hoveredFrequencySegmentId }"
+      @wheel.prevent="handleChartWheel"
+    ></div>
     <button
       type="button"
       class="absolute left-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-lg leading-none text-slate-100 shadow-lg transition hover:border-sky-400 hover:text-sky-200 disabled:pointer-events-none disabled:opacity-30"
@@ -26,6 +31,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Plotly from 'plotly.js-dist-min'
 import type {
+  FrequencyBreakpoint,
+  FrequencyBreakpointClickPayload,
+  FrequencySegment,
+  FrequencySegmentClickPayload,
+  FrequencySegmentDoubleClickPayload,
   HierarchicalEventTracks,
   InteractionMode,
   SavedAnnotation,
@@ -44,12 +54,19 @@ const props = defineProps<{
   interactionMode: InteractionMode
   savedAnnotations: SavedAnnotation[]
   selectedAnnotationId: string | null
+  frequencyBreakpoints: FrequencyBreakpoint[]
+  frequencySegments: FrequencySegment[]
+  selectedFrequencyBreakpointId: string | null
+  selectedFrequencySegmentIds: string[]
   visibleDateRange: VisibleDateRange | null
 }>()
 
 const emit = defineEmits<{
   (event: 'interval-selected', value: SelectedInterval | null): void
   (event: 'annotation-clicked', value: TimelineAnnotationClickPayload): void
+  (event: 'frequency-breakpoint-clicked', value: FrequencyBreakpointClickPayload): void
+  (event: 'frequency-segment-clicked', value: FrequencySegmentClickPayload): void
+  (event: 'frequency-segment-double-clicked', value: FrequencySegmentDoubleClickPayload): void
   (event: 'visible-range-changed', value: VisibleDateRange | null): void
   (event: 'background-clicked'): void
 }>()
@@ -70,6 +87,7 @@ interface PlotlySelectedEvent {
 }
 
 interface SavedAnnotationCustomdata {
+  kind?: 'annotation'
   annotationId?: string
   source: 'manual' | 'model'
   layer: 'event' | 'rootCause'
@@ -78,6 +96,16 @@ interface SavedAnnotationCustomdata {
   endDate: string
   durationDays: number
   categoryLabel: string
+  actions: string[]
+  actionsText: string
+}
+
+interface FrequencyBreakpointCustomdata extends FrequencyBreakpoint {
+  kind: 'frequencyBreakpoint'
+}
+
+interface FrequencySegmentCustomdata extends FrequencySegment {
+  kind: 'frequencySegment'
 }
 
 interface OpzCustomdata {
@@ -119,7 +147,9 @@ interface PlotlyRelayoutEvent {
 
 const chartEl = ref<HTMLDivElement | null>(null)
 const handlersAttached = ref(false)
+const hoveredFrequencySegmentId = ref<string | null>(null)
 let suppressBackgroundClickUntil = 0
+let hoveredFrequencySegment: FrequencySegmentCustomdata | null = null
 
 function handleNativeChartClick(event: Event) {
   if (Date.now() < suppressBackgroundClickUntil) {
@@ -547,6 +577,80 @@ function buildMainTraces() {
   return [...visibleSeries, ...opzTrace, ...espWashTrace, selectionHelper]
 }
 
+function buildFrequencySegmentTrace() {
+  if (props.frequencySegments.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: props.frequencySegments.map((item) => toDurationMs(item.startDate, item.endDate)),
+      base: props.frequencySegments.map((item) => item.startDate),
+      y: props.frequencySegments.map(() => 0),
+      width: 0.22,
+      marker: {
+        color: props.frequencySegments.map((item) =>
+          props.selectedFrequencySegmentIds.includes(item.id) ? 'rgba(56,189,248,0.52)' : 'rgba(56,189,248,0.16)'
+        ),
+        line: {
+          color: props.frequencySegments.map((item) =>
+            props.selectedFrequencySegmentIds.includes(item.id) ? 'rgba(248,250,252,0.92)' : 'rgba(125,211,252,0.30)'
+          ),
+          width: props.frequencySegments.map((item) => (props.selectedFrequencySegmentIds.includes(item.id) ? 1.6 : 0.8))
+        }
+      },
+      yaxis: 'y8',
+      showlegend: false,
+      customdata: props.frequencySegments.map((item): FrequencySegmentCustomdata => ({
+        kind: 'frequencySegment',
+        ...item
+      })),
+      hovertemplate:
+        '<b>Промежуток частоты</b><br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Длительность: %{customdata.durationDays} сут.<extra></extra>'
+    }
+  ]
+}
+
+function buildFrequencyBreakpointTrace() {
+  if (props.frequencyBreakpoints.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'scatter',
+      mode: 'markers',
+      x: props.frequencyBreakpoints.map((item) => item.date),
+      y: props.frequencyBreakpoints.map(() => 0),
+      yaxis: 'y8',
+      showlegend: false,
+      marker: {
+        symbol: 'line-ns',
+        size: props.frequencyBreakpoints.map((item) => (item.id === props.selectedFrequencyBreakpointId ? 26 : 22)),
+        color: props.frequencyBreakpoints.map((item) =>
+          item.id === props.selectedFrequencyBreakpointId ? '#f8fafc' : item.source === 'manual' ? '#38bdf8' : '#f59e0b'
+        ),
+        line: {
+          color: props.frequencyBreakpoints.map((item) =>
+            item.id === props.selectedFrequencyBreakpointId ? '#f8fafc' : item.source === 'manual' ? '#0ea5e9' : '#d97706'
+          ),
+          width: props.frequencyBreakpoints.map((item) => (item.id === props.selectedFrequencyBreakpointId ? 4 : 3))
+        }
+      },
+      customdata: props.frequencyBreakpoints.map((item): FrequencyBreakpointCustomdata => ({
+        kind: 'frequencyBreakpoint',
+        ...item
+      })),
+      hovertemplate:
+        '<b>Штрих частоты</b><br>%{customdata.date}<br>%{customdata.reason}<br>' +
+        'Частота: %{customdata.fromFrequency} -> %{customdata.toFrequency}<extra></extra>'
+    }
+  ]
+}
+
 function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'event' | 'rootCause') {
   const trackAnnotations = props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
 
@@ -583,6 +687,7 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
       yaxis: trackAxis,
       showlegend: false,
       customdata: trackAnnotations.map((item) => ({
+        kind: 'annotation',
         annotationId: item.id,
         source: 'manual' as const,
         layer: item.annotationKind,
@@ -590,10 +695,13 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
         startDate: item.startDate,
         endDate: item.endDate,
         durationDays: item.durationDays,
-        categoryLabel: item.annotationKind === 'event' ? getEventTypeLabel(item.eventType) : getRootCauseLabel(item.rootCause)
+        categoryLabel: item.annotationKind === 'event' ? getEventTypeLabel(item.eventType) : getRootCauseLabel(item.rootCause),
+        actions: item.actions ?? [],
+        actionsText: item.actions?.length ? item.actions.join(', ') : 'не назначены'
       })),
       hovertemplate:
         '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Мероприятия: %{customdata.actionsText}<br>' +
         'Длительность: %{customdata.durationDays} сут.<extra></extra>'
     }
   ]
@@ -641,9 +749,11 @@ function buildTrackTraces() {
       : []
 
   return [
+    ...buildFrequencySegmentTrace(),
     ...espInstallationTrace,
     ...buildSavedAnnotationTrace('y8', 'event'),
-    ...buildSavedAnnotationTrace('y9', 'rootCause')
+    ...buildSavedAnnotationTrace('y9', 'rootCause'),
+    ...buildFrequencyBreakpointTrace()
   ]
 }
 
@@ -651,7 +761,7 @@ function getSavedAnnotationTrackRange(annotationKind: 'event' | 'rootCause'): [n
   const laneCount = buildAnnotationLaneAssignment(
     props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
   ).laneCount
-  return [0, Math.max(2, laneCount + 1.6)]
+  return [annotationKind === 'event' ? -0.2 : 0, Math.max(2, laneCount + 1.6)]
 }
 
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
@@ -890,6 +1000,66 @@ const canPanRight = computed(() => {
   const currentRange = getCurrentDateRangeMs()
   return Boolean(fullRange && currentRange && currentRange[1] < fullRange[1] - MS_PER_DAY / 2)
 })
+
+function getPrimaryCustomdata(
+  eventData: Record<string, unknown>
+): SavedAnnotationCustomdata | FrequencyBreakpointCustomdata | FrequencySegmentCustomdata | undefined {
+  const points = (eventData.points as Array<{ customdata?: unknown }> | undefined) ?? []
+  return points[0]?.customdata as
+    | SavedAnnotationCustomdata
+    | FrequencyBreakpointCustomdata
+    | FrequencySegmentCustomdata
+    | undefined
+}
+
+function clearFrequencySegmentHover() {
+  hoveredFrequencySegment = null
+  hoveredFrequencySegmentId.value = null
+}
+
+function getPointerIsoDate(event: MouseEvent, segment: FrequencySegmentCustomdata): string | null {
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!chartEl.value || !currentRange) {
+    return null
+  }
+
+  const rect = chartEl.value.getBoundingClientRect()
+  const plotLeft = rect.left + CHART_MARGIN_LEFT
+  const plotRight = rect.right - CHART_MARGIN_RIGHT
+  const plotWidth = Math.max(1, plotRight - plotLeft)
+  const pointerRatio = Math.min(1, Math.max(0, (event.clientX - plotLeft) / plotWidth))
+  const rawDateMs = currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio
+  const segmentStartMs = parseIsoDateMs(segment.startDate)
+  const segmentEndMs = parseIsoDateMs(segment.endDate)
+
+  if (segmentStartMs === null || segmentEndMs === null) {
+    return formatIsoDateMs(rawDateMs)
+  }
+
+  return formatIsoDateMs(Math.min(segmentEndMs, Math.max(segmentStartMs, rawDateMs)))
+}
+
+function handleNativeChartDoubleClick(event: MouseEvent) {
+  if (props.interactionMode !== 'annotate' || !hoveredFrequencySegment) {
+    return
+  }
+
+  const date = getPointerIsoDate(event, hoveredFrequencySegment)
+  if (!date) {
+    return
+  }
+
+  suppressBackgroundClick(450)
+  emit('frequency-segment-double-clicked', {
+    id: hoveredFrequencySegment.id,
+    wellId: hoveredFrequencySegment.wellId,
+    startDate: hoveredFrequencySegment.startDate,
+    endDate: hoveredFrequencySegment.endDate,
+    durationDays: hoveredFrequencySegment.durationDays,
+    date
+  })
+}
 
 function renderChart() {
   if (!chartEl.value) {
@@ -1233,11 +1403,50 @@ function attachEventHandlers() {
     }
   })
 
+  plotlyElement.on?.('plotly_hover', (eventData: Record<string, unknown>) => {
+    const customdata = getPrimaryCustomdata(eventData)
+
+    if (props.interactionMode === 'annotate' && customdata?.kind === 'frequencySegment') {
+      hoveredFrequencySegment = customdata
+      hoveredFrequencySegmentId.value = customdata.id
+      return
+    }
+
+    clearFrequencySegmentHover()
+  })
+
+  plotlyElement.on?.('plotly_unhover', () => {
+    clearFrequencySegmentHover()
+  })
+
   plotlyElement.on?.('plotly_click', (eventData: Record<string, unknown>) => {
     suppressBackgroundClick()
 
-    const points = (eventData.points as Array<{ customdata?: unknown }> | undefined) ?? []
-    const customdata = points[0]?.customdata as SavedAnnotationCustomdata | undefined
+    const customdata = getPrimaryCustomdata(eventData)
+
+    if (customdata?.kind === 'frequencySegment') {
+      emit('frequency-segment-clicked', {
+        id: customdata.id,
+        wellId: customdata.wellId,
+        startDate: customdata.startDate,
+        endDate: customdata.endDate,
+        durationDays: customdata.durationDays
+      })
+      return
+    }
+
+    if (customdata?.kind === 'frequencyBreakpoint') {
+      emit('frequency-breakpoint-clicked', {
+        id: customdata.id,
+        wellId: customdata.wellId,
+        date: customdata.date,
+        source: customdata.source,
+        reason: customdata.reason,
+        fromFrequency: customdata.fromFrequency,
+        toFrequency: customdata.toFrequency
+      })
+      return
+    }
 
     if (customdata?.layer) {
       emit('annotation-clicked', {
@@ -1247,7 +1456,8 @@ function attachEventHandlers() {
         label: customdata.categoryLabel,
         startDate: customdata.startDate,
         endDate: customdata.endDate,
-        durationDays: customdata.durationDays
+        durationDays: customdata.durationDays,
+        actions: customdata.actions ?? []
       })
     }
   })
@@ -1272,6 +1482,7 @@ function attachEventHandlers() {
   })
 
   chartEl.value?.addEventListener('click', handleNativeChartClick)
+  chartEl.value?.addEventListener('dblclick', handleNativeChartDoubleClick)
 
   handlersAttached.value = true
 }
@@ -1332,6 +1543,10 @@ watch(
     props.interactionMode,
     props.savedAnnotations,
     props.selectedAnnotationId,
+    props.frequencyBreakpoints,
+    props.frequencySegments,
+    props.selectedFrequencyBreakpointId,
+    props.selectedFrequencySegmentIds,
     props.visibleDateRange
   ],
   () => {
@@ -1342,8 +1557,19 @@ watch(
 
 onBeforeUnmount(() => {
   chartEl.value?.removeEventListener('click', handleNativeChartClick)
+  chartEl.value?.removeEventListener('dblclick', handleNativeChartDoubleClick)
   if (chartEl.value) {
     Plotly.purge(chartEl.value)
   }
 })
 </script>
+
+<style scoped>
+.frequency-chart.frequency-segment-hover,
+.frequency-chart.frequency-segment-hover :deep(.nsewdrag),
+.frequency-chart.frequency-segment-hover :deep(.drag),
+.frequency-chart.frequency-segment-hover :deep(.barlayer),
+.frequency-chart.frequency-segment-hover :deep(.bars) {
+  cursor: pointer !important;
+}
+</style>

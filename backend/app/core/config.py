@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
     csv_data_path: Path = Path(__file__).resolve().parents[3] / "well_metrics_v9.csv"
+    markup_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "markup.json"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

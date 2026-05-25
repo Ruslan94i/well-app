@@ -1,10 +1,11 @@
 from fastapi import APIRouter
 
 from app.api.routes.health import router as health_router
+from app.api.routes.markup import router as markup_router
 from app.api.routes.timeseries import router as timeseries_router
 
 
 api_router = APIRouter()
 api_router.include_router(health_router, tags=["health"])
 api_router.include_router(timeseries_router, tags=["timeseries"])
-
+api_router.include_router(markup_router, tags=["markup"])

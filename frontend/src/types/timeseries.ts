@@ -99,6 +99,29 @@ export interface AnnotationClassOption {
   value: string
 }
 
+export type FrequencyBreakpointSource = 'auto' | 'manual'
+
+export interface FrequencyBreakpoint {
+  id: string
+  wellId: string
+  date: string
+  source: FrequencyBreakpointSource
+  reason: string
+  fromFrequency: number | null
+  toFrequency: number | null
+}
+
+export interface FrequencyBreakpointSuppression {
+  id: string
+  wellId: string
+  date: string
+}
+
+export interface FrequencySegment extends SelectedInterval {
+  id: string
+  wellId: string
+}
+
 export type EpisodeType = string
 export type RootCause = string
 
@@ -110,6 +133,8 @@ export interface EpisodeFormState {
   rootCause: RootCause
   confidenceEvent: ConfidenceLevel
   confidenceCause: ConfidenceLevel
+  eventActions: string[]
+  rootCauseActions: string[]
   comment: string
 }
 
@@ -121,6 +146,7 @@ interface AnnotationBase extends SelectedInterval {
   wellGroupId: WellGroupId | null
   annotationKind: AnnotationKind
   comment: string
+  actions: string[]
 }
 
 export interface SavedEventAnnotation extends AnnotationBase {
@@ -137,6 +163,15 @@ export interface SavedRootCauseAnnotation extends AnnotationBase {
 
 export type SavedAnnotation = SavedEventAnnotation | SavedRootCauseAnnotation
 
+export interface MarkupState {
+  annotations: SavedAnnotation[]
+  episodeClasses: AnnotationClassOption[]
+  modeClasses: AnnotationClassOption[]
+  actionClasses: AnnotationClassOption[]
+  manualFrequencyBreakpoints: FrequencyBreakpoint[]
+  suppressedFrequencyBreakpoints: FrequencyBreakpointSuppression[]
+}
+
 export interface TimelineAnnotationClickPayload {
   annotationId?: string
   source: 'manual' | 'model'
@@ -145,4 +180,13 @@ export interface TimelineAnnotationClickPayload {
   startDate: string
   endDate: string
   durationDays: number
+  actions: string[]
+}
+
+export interface FrequencyBreakpointClickPayload extends FrequencyBreakpoint {}
+
+export interface FrequencySegmentClickPayload extends FrequencySegment {}
+
+export interface FrequencySegmentDoubleClickPayload extends FrequencySegment {
+  date: string
 }
