@@ -126,6 +126,7 @@
               @interval-selected="handleIntervalSelected"
               @annotation-clicked="handleAnnotationClicked"
               @frequency-segment-clicked="handleFrequencySegmentClicked"
+              @frequency-segment-add-clicked="armAdditiveFrequencySelection"
               @frequency-segment-double-clicked="handleFrequencySegmentDoubleClicked"
               @frequency-breakpoint-clicked="handleFrequencyBreakpointClicked"
               @visible-range-changed="handleVisibleRangeChanged"
@@ -276,67 +277,6 @@
             <div class="flex items-start justify-between gap-2">
               <div>
                 <h2 class="text-base font-semibold text-slate-100">{{ annotationPanelTitle }}</h2>
-              </div>
-            </div>
-
-            <div
-              v-if="selectedInterval"
-              class="mt-3 rounded-lg border border-sky-500/40 bg-sky-950/30 px-3 py-2.5"
-            >
-              <div class="grid grid-cols-[110px_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 text-sm leading-5">
-                <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Дата</div>
-                <div class="min-w-0 font-medium text-slate-100">
-                  {{ selectedInterval.startDate }} — {{ selectedInterval.endDate }}
-                </div>
-
-                <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Длительность</div>
-                <div class="min-w-0 text-slate-200">{{ selectedInterval.durationDays }} сут.</div>
-
-                <div class="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Группа</div>
-                <div class="min-w-0 text-slate-200">{{ currentWellGroupLabel }}</div>
-              </div>
-              <div class="mt-3 border-t border-sky-500/20 pt-2">
-                <div class="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Границы</div>
-                <div class="grid gap-2 text-sm">
-                  <div class="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
-                    <div class="text-slate-300">Начало</div>
-                    <n-button
-                      size="tiny"
-                      secondary
-                      :disabled="!canShiftIntervalBoundary('start', -1)"
-                      @click="shiftIntervalBoundary('start', -1)"
-                    >
-                      -1 сут.
-                    </n-button>
-                    <n-button
-                      size="tiny"
-                      secondary
-                      :disabled="!canShiftIntervalBoundary('start', 1)"
-                      @click="shiftIntervalBoundary('start', 1)"
-                    >
-                      +1 сут.
-                    </n-button>
-                  </div>
-                  <div class="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2">
-                    <div class="text-slate-300">Конец</div>
-                    <n-button
-                      size="tiny"
-                      secondary
-                      :disabled="!canShiftIntervalBoundary('end', -1)"
-                      @click="shiftIntervalBoundary('end', -1)"
-                    >
-                      -1 сут.
-                    </n-button>
-                    <n-button
-                      size="tiny"
-                      secondary
-                      :disabled="!canShiftIntervalBoundary('end', 1)"
-                      @click="shiftIntervalBoundary('end', 1)"
-                    >
-                      +1 сут.
-                    </n-button>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -972,8 +912,6 @@ interface AnalysisDrillDown {
   confidenceExplanation: string
 }
 
-type IntervalBoundary = 'start' | 'end'
-
 const modelAlgorithmOptions = [
   { value: 'catboost' as const, label: 'CatBoost', help: 'CatBoost — устойчив к шуму' },
   { value: 'gradient_boosting' as const, label: 'Gradient Boosting', help: 'Gradient Boosting — быстрее, но менее устойчив' }
@@ -1589,68 +1527,6 @@ function buildFrequencySegments(
       }
     })
     .filter((segment): segment is FrequencySegment => Boolean(segment))
-}
-
-function clampIsoDate(value: string, minDate: string, maxDate: string): string {
-  if (value < minDate) {
-    return minDate
-  }
-
-  if (value > maxDate) {
-    return maxDate
-  }
-
-  return value
-}
-
-function getShiftedIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): string | null {
-  if (!selectedInterval.value) {
-    return null
-  }
-
-  const fullRange = getFullDateRange(chartData.value)
-  if (!fullRange) {
-    return null
-  }
-
-  const currentDate = boundary === 'start' ? selectedInterval.value.startDate : selectedInterval.value.endDate
-  const nextDate = clampIsoDate(shiftIsoDate(currentDate, dayDelta), fullRange.startDate, fullRange.endDate)
-
-  if (boundary === 'start' && nextDate > selectedInterval.value.endDate) {
-    return null
-  }
-
-  if (boundary === 'end' && nextDate < selectedInterval.value.startDate) {
-    return null
-  }
-
-  return nextDate
-}
-
-function canShiftIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): boolean {
-  if (!selectedInterval.value) {
-    return false
-  }
-
-  const currentDate = boundary === 'start' ? selectedInterval.value.startDate : selectedInterval.value.endDate
-  const nextDate = getShiftedIntervalBoundary(boundary, dayDelta)
-  return Boolean(nextDate && nextDate !== currentDate)
-}
-
-function shiftIntervalBoundary(boundary: IntervalBoundary, dayDelta: number): void {
-  if (!selectedInterval.value) {
-    return
-  }
-
-  const nextDate = getShiftedIntervalBoundary(boundary, dayDelta)
-  if (!nextDate) {
-    return
-  }
-
-  selectedInterval.value =
-    boundary === 'start'
-      ? buildInterval(nextDate, selectedInterval.value.endDate)
-      : buildInterval(selectedInterval.value.startDate, nextDate)
 }
 
 function readStoredValue<T>(key: string, fallbackValue: T): T {
