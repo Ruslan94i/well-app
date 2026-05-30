@@ -176,7 +176,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y6' | 'y8' | 'y9'
+  axis: 'y6' | 'y7' | 'y8' | 'y9'
   label: string
   labelColor: string
   domain: [number, number]
@@ -209,8 +209,8 @@ interface HoverGuideOverlay {
 }
 
 const TRACK_LABEL_LEFT = 22
-const MAIN_CHART_DOMAIN_START = 0.278
-const TRACK_PANEL_TOP = 0.248
+const MAIN_CHART_DOMAIN_START = 0.318
+const TRACK_PANEL_TOP = 0.288
 const TRACK_MAIN_GAP = 0.03
 const CHART_MARGIN_LEFT = 205
 const CHART_MARGIN_RIGHT = 195
@@ -682,46 +682,6 @@ function buildMainTraces() {
     }
   }).filter((trace) => trace.x.length > 0 && trace.y.some((value) => Number.isFinite(value)))
 
-  const opzTrace =
-    props.eventTracks.opzEvents.length > 0
-      ? [
-          {
-            x: props.eventTracks.opzEvents.map((item) => item.date),
-            y: props.eventTracks.opzEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.04),
-            type: 'scatter',
-            mode: 'markers',
-            name: 'ОПЗ',
-            yaxis: 'y',
-            marker: {
-              symbol: 'diamond',
-              size: 11,
-              color: '#d97706',
-              line: {
-                color: '#9a3412',
-                width: 1.2
-              }
-            },
-            customdata: props.eventTracks.opzEvents.map((item) => ({
-              date: item.date,
-              operationType: item.operationType,
-              category: item.category ?? '—',
-              composition: item.composition ?? '—',
-              volume: formatMarkerNumber(item.volume, 1),
-              capexOpex: item.capexOpex ?? '—',
-              comment: item.comment
-            })),
-            hovertemplate:
-              '<b>ОПЗ</b><br>Дата ОПЗ: %{customdata.date}<br>' +
-              'Вид ОПЗ: %{customdata.operationType}<br>' +
-              'Категория (БП/КРС): %{customdata.category}<br>' +
-              'Состав: %{customdata.composition}<br>' +
-              'Объем: %{customdata.volume}<br>' +
-              'Capex/Opex: %{customdata.capexOpex}<br>' +
-              'Комментарий: %{customdata.comment}<extra></extra>'
-          }
-        ]
-      : []
-
   const espWashTrace =
     props.eventTracks.espWashEvents.length > 0
       ? [
@@ -752,77 +712,6 @@ function buildMainTraces() {
         ]
       : []
 
-  const gtmTrace =
-    props.eventTracks.gtmEvents.length > 0
-      ? [
-          {
-            x: props.eventTracks.gtmEvents.map((item) => item.date),
-            y: props.eventTracks.gtmEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.12),
-            type: 'scatter',
-            mode: 'markers',
-            name: 'ГТМ',
-            yaxis: 'y',
-            marker: {
-              symbol: 'square',
-              size: 10,
-              color: '#a855f7',
-              line: {
-                color: '#6d28d9',
-                width: 1.2
-              }
-            },
-            customdata: props.eventTracks.gtmEvents.map((item) => ({
-              date: item.date,
-              operationType: item.operationType,
-              liquidAfter: formatMarkerNumber(item.liquidAfter, 1),
-              comment: item.comment
-            })),
-            hovertemplate:
-              '<b>ГТМ</b><br>Дата запуска скважины: %{customdata.date}<br>' +
-              'Имя ГТМ: %{customdata.operationType}<br>' +
-              'Дебит жидкости после ГТМ, м3: %{customdata.liquidAfter}<br>' +
-              'Комментарий: %{customdata.comment}<extra></extra>'
-          }
-        ]
-      : []
-
-  const gdiTrace =
-    props.eventTracks.gdiEvents.length > 0
-      ? [
-          {
-            x: props.eventTracks.gdiEvents.map((item) => item.date),
-            y: props.eventTracks.gdiEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.16),
-            type: 'scatter',
-            mode: 'markers',
-            name: 'ГДИ',
-            yaxis: 'y',
-            marker: {
-              symbol: 'circle',
-              size: 9,
-              color: '#2dd4bf',
-              line: {
-                color: '#0f766e',
-                width: 1.2
-              }
-            },
-            customdata: props.eventTracks.gdiEvents.map((item) => ({
-              date: item.date,
-              operationType: item.operationType,
-              acceptedVdpPressure: formatMarkerNumber(item.acceptedVdpPressure, 0),
-              productivityVogel: formatMarkerNumber(item.productivityVogel, 1),
-              quality: formatMarkerNumber(item.quality, 0),
-              comment: item.comment
-            })),
-            hovertemplate:
-              '<b>ГДИ</b><br>Дата окончания: %{customdata.date}<br>' +
-              'Вид ГДИ: %{customdata.operationType}<br>' +
-              'Рпл принятое ВДП, кгс/см2: %{customdata.acceptedVdpPressure}<br>' +
-              'Кпрод Вогель, м3/сут/ ат: %{customdata.productivityVogel}<br>' +
-              'Кач-во ГДИ: %{customdata.quality}<extra></extra>'
-          }
-        ]
-      : []
-
   const selectionHelper = {
     x,
     y: x.map(() => baseRange[0]),
@@ -839,7 +728,7 @@ function buildMainTraces() {
     }
   }
 
-  return [...visibleSeries, ...opzTrace, ...espWashTrace, ...gtmTrace, ...gdiTrace, selectionHelper]
+  return [...visibleSeries, ...espWashTrace, selectionHelper]
 }
 
 function buildFrequencySegmentTrace() {
@@ -972,6 +861,126 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
   ]
 }
 
+function buildContextMarkerTrackTraces() {
+  const opzTrace =
+    props.eventTracks.opzEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.opzEvents.map((item) => item.date),
+            y: props.eventTracks.opzEvents.map(() => 0.72),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'ОПЗ',
+            yaxis: 'y7',
+            showlegend: false,
+            cliponaxis: false,
+            marker: {
+              symbol: 'diamond',
+              size: 12,
+              color: '#d97706',
+              line: {
+                color: '#9a3412',
+                width: 1.3
+              }
+            },
+            customdata: props.eventTracks.opzEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              category: item.category ?? '—',
+              composition: item.composition ?? '—',
+              volume: formatMarkerNumber(item.volume, 1),
+              capexOpex: item.capexOpex ?? '—',
+              comment: item.comment
+            })),
+            hovertemplate:
+              '<b>ОПЗ</b><br>Дата ОПЗ: %{customdata.date}<br>' +
+              'Вид ОПЗ: %{customdata.operationType}<br>' +
+              'Категория (БП/КРС): %{customdata.category}<br>' +
+              'Состав: %{customdata.composition}<br>' +
+              'Объем: %{customdata.volume}<br>' +
+              'Capex/Opex: %{customdata.capexOpex}<br>' +
+              'Комментарий: %{customdata.comment}<extra></extra>'
+          }
+        ]
+      : []
+
+  const gtmTrace =
+    props.eventTracks.gtmEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.gtmEvents.map((item) => item.date),
+            y: props.eventTracks.gtmEvents.map(() => 0.5),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'ГТМ',
+            yaxis: 'y7',
+            showlegend: false,
+            cliponaxis: false,
+            marker: {
+              symbol: 'square',
+              size: 11,
+              color: '#a855f7',
+              line: {
+                color: '#6d28d9',
+                width: 1.3
+              }
+            },
+            customdata: props.eventTracks.gtmEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              liquidAfter: formatMarkerNumber(item.liquidAfter, 1),
+              comment: item.comment
+            })),
+            hovertemplate:
+              '<b>ГТМ</b><br>Дата запуска скважины: %{customdata.date}<br>' +
+              'Имя ГТМ: %{customdata.operationType}<br>' +
+              'Дебит жидкости после ГТМ, м3: %{customdata.liquidAfter}<br>' +
+              'Комментарий: %{customdata.comment}<extra></extra>'
+          }
+        ]
+      : []
+
+  const gdiTrace =
+    props.eventTracks.gdiEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.gdiEvents.map((item) => item.date),
+            y: props.eventTracks.gdiEvents.map(() => 0.28),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'ГДИ',
+            yaxis: 'y7',
+            showlegend: false,
+            cliponaxis: false,
+            marker: {
+              symbol: 'circle',
+              size: 10,
+              color: '#2dd4bf',
+              line: {
+                color: '#0f766e',
+                width: 1.3
+              }
+            },
+            customdata: props.eventTracks.gdiEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              acceptedVdpPressure: formatMarkerNumber(item.acceptedVdpPressure, 0),
+              productivityVogel: formatMarkerNumber(item.productivityVogel, 1),
+              quality: formatMarkerNumber(item.quality, 0)
+            })),
+            hovertemplate:
+              '<b>ГДИ</b><br>Дата окончания: %{customdata.date}<br>' +
+              'Вид ГДИ: %{customdata.operationType}<br>' +
+              'Рпл принятое ВДП, кгс/см2: %{customdata.acceptedVdpPressure}<br>' +
+              'Кпрод Вогель, м3/сут/ ат: %{customdata.productivityVogel}<br>' +
+              'Кач-во ГДИ: %{customdata.quality}<extra></extra>'
+          }
+        ]
+      : []
+
+  return [...opzTrace, ...gtmTrace, ...gdiTrace]
+}
+
 function buildTrackTraces() {
   const espInstallationTrace =
     props.eventTracks.installedEspPeriods.length > 0
@@ -1032,6 +1041,7 @@ function buildTrackTraces() {
 
   return [
     ...buildFrequencySegmentTrace(),
+    ...buildContextMarkerTrackTraces(),
     ...espInstallationTrace,
     ...buildSavedAnnotationTrace('y8', 'event'),
     ...buildSavedAnnotationTrace('y9', 'rootCause'),
@@ -1053,6 +1063,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const rootCauseLaneCount = Math.max(1, Math.ceil(rootCauseRange[1] - 1.6))
 
   const rowSpecs = [
+    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.62, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.56, range: [0, 1] as [number, number] },
     { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
     { axis: 'y9' as const, label: 'Режимы', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange }
@@ -1754,6 +1765,7 @@ function renderChart() {
   const dynamicLevelAxisConfig = buildNiceAxis(getSeriesValues('tr_dynamic_level'), 5)
   const productivityAxisConfig = buildNiceAxis(getSeriesValues('tr_productivity'), 5)
   const trackLayout = getTrackLayoutRows()
+  const contextRow = getTrackRowByAxis(trackLayout.rows, 'y7')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const rootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y9')
@@ -1898,6 +1910,14 @@ function renderChart() {
     yaxis6: {
       domain: espRow.domain,
       range: espRow.range,
+      fixedrange: true,
+      showgrid: false,
+      showticklabels: false,
+      zeroline: false
+    },
+    yaxis7: {
+      domain: contextRow.domain,
+      range: contextRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
