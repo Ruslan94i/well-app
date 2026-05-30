@@ -16,6 +16,32 @@
         {{ item.label }}
       </div>
     </div>
+    <div class="pointer-events-none absolute inset-0 z-[13]">
+      <button
+        v-for="item in trackHoverOverlayItems"
+        :key="item.key"
+        type="button"
+        class="track-hover-hitbox"
+        :style="item.style"
+        @mouseenter="showTrackHoverTooltip($event, item)"
+        @mousemove="showTrackHoverTooltip($event, item)"
+        @mouseleave="clearTrackHoverTooltip"
+        @wheel.prevent="handleChartWheel"
+      />
+    </div>
+    <div v-if="trackHoverTooltip" class="track-hover-tooltip" :style="trackHoverTooltip.style">
+      <div class="text-xs font-semibold text-slate-100">{{ trackHoverTooltip.title }}</div>
+      <div class="mt-1 grid gap-1">
+        <div
+          v-for="(line, index) in trackHoverTooltip.lines"
+          :key="`${line.label}-${index}`"
+          class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[11px]"
+        >
+          <span class="min-w-0 text-slate-400">{{ line.label }}</span>
+          <span class="max-w-[260px] text-right font-medium text-slate-100">{{ line.value }}</span>
+        </div>
+      </div>
+    </div>
     <div v-if="props.interactionMode === 'annotate'" class="pointer-events-none absolute inset-0 z-[9]">
       <div v-if="hoverGuideOverlay" class="hover-guide-line" :style="hoverGuideOverlay.lineStyle"></div>
       <div v-if="hoverGuideOverlay" class="hover-guide-tooltip" :style="hoverGuideOverlay.tooltipStyle">
@@ -197,6 +223,24 @@ interface FrequencySegmentOverlayItem {
   style: Record<string, string>
 }
 
+interface TrackHoverLine {
+  label: string
+  value: string
+}
+
+interface TrackHoverOverlayItem {
+  key: string
+  title: string
+  lines: TrackHoverLine[]
+  style: Record<string, string>
+}
+
+interface TrackHoverTooltip {
+  title: string
+  lines: TrackHoverLine[]
+  style: Record<string, string>
+}
+
 interface HoverGuideMetric {
   key: SeriesKey
   label: string
@@ -236,6 +280,7 @@ const chartEl = ref<HTMLDivElement | null>(null)
 const handlersAttached = ref(false)
 const hoveredFrequencySegmentId = ref<string | null>(null)
 const hoverGuideDate = ref<string | null>(null)
+const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
 let suppressBackgroundClickUntil = 0
@@ -763,7 +808,7 @@ function buildMainTraces() {
       x: seriesX,
       y: seriesY,
       type: 'scatter',
-      mode: 'lines',
+      mode: 'lines+markers',
       name: config.label,
       yaxis: config.axis,
       connectgaps: true,
@@ -772,6 +817,14 @@ function buildMainTraces() {
         width: config.width ?? 2,
         dash: config.dash ?? 'solid',
         shape: config.shape ?? 'linear'
+      },
+      marker: {
+        color: config.color,
+        size: 4,
+        line: {
+          color: '#0f172a',
+          width: 0.6
+        }
       },
       hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
     }
@@ -1061,14 +1114,16 @@ function buildContextMarkerTrackTraces() {
               operationType: item.operationType,
               acceptedVdpPressure: formatMarkerNumber(item.acceptedVdpPressure, 0),
               productivityVogel: formatMarkerNumber(item.productivityVogel, 1),
-              quality: formatMarkerNumber(item.quality, 0)
+              quality: formatMarkerNumber(item.quality, 0),
+              comment: item.comment
             })),
             hovertemplate:
               '<b>ГДИ</b><br>Дата окончания: %{customdata.date}<br>' +
               'Вид ГДИ: %{customdata.operationType}<br>' +
               'Рпл принятое ВДП, кгс/см2: %{customdata.acceptedVdpPressure}<br>' +
               'Кпрод Вогель, м3/сут/ ат: %{customdata.productivityVogel}<br>' +
-              'Кач-во ГДИ: %{customdata.quality}<extra></extra>'
+              'Кач-во ГДИ: %{customdata.quality}<br>' +
+              'Комментарий: %{customdata.comment}<extra></extra>'
           }
         ]
       : []
@@ -1104,7 +1159,7 @@ function buildTrackTraces() {
             textposition: 'inside',
             insidetextanchor: 'middle',
             textfont: {
-              size: 11,
+              size: 22,
               color: '#f8fafc'
             },
             cliponaxis: true,
@@ -1329,6 +1384,207 @@ const trackLabelOverlayItems = computed<TrackLabelOverlayItem[]>(() => {
   })
 })
 
+function getTrackYCenter(axis: TrackLayoutRow['axis'], value: number): number | null {
+  if (chartSize.value.width <= 0 || chartSize.value.height <= 0) {
+    return null
+  }
+
+  const trackLayout = getTrackLayoutRows()
+  const row = getTrackRowByAxis(trackLayout.rows, axis)
+  const plotBounds = getPlotBounds()
+  const rowRangeSpan = row.range[1] - row.range[0]
+  const yRatioInRow = rowRangeSpan > 0 ? (value - row.range[0]) / rowRangeSpan : 0.5
+  const paperY = row.domain[0] + yRatioInRow * (row.domain[1] - row.domain[0])
+
+  return plotBounds.top + (1 - paperY) * plotBounds.height
+}
+
+function getTrackPointOverlayGeometry(
+  axis: TrackLayoutRow['axis'],
+  date: string,
+  value: number,
+  size = 28
+): Record<string, string> | null {
+  const x = getXForDate(date)
+  const centerY = getTrackYCenter(axis, value)
+
+  if (x === null || centerY === null) {
+    return null
+  }
+
+  return {
+    left: `${x - size / 2}px`,
+    top: `${centerY - size / 2}px`,
+    width: `${size}px`,
+    height: `${size}px`
+  }
+}
+
+function getTrackIntervalOverlayGeometry(
+  axis: TrackLayoutRow['axis'],
+  startDate: string,
+  endDate: string,
+  value: number,
+  height = 32
+): Record<string, string> | null {
+  const currentRange = getCurrentDateRangeMs()
+  const startMs = parseIsoDateMs(startDate)
+  const endMs = parseIsoDateMs(endDate)
+  const centerY = getTrackYCenter(axis, value)
+
+  if (!currentRange || startMs === null || endMs === null || centerY === null) {
+    return null
+  }
+
+  const plotBounds = getPlotBounds()
+  const visibleStartMs = currentRange[0]
+  const visibleEndMs = currentRange[1]
+  const visibleSpanMs = Math.max(MS_PER_DAY, visibleEndMs - visibleStartMs)
+  const clippedStartMs = Math.max(startMs, visibleStartMs)
+  const clippedEndMs = Math.min(endMs + MS_PER_DAY, visibleEndMs)
+
+  if (clippedEndMs <= clippedStartMs) {
+    return null
+  }
+
+  const left = plotBounds.left + ((clippedStartMs - visibleStartMs) / visibleSpanMs) * plotBounds.width
+  const width = Math.max(12, ((clippedEndMs - clippedStartMs) / visibleSpanMs) * plotBounds.width)
+
+  return {
+    left: `${left}px`,
+    top: `${centerY - height / 2}px`,
+    width: `${width}px`,
+    height: `${height}px`
+  }
+}
+
+function toTrackLine(label: string, value: string | number | null | undefined): TrackHoverLine {
+  return {
+    label,
+    value: formatEspInfo(value)
+  }
+}
+
+const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
+  const items: TrackHoverOverlayItem[] = []
+
+  props.eventTracks.gtmEvents.forEach((event) => {
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.5, 30)
+    if (!style) return
+
+    items.push({
+      key: `gtm-${event.id}`,
+      title: 'ГТМ',
+      style,
+      lines: [
+        toTrackLine('Дата запуска', event.date),
+        toTrackLine('Имя ГТМ', event.operationType),
+        toTrackLine('Дебит жидкости после ГТМ, м3', formatMarkerNumber(event.liquidAfter, 1)),
+        toTrackLine('Комментарий', event.comment)
+      ]
+    })
+  })
+
+  props.eventTracks.opzEvents.forEach((event) => {
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.72, 30)
+    if (!style) return
+
+    items.push({
+      key: `opz-${event.id}`,
+      title: 'ОПЗ',
+      style,
+      lines: [
+        toTrackLine('Дата ОПЗ', event.date),
+        toTrackLine('Вид ОПЗ', event.operationType),
+        toTrackLine('Категория (БП/КРС)', event.category),
+        toTrackLine('Состав', event.composition),
+        toTrackLine('Объем', formatMarkerNumber(event.volume, 1)),
+        toTrackLine('Capex/Opex', event.capexOpex),
+        toTrackLine('Комментарий', event.comment)
+      ]
+    })
+  })
+
+  props.eventTracks.gdiEvents.forEach((event) => {
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.28, 30)
+    if (!style) return
+
+    items.push({
+      key: `gdi-${event.id}`,
+      title: 'ГДИ',
+      style,
+      lines: [
+        toTrackLine('Дата окончания', event.date),
+        toTrackLine('Вид ГДИ', event.operationType),
+        toTrackLine('Рпл принятое ВДП, кгс/см2', formatMarkerNumber(event.acceptedVdpPressure, 0)),
+        toTrackLine('Кпрод Вогель, м3/сут/ ат', formatMarkerNumber(event.productivityVogel, 1)),
+        toTrackLine('Кач-во ГДИ', formatMarkerNumber(event.quality, 0)),
+        toTrackLine('Комментарий', event.comment)
+      ]
+    })
+  })
+
+  props.eventTracks.installedEspPeriods.forEach((period) => {
+    const endDate = getEffectiveEspEndDate(period.endDate)
+    const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, 0.5, 34)
+    if (!style) return
+
+    items.push({
+      key: `esp-${period.id}`,
+      title: period.espId,
+      style,
+      lines: period.isFountain
+        ? [
+            toTrackLine('Дата монтажа ЭЦН', period.startDate),
+            toTrackLine('Дата демонтажа', period.endDate)
+          ]
+        : [
+            toTrackLine('Дата монтажа ЭЦН', period.startDate),
+            toTrackLine('Дата демонтажа', period.endDate),
+            toTrackLine('Дата отказа', period.failureDate),
+            toTrackLine('Причина подъема', period.liftReason),
+            toTrackLine('Габарит УЭЦН', period.espSize),
+            toTrackLine('Ном. Произв. м3/сут', period.nominalRate),
+            toTrackLine('Тип Газосепаратора', period.gasSeparatorType),
+            toTrackLine('Мощность, кВт для ПЭД', period.motorPowerKw)
+          ]
+    })
+  })
+
+  return items
+})
+
+function showTrackHoverTooltip(event: MouseEvent, item: TrackHoverOverlayItem) {
+  if (!chartEl.value) {
+    return
+  }
+
+  const rect = chartEl.value.getBoundingClientRect()
+  const tooltipWidth = 340
+  const left = Math.min(
+    chartSize.value.width - tooltipWidth - 12,
+    Math.max(12, event.clientX - rect.left + 14)
+  )
+  const top = Math.min(
+    chartSize.value.height - 220,
+    Math.max(12, event.clientY - rect.top + 14)
+  )
+
+  trackHoverTooltip.value = {
+    title: item.title,
+    lines: item.lines,
+    style: {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${tooltipWidth}px`
+    }
+  }
+}
+
+function clearTrackHoverTooltip() {
+  trackHoverTooltip.value = null
+}
+
 function getPointerDateFromEvent(event: MouseEvent): string | null {
   const currentRange = getCurrentDateRangeMs()
 
@@ -1492,6 +1748,7 @@ function handleChartPointerMove(event: MouseEvent) {
 function clearHoverGuide() {
   hoverGuideDate.value = null
   clearFrequencySegmentHover()
+  clearTrackHoverTooltip()
 }
 
 function clampDateRangeMs(startMs: number, endMs: number, fullRange: [number, number]): [number, number] {
@@ -2442,6 +2699,29 @@ onBeforeUnmount(() => {
   padding: 8px 10px;
   font-size: 11px;
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.32);
+}
+
+.track-hover-hitbox {
+  position: absolute;
+  pointer-events: auto;
+  cursor: help;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.track-hover-tooltip {
+  position: absolute;
+  z-index: 14;
+  pointer-events: none;
+  max-height: 300px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 116, 139, 0.78);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.95);
+  padding: 9px 11px;
+  font-size: 11px;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.38);
 }
 
 .frequency-segment-hitbox {
