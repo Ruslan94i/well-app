@@ -95,11 +95,14 @@ import type {
   SeriesKey,
   TimelineAnnotationClickPayload,
   TimeSeriesPoint,
+  TrMonitoringPoint,
+  TrMonitoringSeriesKey,
   VisibleDateRange
 } from '@/types/timeseries'
 
 const props = defineProps<{
   data: TimeSeriesPoint[]
+  trMonitoringData: TrMonitoringPoint[]
   activeSeries: SeriesKey[]
   selectedInterval: SelectedInterval | null
   eventTracks: HierarchicalEventTracks
@@ -257,7 +260,15 @@ function handleNativeChartClick(event: Event) {
 
 const seriesConfig: Record<
   SeriesKey,
-  { label: string; color: string; axis: string; width?: number; dash?: 'solid' | 'dot' }
+  {
+    label: string
+    color: string
+    axis: string
+    width?: number
+    dash?: 'solid' | 'dot' | 'dash' | 'dashdot'
+    source?: 'tr'
+    shape?: 'linear' | 'hv'
+  }
 > = {
   qliq: { label: 'Дебит жидкости', color: '#e5e7eb', axis: 'y', width: 2.8 },
   buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
@@ -275,7 +286,17 @@ const seriesConfig: Record<
   qoil: { label: 'Расход нефти', color: '#c4a484', axis: 'y', width: 2.8 },
   gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
   gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
-  qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' }
+  qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' },
+  tr_reservoir_pressure: { label: 'ТР: Р пл', color: '#fca5a5', axis: 'y3', width: 1.5, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_dynamic_level: { label: 'ТР: Н д', color: '#c084fc', axis: 'y16', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_intake_pressure: { label: 'ТР: Р на приёме', color: '#f87171', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_bottomhole_pressure: { label: 'ТР: Рзаб', color: '#fb923c', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_oil_rate: { label: 'ТР: Q нефти', color: '#c4a484', axis: 'y', width: 1.8, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_liquid_rate: { label: 'ТР: Q жидкости', color: '#e5e7eb', axis: 'y', width: 1.8, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_water_cut: { label: 'ТР: Вода', color: '#7dd3fc', axis: 'y2', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_pump_pressure: { label: 'ТР: Рнас', color: '#facc15', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_gas_factor: { label: 'ТР: ГФ', color: '#a78bfa', axis: 'y13', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_productivity: { label: 'ТР: Кпр', color: '#34d399', axis: 'y17', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' }
 }
 
 function getPaletteColor(label: string, palette: string[]): string {
@@ -459,8 +480,20 @@ function buildNiceAxis(values: Array<number | null>, desiredTicks = 5): { range:
   }
 }
 
+function isTrSeriesKey(key: SeriesKey): key is TrMonitoringSeriesKey {
+  return seriesConfig[key].source === 'tr'
+}
+
 function getSeriesValues(key: SeriesKey): Array<number | null> {
+  if (isTrSeriesKey(key)) {
+    return props.trMonitoringData.map((item) => item[key])
+  }
+
   return props.data.map((item) => item[key])
+}
+
+function getActiveSeriesValues(keys: SeriesKey[]): Array<number | null> {
+  return keys.flatMap((key) => (props.activeSeries.includes(key) ? getSeriesValues(key) : []))
 }
 
 function buildAnnotationLaneAssignment(annotations: SavedAnnotation[]): AnnotationLaneAssignment {
@@ -601,21 +634,30 @@ function buildMainTraces() {
 
   const visibleSeries = props.activeSeries.map((seriesKey) => {
     const config = seriesConfig[seriesKey]
+    const seriesX = isTrSeriesKey(seriesKey)
+      ? props.trMonitoringData.map((item) => item.date)
+      : props.data.map((item) => item.date)
+    const seriesY = isTrSeriesKey(seriesKey)
+      ? props.trMonitoringData.map((item) => item[seriesKey])
+      : props.data.map((item) => item[seriesKey])
+
     return {
-      x,
-      y: props.data.map((item) => item[seriesKey]),
+      x: seriesX,
+      y: seriesY,
       type: 'scatter',
       mode: 'lines',
       name: config.label,
       yaxis: config.axis,
+      connectgaps: true,
       line: {
         color: config.color,
         width: config.width ?? 2,
-        dash: config.dash ?? 'solid'
+        dash: config.dash ?? 'solid',
+        shape: config.shape ?? 'linear'
       },
       hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
     }
-  })
+  }).filter((trace) => trace.x.length > 0 && trace.y.some((value) => Number.isFinite(value)))
 
   const opzTrace =
     props.eventTracks.opzEvents.length > 0
@@ -1045,14 +1087,21 @@ function buildAnnotations() {
 }
 
 function getFullVisibleDateRange(): VisibleDateRange | null {
-  const startDate = props.data[0]?.date
-  const endDate = props.data[props.data.length - 1]?.date
+  const dates = [
+    props.data[0]?.date,
+    props.data[props.data.length - 1]?.date,
+    props.trMonitoringData[0]?.date,
+    props.trMonitoringData[props.trMonitoringData.length - 1]?.date
+  ].filter((value): value is string => Boolean(value))
 
-  if (!startDate || !endDate) {
+  if (!dates.length) {
     return null
   }
 
-  return { startDate, endDate }
+  return {
+    startDate: dates.reduce((minDate, value) => (value < minDate ? value : minDate)),
+    endDate: dates.reduce((maxDate, value) => (value > maxDate ? value : maxDate))
+  }
 }
 
 function parseIsoDateMs(value: string | undefined): number | null {
@@ -1205,6 +1254,30 @@ function getNearestPointByDate(date: string): TimeSeriesPoint | null {
   }, null)
 }
 
+function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
+  const targetMs = parseIsoDateMs(date)
+
+  if (targetMs === null || props.trMonitoringData.length === 0) {
+    return null
+  }
+
+  let latestPoint: TrMonitoringPoint | null = null
+  for (const point of props.trMonitoringData) {
+    const pointMs = parseIsoDateMs(point.date)
+    if (pointMs === null) {
+      continue
+    }
+
+    if (pointMs > targetMs) {
+      break
+    }
+
+    latestPoint = point
+  }
+
+  return latestPoint ?? props.trMonitoringData[0] ?? null
+}
+
 const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
   if (props.interactionMode !== 'annotate' || !hoverGuideDate.value || chartSize.value.width <= 0) {
     return null
@@ -1224,12 +1297,17 @@ const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
     Math.max(CHART_MARGIN_LEFT + 8, x + 12)
   )
   const metrics = props.activeSeries
-    .map((key): HoverGuideMetric => ({
-      key,
-      label: seriesConfig[key].label,
-      color: seriesConfig[key].color,
-      value: formatMetricValue(point[key])
-    }))
+    .map((key): HoverGuideMetric => {
+      const trPoint = isTrSeriesKey(key) ? getTrStepPointByDate(hoverGuideDate.value!) : null
+      const value = isTrSeriesKey(key) ? trPoint?.[key] : point[key]
+
+      return {
+        key,
+        label: seriesConfig[key].label,
+        color: seriesConfig[key].color,
+        value: formatMetricValue(value)
+      }
+    })
     .filter((metric) => metric.value !== '—')
 
   return {
@@ -1585,27 +1663,39 @@ function renderChart() {
 
   const hasGasProductionSeries = props.activeSeries.includes('qgas')
   const hasGasFactorSeries =
-    props.activeSeries.includes('gas_factor') || props.activeSeries.includes('gas_liquid_factor')
+    props.activeSeries.includes('gas_factor') ||
+    props.activeSeries.includes('gas_liquid_factor') ||
+    props.activeSeries.includes('tr_gas_factor')
   const hasPowerSeries = props.activeSeries.includes('active_power') || props.activeSeries.includes('full_power')
   const hasBdpvSeries =
     props.activeSeries.includes('bdpv_volume_rate') || props.activeSeries.includes('bdpv_water_flow')
+  const hasDynamicLevelSeries = props.activeSeries.includes('tr_dynamic_level')
+  const hasProductivitySeries = props.activeSeries.includes('tr_productivity')
   const firstDate = props.data[0]?.date
   const lastDate = props.data[props.data.length - 1]?.date
   const mainAxisConfig = buildNiceAxis([
     ...getSeriesValues('qliq'),
     ...getSeriesValues('qoil'),
-    ...getSeriesValues('qliq_wfm')
+    ...getSeriesValues('qliq_wfm'),
+    ...getActiveSeriesValues(['tr_liquid_rate', 'tr_oil_rate'])
   ], 6)
   const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
   const percentAxisConfig = buildNiceAxis([
     ...getSeriesValues('water_cut'),
-    ...getSeriesValues('load')
+    ...getSeriesValues('load'),
+    ...getActiveSeriesValues(['tr_water_cut'])
   ], 5)
   const pressureAxisConfig = buildNiceAxis([
     ...getSeriesValues('buffer_pressure'),
     ...getSeriesValues('casing_pressure'),
     ...getSeriesValues('intake_pressure'),
-    ...getSeriesValues('collector_pressure')
+    ...getSeriesValues('collector_pressure'),
+    ...getActiveSeriesValues([
+      'tr_reservoir_pressure',
+      'tr_intake_pressure',
+      'tr_bottomhole_pressure',
+      'tr_pump_pressure'
+    ])
   ], 5)
   const frequencyAxisConfig = buildNiceAxis(getSeriesValues('esp_frequency'), 4)
   const powerAxisConfig = buildNiceAxis([
@@ -1618,8 +1708,11 @@ function renderChart() {
   ], 5)
   const factorAxisConfig = buildNiceAxis([
     ...getSeriesValues('gas_factor'),
-    ...getSeriesValues('gas_liquid_factor')
+    ...getSeriesValues('gas_liquid_factor'),
+    ...getActiveSeriesValues(['tr_gas_factor'])
   ], 5)
+  const dynamicLevelAxisConfig = buildNiceAxis(getSeriesValues('tr_dynamic_level'), 5)
+  const productivityAxisConfig = buildNiceAxis(getSeriesValues('tr_productivity'), 5)
   const trackLayout = getTrackLayoutRows()
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
@@ -1857,6 +1950,47 @@ function renderChart() {
     })
   }
 
+  if (hasDynamicLevelSeries) {
+    Object.assign(layout, {
+      yaxis16: {
+        title: 'ТР: Н д',
+        overlaying: 'y',
+        side: 'left',
+        anchor: 'free',
+        position: 0.215,
+        range: dynamicLevelAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#c084fc', size: 11 },
+        tickfont: { color: '#c084fc', size: 10 },
+        tickmode: 'linear',
+        tick0: dynamicLevelAxisConfig.tick0,
+        dtick: dynamicLevelAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
+  if (hasProductivitySeries) {
+    Object.assign(layout, {
+      yaxis17: {
+        title: 'ТР: Кпр',
+        overlaying: 'y',
+        side: 'right',
+        position: 0.85,
+        range: productivityAxisConfig.range,
+        autorange: false,
+        fixedrange: true,
+        titlefont: { color: '#34d399', size: 11 },
+        tickfont: { color: '#34d399', size: 10 },
+        tickmode: 'linear',
+        tick0: productivityAxisConfig.tick0,
+        dtick: productivityAxisConfig.dtick,
+        showgrid: false
+      }
+    })
+  }
+
   if (eventRow) {
     Object.assign(layout, {
       yaxis8: {
@@ -2030,14 +2164,9 @@ function resetZoom() {
     return
   }
 
-  const firstDate = props.data[0]?.date
-  const lastDate = props.data[props.data.length - 1]?.date
+  const nextRange = getFullVisibleDateRange()
 
-  if (firstDate && lastDate) {
-    const nextRange = {
-      startDate: firstDate,
-      endDate: lastDate
-    }
+  if (nextRange) {
     localVisibleDateRange.value = nextRange
     void Plotly.relayout(chartEl.value, {
       'xaxis.range[0]': nextRange.startDate,
@@ -2080,6 +2209,7 @@ watch(
 watch(
   () => [
     props.data,
+    props.trMonitoringData,
     props.activeSeries,
     props.selectedInterval,
     props.eventTracks,

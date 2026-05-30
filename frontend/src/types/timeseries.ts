@@ -20,7 +20,7 @@ export interface TimeSeriesPoint {
   qliq_vfm: number | null
 }
 
-export type SeriesKey =
+export type TelemetrySeriesKey =
   | 'qliq'
   | 'buffer_pressure'
   | 'casing_pressure'
@@ -38,6 +38,34 @@ export type SeriesKey =
   | 'gas_factor'
   | 'gas_liquid_factor'
   | 'qliq_wfm'
+
+export type TrMonitoringSeriesKey =
+  | 'tr_reservoir_pressure'
+  | 'tr_dynamic_level'
+  | 'tr_intake_pressure'
+  | 'tr_bottomhole_pressure'
+  | 'tr_oil_rate'
+  | 'tr_liquid_rate'
+  | 'tr_water_cut'
+  | 'tr_pump_pressure'
+  | 'tr_gas_factor'
+  | 'tr_productivity'
+
+export type SeriesKey = TelemetrySeriesKey | TrMonitoringSeriesKey
+
+export interface TrMonitoringPoint {
+  date: string
+  tr_reservoir_pressure: number | null
+  tr_dynamic_level: number | null
+  tr_intake_pressure: number | null
+  tr_bottomhole_pressure: number | null
+  tr_oil_rate: number | null
+  tr_liquid_rate: number | null
+  tr_water_cut: number | null
+  tr_pump_pressure: number | null
+  tr_gas_factor: number | null
+  tr_productivity: number | null
+}
 
 export interface DateRangeValue {
   start: number | null

@@ -1,11 +1,25 @@
 import axios from 'axios'
-import type { MarkupState, TimeSeriesPoint, WellContext } from '@/types/timeseries'
+import type { MarkupState, TimeSeriesPoint, TrMonitoringPoint, WellContext } from '@/types/timeseries'
 
 const backendBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 const api = axios.create({
   baseURL: `${backendBaseUrl}/api`
 })
+
+interface TrMonitoringApiPoint {
+  date: string
+  reservoir_pressure: number | null
+  dynamic_level: number | null
+  intake_pressure: number | null
+  bottomhole_pressure: number | null
+  oil_rate: number | null
+  liquid_rate: number | null
+  water_cut: number | null
+  pump_pressure: number | null
+  gas_factor: number | null
+  productivity: number | null
+}
 
 export async function fetchWellTimeseries(
   wellId: string,
@@ -23,6 +37,26 @@ export async function fetchWellIds(): Promise<string[]> {
 export async function fetchWellContext(wellId: string): Promise<WellContext> {
   const response = await api.get<WellContext>(`/wells/${wellId}/context`)
   return response.data
+}
+
+export async function fetchTrMonitoring(
+  wellId: string,
+  params: { date_from?: string; date_to?: string }
+): Promise<TrMonitoringPoint[]> {
+  const response = await api.get<TrMonitoringApiPoint[]>(`/wells/${wellId}/tr-monitoring`, { params })
+  return response.data.map((item) => ({
+    date: item.date,
+    tr_reservoir_pressure: item.reservoir_pressure,
+    tr_dynamic_level: item.dynamic_level,
+    tr_intake_pressure: item.intake_pressure,
+    tr_bottomhole_pressure: item.bottomhole_pressure,
+    tr_oil_rate: item.oil_rate,
+    tr_liquid_rate: item.liquid_rate,
+    tr_water_cut: item.water_cut,
+    tr_pump_pressure: item.pump_pressure,
+    tr_gas_factor: item.gas_factor,
+    tr_productivity: item.productivity
+  }))
 }
 
 export async function fetchMarkup(): Promise<MarkupState> {

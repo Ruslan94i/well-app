@@ -112,6 +112,7 @@
             <TimeSeriesChart
               ref="chartRef"
               :data="chartData"
+              :tr-monitoring-data="trMonitoringData"
               :active-series="activeSeries"
               :selected-interval="selectedInterval"
               :event-tracks="eventTracks"
@@ -708,7 +709,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { buildEspInstallationPeriods } from '@/data/espInstallations'
-import { fetchMarkup, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
+import { fetchMarkup, fetchTrMonitoring, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -736,6 +737,7 @@ import type {
   SeriesKey,
   TimelineAnnotationClickPayload,
   TimeSeriesPoint,
+  TrMonitoringPoint,
   VisibleDateRange,
   WellContext,
   WellGroupId
@@ -788,7 +790,17 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Расход нефти', value: 'qoil' },
   { label: 'Газовый фактор', value: 'gas_factor' },
   { label: 'Газожидкостный фактор', value: 'gas_liquid_factor' },
-  { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' }
+  { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' },
+  { label: 'ТР: Р пл', value: 'tr_reservoir_pressure' },
+  { label: 'ТР: Н д', value: 'tr_dynamic_level' },
+  { label: 'ТР: Р на приёме', value: 'tr_intake_pressure' },
+  { label: 'ТР: Рзаб', value: 'tr_bottomhole_pressure' },
+  { label: 'ТР: Q нефти', value: 'tr_oil_rate' },
+  { label: 'ТР: Q жидкости', value: 'tr_liquid_rate' },
+  { label: 'ТР: Вода', value: 'tr_water_cut' },
+  { label: 'ТР: Рнас', value: 'tr_pump_pressure' },
+  { label: 'ТР: ГФ', value: 'tr_gas_factor' },
+  { label: 'ТР: Кпр', value: 'tr_productivity' }
 ]
 
 function createDefaultEpisodeForm(): EpisodeFormState {
@@ -1104,6 +1116,7 @@ const dateRange = ref<[number, number] | null>(null)
 const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_pressure', 'esp_frequency', 'active_power']
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
 const chartData = ref<TimeSeriesPoint[]>([])
+const trMonitoringData = ref<TrMonitoringPoint[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
@@ -1155,6 +1168,7 @@ const markupLoaded = ref(false)
 const markupSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const useMockTelemetry = import.meta.env.VITE_USE_MOCK_TELEMETRY === 'true'
 const useMockEvents = import.meta.env.VITE_USE_MOCK_EVENTS === 'true'
+const minTrChartStartDate = '2024-11-01'
 
 function buildContextTracks(context: WellContext | null): Pick<HierarchicalEventTracks, 'opzEvents' | 'gtmEvents' | 'gdiEvents'> {
   if (!context || context.wellId !== selectedWell.value) {
@@ -1411,15 +1425,29 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
   clearFrequencySegmentSelection()
 }
 
-function getFullDateRange(data: TimeSeriesPoint[]): VisibleDateRange | null {
-  const startDate = data[0]?.date
-  const endDate = data[data.length - 1]?.date
+function subtractMonthsIsoDate(date: string, months: number): string {
+  const nextDate = new Date(`${date}T00:00:00`)
+  nextDate.setMonth(nextDate.getMonth() - months)
 
-  if (!startDate || !endDate) {
+  return nextDate.toISOString().slice(0, 10)
+}
+
+function getFullDateRange(data: TimeSeriesPoint[], trData: TrMonitoringPoint[] = []): VisibleDateRange | null {
+  const startDate = data[0]?.date
+  const endDates = [
+    data[data.length - 1]?.date,
+    trData[trData.length - 1]?.date
+  ].filter((value): value is string => Boolean(value))
+
+  if (!startDate || !endDates.length) {
     return null
   }
 
-  return { startDate, endDate }
+  const twoMonthsBeforeTelemetry = subtractMonthsIsoDate(startDate, 2)
+  const chartStartDate = twoMonthsBeforeTelemetry < minTrChartStartDate ? minTrChartStartDate : twoMonthsBeforeTelemetry
+  const endDate = endDates.reduce((maxDate, value) => (value > maxDate ? value : maxDate))
+
+  return { startDate: chartStartDate, endDate }
 }
 
 function createAnnotationId(kind: AnnotationKind): string {
@@ -2359,6 +2387,7 @@ function buildWellGroupOptions(wellIds: string[]): { label: string; value: WellG
 async function loadData() {
   if (!selectedWell.value) {
     chartData.value = []
+    trMonitoringData.value = []
     visibleDateRange.value = null
     wellContext.value = null
     return
@@ -2367,6 +2396,7 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   wellContext.value = null
+  trMonitoringData.value = []
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
   editingAnnotationId.value = null
@@ -2375,22 +2405,36 @@ async function loadData() {
   clearFrequencySegmentSelection()
   episodeForm.value = createDefaultEpisodeForm()
   const [start, end] = dateRange.value ?? []
+  const dateFrom = toIsoDate(start)
+  const dateTo = toIsoDate(end)
+  const trDateFrom = dateFrom
+    ? Math.max(
+        new Date(`${subtractMonthsIsoDate(dateFrom, 2)}T00:00:00`).getTime(),
+        new Date(`${minTrChartStartDate}T00:00:00`).getTime()
+      )
+    : null
   const params = {
-    date_from: toIsoDate(start),
-    date_to: toIsoDate(end)
+    date_from: dateFrom,
+    date_to: dateTo
+  }
+  const trParams = {
+    date_from: trDateFrom ? new Date(trDateFrom).toISOString().slice(0, 10) : undefined,
+    date_to: dateTo
   }
 
   try {
-    const [data, context] = await Promise.all([
+    const [data, context, trData] = await Promise.all([
       useMockTelemetry
         ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
         : fetchWellTimeseries(selectedWell.value, params),
-      fetchWellContext(selectedWell.value).catch(() => null)
+      fetchWellContext(selectedWell.value).catch(() => null),
+      fetchTrMonitoring(selectedWell.value, trParams).catch(() => [])
     ])
 
     chartData.value = data
     wellContext.value = context
-    visibleDateRange.value = getFullDateRange(data)
+    trMonitoringData.value = trData
+    visibleDateRange.value = getFullDateRange(data, trData)
     if (!context) {
       message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
     }
@@ -2398,6 +2442,7 @@ async function loadData() {
     const fallbackData = generateMockTimeseries(selectedWell.value, params)
 
     chartData.value = fallbackData
+    trMonitoringData.value = []
     wellContext.value = null
     visibleDateRange.value = getFullDateRange(fallbackData)
     errorMessage.value = 'Не удалось загрузить временные ряды. Убедитесь, что backend запущен на http://localhost:8000.'

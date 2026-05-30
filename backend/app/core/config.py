@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     csv_data_path: Path = Path(__file__).resolve().parents[3] / "well_metrics_v9.csv"
     markup_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "markup.json"
     reference_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "reference"
+    tr_monitoring_data_path: Path = reference_data_path / "tr_monitoring.csv"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
