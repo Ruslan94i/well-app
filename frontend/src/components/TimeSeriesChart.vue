@@ -20,7 +20,10 @@
       <div v-if="hoverGuideOverlay" class="hover-guide-line" :style="hoverGuideOverlay.lineStyle"></div>
       <div v-if="hoverGuideOverlay" class="hover-guide-tooltip" :style="hoverGuideOverlay.tooltipStyle">
         <div class="text-xs font-semibold text-slate-100">{{ hoverGuideOverlay.date }}</div>
-        <div class="mt-1 grid gap-1">
+        <div
+          class="mt-1 grid gap-1"
+          :class="hoverGuideOverlay.metrics.length > 8 ? 'grid-cols-2' : 'grid-cols-1'"
+        >
           <div
             v-for="metric in hoverGuideOverlay.metrics"
             :key="metric.key"
@@ -1329,28 +1332,15 @@ function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
   return latestPoint ?? props.trMonitoringData[0] ?? null
 }
 
-const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
-  if (props.interactionMode !== 'annotate' || !hoverGuideDate.value || chartSize.value.width <= 0) {
-    return null
-  }
+function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
+  const telemetryPoint = getNearestPointByDate(date)
+  const trPoint = getTrStepPointByDate(date)
 
-  const x = getXForDate(hoverGuideDate.value)
-  const point = getNearestPointByDate(hoverGuideDate.value)
-
-  if (x === null || !point) {
-    return null
-  }
-
-  const plotBounds = getPlotBounds()
-  const tooltipWidth = 270
-  const tooltipLeft = Math.min(
-    chartSize.value.width - tooltipWidth - 12,
-    Math.max(CHART_MARGIN_LEFT + 8, x + 12)
-  )
-  const metrics = props.activeSeries
+  return props.activeSeries
     .map((key): HoverGuideMetric => {
-      const trPoint = isTrSeriesKey(key) ? getTrStepPointByDate(hoverGuideDate.value!) : null
-      const value = isTrSeriesKey(key) ? trPoint?.[key] : point[key]
+      const value = isTrSeriesKey(key)
+        ? trPoint?.[key]
+        : telemetryPoint?.[key]
 
       return {
         key,
@@ -1360,9 +1350,29 @@ const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
       }
     })
     .filter((metric) => metric.value !== '—')
+}
+
+const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
+  if (props.interactionMode !== 'annotate' || !hoverGuideDate.value || chartSize.value.width <= 0) {
+    return null
+  }
+
+  const x = getXForDate(hoverGuideDate.value)
+  const metrics = buildHoverGuideMetrics(hoverGuideDate.value)
+
+  if (x === null || metrics.length === 0) {
+    return null
+  }
+
+  const plotBounds = getPlotBounds()
+  const tooltipWidth = metrics.length > 8 ? 520 : 300
+  const tooltipLeft = Math.min(
+    chartSize.value.width - tooltipWidth - 12,
+    Math.max(CHART_MARGIN_LEFT + 8, x + 12)
+  )
 
   return {
-    date: point.date,
+    date: hoverGuideDate.value,
     lineStyle: {
       left: `${x}px`,
       top: `${plotBounds.top}px`,
