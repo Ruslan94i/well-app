@@ -42,7 +42,7 @@
         </div>
       </div>
     </div>
-    <div v-if="props.interactionMode === 'annotate'" class="pointer-events-none absolute inset-0 z-[9]">
+    <div v-if="hoverGuideOverlay" class="pointer-events-none absolute inset-0 z-[9]">
       <div v-if="hoverGuideOverlay" class="hover-guide-line" :style="hoverGuideOverlay.lineStyle"></div>
       <div v-if="hoverGuideOverlay" class="hover-guide-tooltip" :style="hoverGuideOverlay.tooltipStyle">
         <div class="text-xs font-semibold text-slate-100">{{ hoverGuideOverlay.date }}</div>
@@ -61,6 +61,8 @@
           </div>
         </div>
       </div>
+    </div>
+    <div v-if="props.interactionMode === 'annotate'" class="pointer-events-none absolute inset-0 z-[9]">
       <button
         v-for="item in frequencySegmentOverlayItems"
         :key="item.segment.id"
@@ -1701,7 +1703,7 @@ function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
 }
 
 const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
-  if (props.interactionMode !== 'annotate' || !hoverGuideDate.value || chartSize.value.width <= 0) {
+  if (!hoverGuideDate.value || chartSize.value.width <= 0) {
     return null
   }
 
@@ -2157,7 +2159,7 @@ function renderChart() {
     margin: { l: CHART_MARGIN_LEFT, r: CHART_MARGIN_RIGHT, t: 24, b: 42 },
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
     selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined,
-    hovermode: 'x unified',
+    hovermode: false,
     barmode: 'overlay',
     uirevision: firstDate && lastDate ? `${firstDate}-${lastDate}` : 'empty',
     legend: {
