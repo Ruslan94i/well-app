@@ -708,7 +708,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { buildEspInstallationPeriods } from '@/data/espInstallations'
-import { fetchMarkup, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
+import { fetchMarkup, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -724,8 +724,10 @@ import type {
   FrequencySegment,
   FrequencySegmentClickPayload,
   FrequencySegmentDoubleClickPayload,
+  HierarchicalEventTracks,
   InteractionMode,
   MarkupState,
+  OpzEventFlag,
   RootCause,
   SavedAnnotation,
   SavedEventAnnotation,
@@ -735,6 +737,7 @@ import type {
   TimelineAnnotationClickPayload,
   TimeSeriesPoint,
   VisibleDateRange,
+  WellContext,
   WellGroupId
 } from '@/types/timeseries'
 
@@ -1147,17 +1150,75 @@ const newEventActionName = ref('')
 const newModeActionName = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const wellContext = ref<WellContext | null>(null)
 const markupLoaded = ref(false)
 const markupSaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const useMockTelemetry = import.meta.env.VITE_USE_MOCK_TELEMETRY === 'true'
 const useMockEvents = import.meta.env.VITE_USE_MOCK_EVENTS === 'true'
 
+function buildContextTracks(context: WellContext | null): Pick<HierarchicalEventTracks, 'opzEvents' | 'gtmEvents' | 'gdiEvents'> {
+  if (!context || context.wellId !== selectedWell.value) {
+    return {
+      opzEvents: [],
+      gtmEvents: [],
+      gdiEvents: []
+    }
+  }
+
+  return {
+    opzEvents: context.opz.map((item): OpzEventFlag => ({
+      id: item.id,
+      date: item.date,
+      operationType: item.operationType,
+      category: item.category,
+      composition: item.composition,
+      volume: item.volume,
+      capexOpex: item.capexOpex,
+      comment: item.comment
+    })),
+    gtmEvents: context.gtm.map((item) => ({
+      id: item.id,
+      date: item.startDate,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      operationType: item.operationType,
+      comment: item.comment,
+      durationDays: item.durationDays,
+      oilBefore: item.oilBefore,
+      liquidBefore: item.liquidBefore,
+      waterCutBefore: item.waterCutBefore,
+      oilAfter: item.oilAfter,
+      liquidAfter: item.liquidAfter,
+      waterCutAfter: item.waterCutAfter
+    })),
+    gdiEvents: context.gdi.map((item) => ({
+      id: item.id,
+      date: item.endDate,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      operationType: item.operationType,
+      acceptedVdpPressure: item.acceptedVdpPressure,
+      productivityVogel: item.productivityVogel,
+      quality: item.quality,
+      comment: item.comment,
+      executor: item.executor,
+      durationHours: item.durationHours
+    }))
+  }
+}
+
 const eventTracks = computed(() => {
   const tracks = useMockEvents ? generateOldMockEventTracks(chartData.value) : generateMockEventTracksV2(chartData.value)
+  const contextTracks = buildContextTracks(wellContext.value)
+  const hasCurrentContext = wellContext.value?.wellId === selectedWell.value
 
   return {
     ...tracks,
     installedEspPeriods: buildEspInstallationPeriods(selectedWell.value, chartData.value),
+    opzEvents: hasCurrentContext ? contextTracks.opzEvents : tracks.opzEvents,
+    espWashEvents: hasCurrentContext ? [] : tracks.espWashEvents,
+    gtmEvents: contextTracks.gtmEvents,
+    gdiEvents: contextTracks.gdiEvents,
     dailyCauses: [],
     modelEventIntervals: [],
     modelRootCauseIntervals: []
@@ -1437,24 +1498,36 @@ function buildAutoFrequencyBreakpoints(data: TimeSeriesPoint[], wellId: string):
       const previousFrequency = previousPoint.frequency
       const previousIsPositive = isPositiveFrequency(previousFrequency)
       const currentIsPositive = isPositiveFrequency(frequency)
+      let breakpointDate = ''
       let reason = ''
 
       if (!previousIsPositive && currentIsPositive) {
+        breakpointDate = point.date
         reason = `Переход частоты ЭЦН от 0 до ${formatFrequencyValue(frequency)}`
       } else if (previousIsPositive && !currentIsPositive) {
+        breakpointDate = previousPoint.date
         reason = `Переход частоты ЭЦН от ${formatFrequencyValue(previousFrequency)} до 0`
       } else if (previousIsPositive && currentIsPositive) {
-        const changeRatio = Math.abs(frequency - previousFrequency) / Math.abs(previousFrequency)
-        if (changeRatio > FREQUENCY_CHANGE_THRESHOLD) {
-          reason = `Изменение частоты ЭЦН на ${Math.round(changeRatio * 100)}%`
+        if (frequency > previousFrequency) {
+          const increaseRatio = (frequency - previousFrequency) / previousFrequency
+          if (increaseRatio >= FREQUENCY_CHANGE_THRESHOLD) {
+            breakpointDate = point.date
+            reason = `Рост частоты ЭЦН на ${Math.round(increaseRatio * 100)}%`
+          }
+        } else if (frequency < previousFrequency) {
+          const previousWasHigherRatio = (previousFrequency - frequency) / frequency
+          if (previousWasHigherRatio >= FREQUENCY_CHANGE_THRESHOLD) {
+            breakpointDate = previousPoint.date
+            reason = `Снижение частоты ЭЦН: предыдущая частота выше на ${Math.round(previousWasHigherRatio * 100)}%`
+          }
         }
       }
 
-      if (reason) {
+      if (breakpointDate && reason) {
         upsertAutoBreakpoint(breakpointsByDate, {
-          id: createFrequencyBreakpointId('auto', wellId, point.date),
+          id: createFrequencyBreakpointId('auto', wellId, breakpointDate),
           wellId,
-          date: point.date,
+          date: breakpointDate,
           source: 'auto',
           reason,
           fromFrequency: previousFrequency,
@@ -2287,11 +2360,13 @@ async function loadData() {
   if (!selectedWell.value) {
     chartData.value = []
     visibleDateRange.value = null
+    wellContext.value = null
     return
   }
 
   loading.value = true
   errorMessage.value = ''
+  wellContext.value = null
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
   editingAnnotationId.value = null
@@ -2306,16 +2381,24 @@ async function loadData() {
   }
 
   try {
-    const data = useMockTelemetry
-      ? generateMockTimeseries(selectedWell.value, params)
-      : await fetchWellTimeseries(selectedWell.value, params)
+    const [data, context] = await Promise.all([
+      useMockTelemetry
+        ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
+        : fetchWellTimeseries(selectedWell.value, params),
+      fetchWellContext(selectedWell.value).catch(() => null)
+    ])
 
     chartData.value = data
+    wellContext.value = context
     visibleDateRange.value = getFullDateRange(data)
+    if (!context) {
+      message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
+    }
   } catch {
     const fallbackData = generateMockTimeseries(selectedWell.value, params)
 
     chartData.value = fallbackData
+    wellContext.value = null
     visibleDateRange.value = getFullDateRange(fallbackData)
     errorMessage.value = 'Не удалось загрузить временные ряды. Убедитесь, что backend запущен на http://localhost:8000.'
     message.error(errorMessage.value)

@@ -1,12 +1,37 @@
 ﻿<template>
-  <div class="relative h-[920px] w-full">
+  <div class="relative h-[920px] w-full" @mousemove="handleChartPointerMove" @mouseleave="clearHoverGuide">
     <div
       ref="chartEl"
       class="frequency-chart h-full w-full"
       :class="{ 'frequency-segment-hover': hoveredFrequencySegmentId }"
       @wheel.prevent="handleChartWheel"
     ></div>
+    <div class="pointer-events-none absolute inset-0 z-[12]">
+      <div
+        v-for="item in trackLabelOverlayItems"
+        :key="item.key"
+        class="track-label-overlay"
+        :style="item.style"
+      >
+        {{ item.label }}
+      </div>
+    </div>
     <div v-if="props.interactionMode === 'annotate'" class="pointer-events-none absolute inset-0 z-[9]">
+      <div v-if="hoverGuideOverlay" class="hover-guide-line" :style="hoverGuideOverlay.lineStyle"></div>
+      <div v-if="hoverGuideOverlay" class="hover-guide-tooltip" :style="hoverGuideOverlay.tooltipStyle">
+        <div class="text-xs font-semibold text-slate-100">{{ hoverGuideOverlay.date }}</div>
+        <div class="mt-1 grid gap-1">
+          <div
+            v-for="metric in hoverGuideOverlay.metrics"
+            :key="metric.key"
+            class="grid grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2"
+          >
+            <span class="h-2 w-2 rounded-full" :style="{ backgroundColor: metric.color }"></span>
+            <span class="min-w-0 truncate text-slate-300">{{ metric.label }}</span>
+            <span class="font-medium text-slate-100">{{ metric.value }}</span>
+          </div>
+        </div>
+      </div>
       <button
         v-for="item in frequencySegmentOverlayItems"
         :key="item.segment.id"
@@ -155,12 +180,32 @@ interface TrackLayoutRow {
   range: [number, number]
 }
 
+interface TrackLabelOverlayItem {
+  key: TrackLayoutRow['axis']
+  label: string
+  style: Record<string, string>
+}
+
 interface FrequencySegmentOverlayItem {
   segment: FrequencySegment
   style: Record<string, string>
 }
 
-const TRACK_LABEL_COLUMN_X = -0.16
+interface HoverGuideMetric {
+  key: SeriesKey
+  label: string
+  color: string
+  value: string
+}
+
+interface HoverGuideOverlay {
+  date: string
+  lineStyle: Record<string, string>
+  tooltipStyle: Record<string, string>
+  metrics: HoverGuideMetric[]
+}
+
+const TRACK_LABEL_LEFT = 22
 const MAIN_CHART_DOMAIN_START = 0.278
 const TRACK_PANEL_TOP = 0.248
 const TRACK_MAIN_GAP = 0.03
@@ -184,7 +229,9 @@ interface PlotlyRelayoutEvent {
 const chartEl = ref<HTMLDivElement | null>(null)
 const handlersAttached = ref(false)
 const hoveredFrequencySegmentId = ref<string | null>(null)
+const hoverGuideDate = ref<string | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
+const localVisibleDateRange = ref<VisibleDateRange | null>(null)
 let suppressBackgroundClickUntil = 0
 let hoveredFrequencySegment: FrequencySegmentCustomdata | null = null
 let chartResizeObserver: ResizeObserver | null = null
@@ -487,6 +534,36 @@ function getSelectionShapes() {
         dash: 'dot'
       },
       layer: 'below'
+    })),
+    ...props.eventTracks.gtmEvents.map((item) => ({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: item.date,
+      x1: item.date,
+      y0: trackLayout.mainDomain[0],
+      y1: 1,
+      line: {
+        color: 'rgba(168,85,247,0.4)',
+        width: 1.2,
+        dash: 'dot'
+      },
+      layer: 'below'
+    })),
+    ...props.eventTracks.gdiEvents.map((item) => ({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: item.date,
+      x1: item.date,
+      y0: trackLayout.mainDomain[0],
+      y1: 1,
+      line: {
+        color: 'rgba(45,212,191,0.36)',
+        width: 1.2,
+        dash: 'dot'
+      },
+      layer: 'below'
     }))
   ]
   const shapes: Array<Record<string, unknown>> = markerGuideShapes
@@ -562,10 +639,20 @@ function buildMainTraces() {
             customdata: props.eventTracks.opzEvents.map((item) => ({
               date: item.date,
               operationType: item.operationType,
+              category: item.category ?? '—',
+              composition: item.composition ?? '—',
+              volume: formatMarkerNumber(item.volume, 1),
+              capexOpex: item.capexOpex ?? '—',
               comment: item.comment
             })),
             hovertemplate:
-              '<b>ОПЗ</b><br>%{customdata.date}<br>%{customdata.operationType}<br>%{customdata.comment}<extra></extra>'
+              '<b>ОПЗ</b><br>Дата ОПЗ: %{customdata.date}<br>' +
+              'Вид ОПЗ: %{customdata.operationType}<br>' +
+              'Категория (БП/КРС): %{customdata.category}<br>' +
+              'Состав: %{customdata.composition}<br>' +
+              'Объем: %{customdata.volume}<br>' +
+              'Capex/Opex: %{customdata.capexOpex}<br>' +
+              'Комментарий: %{customdata.comment}<extra></extra>'
           }
         ]
       : []
@@ -600,6 +687,77 @@ function buildMainTraces() {
         ]
       : []
 
+  const gtmTrace =
+    props.eventTracks.gtmEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.gtmEvents.map((item) => item.date),
+            y: props.eventTracks.gtmEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.12),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'ГТМ',
+            yaxis: 'y',
+            marker: {
+              symbol: 'square',
+              size: 10,
+              color: '#a855f7',
+              line: {
+                color: '#6d28d9',
+                width: 1.2
+              }
+            },
+            customdata: props.eventTracks.gtmEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              liquidAfter: formatMarkerNumber(item.liquidAfter, 1),
+              comment: item.comment
+            })),
+            hovertemplate:
+              '<b>ГТМ</b><br>Дата запуска скважины: %{customdata.date}<br>' +
+              'Имя ГТМ: %{customdata.operationType}<br>' +
+              'Дебит жидкости после ГТМ, м3: %{customdata.liquidAfter}<br>' +
+              'Комментарий: %{customdata.comment}<extra></extra>'
+          }
+        ]
+      : []
+
+  const gdiTrace =
+    props.eventTracks.gdiEvents.length > 0
+      ? [
+          {
+            x: props.eventTracks.gdiEvents.map((item) => item.date),
+            y: props.eventTracks.gdiEvents.map(() => baseRange[1] - (baseRange[1] - baseRange[0]) * 0.16),
+            type: 'scatter',
+            mode: 'markers',
+            name: 'ГДИ',
+            yaxis: 'y',
+            marker: {
+              symbol: 'circle',
+              size: 9,
+              color: '#2dd4bf',
+              line: {
+                color: '#0f766e',
+                width: 1.2
+              }
+            },
+            customdata: props.eventTracks.gdiEvents.map((item) => ({
+              date: item.date,
+              operationType: item.operationType,
+              acceptedVdpPressure: formatMarkerNumber(item.acceptedVdpPressure, 0),
+              productivityVogel: formatMarkerNumber(item.productivityVogel, 1),
+              quality: formatMarkerNumber(item.quality, 0),
+              comment: item.comment
+            })),
+            hovertemplate:
+              '<b>ГДИ</b><br>Дата окончания: %{customdata.date}<br>' +
+              'Вид ГДИ: %{customdata.operationType}<br>' +
+              'Рпл принятое ВДП, кгс/см2: %{customdata.acceptedVdpPressure}<br>' +
+              'Кпрод Вогель, м3/сут/ ат: %{customdata.productivityVogel}<br>' +
+              'Кач-во ГДИ: %{customdata.quality}<extra></extra>'
+          }
+        ]
+      : []
+
   const selectionHelper = {
     x,
     y: x.map(() => baseRange[0]),
@@ -616,7 +774,7 @@ function buildMainTraces() {
     }
   }
 
-  return [...visibleSeries, ...opzTrace, ...espWashTrace, selectionHelper]
+  return [...visibleSeries, ...opzTrace, ...espWashTrace, ...gtmTrace, ...gdiTrace, selectionHelper]
 }
 
 function buildFrequencySegmentTrace() {
@@ -865,21 +1023,11 @@ function getTrackRowByAxis(
 }
 
 function buildAnnotations() {
-  const trackLayout = getTrackLayoutRows()
-  const annotations: Array<Record<string, unknown>> = trackLayout.rows.map((row) => ({
-    xref: 'paper',
-    yref: 'paper',
-    x: TRACK_LABEL_COLUMN_X,
-    y: (row.domain[0] + row.domain[1]) / 2,
-    xanchor: 'left',
-    yanchor: 'middle',
-    text: `<b>${row.label}</b>`,
-    showarrow: false,
-    align: 'left',
-    font: { size: 11, color: row.labelColor }
-  }))
+  const annotations: Array<Record<string, unknown>> = []
 
   if (props.data.length === 0) {
+    const trackLayout = getTrackLayoutRows()
+
     annotations.push({
       xref: 'paper',
       yref: 'paper',
@@ -941,10 +1089,178 @@ function getFullDateRangeMs(): [number, number] | null {
 
 function getCurrentDateRangeMs(): [number, number] | null {
   const fallbackRange = getFullVisibleDateRange()
-  const startMs = parseIsoDateMs(props.visibleDateRange?.startDate ?? fallbackRange?.startDate)
-  const endMs = parseIsoDateMs(props.visibleDateRange?.endDate ?? fallbackRange?.endDate)
+  const visibleRange = localVisibleDateRange.value ?? props.visibleDateRange ?? fallbackRange
+  const startMs = parseIsoDateMs(visibleRange?.startDate)
+  const endMs = parseIsoDateMs(visibleRange?.endDate)
 
   return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
+}
+
+function getPlotBounds() {
+  const plotWidth = Math.max(1, chartSize.value.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
+  const plotHeight = Math.max(1, chartSize.value.height - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM)
+
+  return {
+    left: CHART_MARGIN_LEFT,
+    right: CHART_MARGIN_LEFT + plotWidth,
+    top: CHART_MARGIN_TOP,
+    bottom: CHART_MARGIN_TOP + plotHeight,
+    width: plotWidth,
+    height: plotHeight
+  }
+}
+
+const trackLabelOverlayItems = computed<TrackLabelOverlayItem[]>(() => {
+  if (chartSize.value.width <= 0 || chartSize.value.height <= 0) {
+    return []
+  }
+
+  const trackLayout = getTrackLayoutRows()
+  const plotBounds = getPlotBounds()
+
+  return trackLayout.rows.map((row) => {
+    const paperY = (row.domain[0] + row.domain[1]) / 2
+    const centerY = plotBounds.top + (1 - paperY) * plotBounds.height
+
+    return {
+      key: row.axis,
+      label: row.label,
+      style: {
+        left: `${TRACK_LABEL_LEFT}px`,
+        top: `${centerY}px`,
+        color: row.labelColor
+      }
+    }
+  })
+})
+
+function getPointerDateFromEvent(event: MouseEvent): string | null {
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!chartEl.value || !currentRange) {
+    return null
+  }
+
+  const rect = chartEl.value.getBoundingClientRect()
+  const plotBounds = getPlotBounds()
+  const localX = event.clientX - rect.left
+
+  if (localX < plotBounds.left || localX > plotBounds.right) {
+    return null
+  }
+
+  const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
+  return formatIsoDateMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
+}
+
+function getXForDate(date: string): number | null {
+  const currentRange = getCurrentDateRangeMs()
+  const dateMs = parseIsoDateMs(date)
+
+  if (!currentRange || dateMs === null) {
+    return null
+  }
+
+  const plotBounds = getPlotBounds()
+  const ratio = (dateMs - currentRange[0]) / Math.max(MS_PER_DAY, currentRange[1] - currentRange[0])
+
+  if (ratio < 0 || ratio > 1) {
+    return null
+  }
+
+  return plotBounds.left + ratio * plotBounds.width
+}
+
+function formatMetricValue(value: number | null | undefined): string {
+  if (!Number.isFinite(value)) {
+    return '—'
+  }
+
+  return Number(value).toFixed(2)
+}
+
+function formatMarkerNumber(value: number | null | undefined, fractionDigits: number): string {
+  if (!Number.isFinite(value)) {
+    return '—'
+  }
+
+  return Number(value).toFixed(fractionDigits)
+}
+
+function getNearestPointByDate(date: string): TimeSeriesPoint | null {
+  const targetMs = parseIsoDateMs(date)
+
+  if (targetMs === null || props.data.length === 0) {
+    return null
+  }
+
+  return props.data.reduce<TimeSeriesPoint | null>((nearestPoint, point) => {
+    if (!nearestPoint) {
+      return point
+    }
+
+    return Math.abs(parseIsoDateMs(point.date)! - targetMs) < Math.abs(parseIsoDateMs(nearestPoint.date)! - targetMs)
+      ? point
+      : nearestPoint
+  }, null)
+}
+
+const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
+  if (props.interactionMode !== 'annotate' || !hoverGuideDate.value || chartSize.value.width <= 0) {
+    return null
+  }
+
+  const x = getXForDate(hoverGuideDate.value)
+  const point = getNearestPointByDate(hoverGuideDate.value)
+
+  if (x === null || !point) {
+    return null
+  }
+
+  const plotBounds = getPlotBounds()
+  const tooltipWidth = 270
+  const tooltipLeft = Math.min(
+    chartSize.value.width - tooltipWidth - 12,
+    Math.max(CHART_MARGIN_LEFT + 8, x + 12)
+  )
+  const metrics = props.activeSeries
+    .map((key): HoverGuideMetric => ({
+      key,
+      label: seriesConfig[key].label,
+      color: seriesConfig[key].color,
+      value: formatMetricValue(point[key])
+    }))
+    .filter((metric) => metric.value !== '—')
+
+  return {
+    date: point.date,
+    lineStyle: {
+      left: `${x}px`,
+      top: `${plotBounds.top}px`,
+      height: `${plotBounds.height}px`
+    },
+    tooltipStyle: {
+      left: `${tooltipLeft}px`,
+      top: `${plotBounds.top + 10}px`,
+      width: `${tooltipWidth}px`
+    },
+    metrics
+  }
+})
+
+function handleChartPointerMove(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+
+  if (target?.closest('.modebar')) {
+    return
+  }
+
+  hoverGuideDate.value = getPointerDateFromEvent(event)
+}
+
+function clearHoverGuide() {
+  hoverGuideDate.value = null
+  clearFrequencySegmentHover()
 }
 
 function clampDateRangeMs(startMs: number, endMs: number, fullRange: [number, number]): [number, number] {
@@ -984,6 +1300,7 @@ function setVisibleDateRange(range: [number, number]) {
     endDate: formatIsoDateMs(range[1])
   }
 
+  localVisibleDateRange.value = nextRange
   void Plotly.relayout(chartEl.value, {
     'xaxis.range[0]': nextRange.startDate,
     'xaxis.range[1]': nextRange.endDate
@@ -1307,6 +1624,7 @@ function renderChart() {
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const rootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y9')
+  const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
     ...getSelectionShapes(),
     {
@@ -1374,9 +1692,7 @@ function renderChart() {
     xaxis: {
       title: 'Дата',
       type: 'date',
-      range: props.visibleDateRange
-        ? [props.visibleDateRange.startDate, props.visibleDateRange.endDate]
-        : undefined,
+      range: visibleRangeForLayout ? [visibleRangeForLayout.startDate, visibleRangeForLayout.endDate] : undefined,
       tickformat: '%Y-%m-%d',
       showgrid: true,
       titlefont: { color: '#cbd5e1', size: 11 },
@@ -1672,15 +1988,19 @@ function attachEventHandlers() {
     const rangeEnd = explicitRange?.[1] ?? relayoutData['xaxis.range[1]']
 
     if (rangeStart && rangeEnd) {
-      emit('visible-range-changed', {
+      const nextRange = {
         startDate: rangeStart,
         endDate: rangeEnd
-      })
+      }
+      localVisibleDateRange.value = nextRange
+      emit('visible-range-changed', nextRange)
       return
     }
 
     if (relayoutData['xaxis.autorange']) {
-      emit('visible-range-changed', getFullVisibleDateRange())
+      const fullRange = getFullVisibleDateRange()
+      localVisibleDateRange.value = fullRange
+      emit('visible-range-changed', fullRange)
     }
   })
 
@@ -1714,13 +2034,19 @@ function resetZoom() {
   const lastDate = props.data[props.data.length - 1]?.date
 
   if (firstDate && lastDate) {
+    const nextRange = {
+      startDate: firstDate,
+      endDate: lastDate
+    }
+    localVisibleDateRange.value = nextRange
     void Plotly.relayout(chartEl.value, {
-      'xaxis.range[0]': firstDate,
-      'xaxis.range[1]': lastDate
+      'xaxis.range[0]': nextRange.startDate,
+      'xaxis.range[1]': nextRange.endDate
     })
     return
   }
 
+  localVisibleDateRange.value = getFullVisibleDateRange()
   void Plotly.relayout(chartEl.value, {
     'xaxis.autorange': true
   })
@@ -1742,6 +2068,14 @@ onMounted(() => {
     chartResizeObserver.observe(chartEl.value)
   }
 })
+
+watch(
+  () => props.visibleDateRange,
+  (visibleRange) => {
+    localVisibleDateRange.value = visibleRange
+  },
+  { deep: true, immediate: true }
+)
 
 watch(
   () => [
@@ -1818,6 +2152,36 @@ onBeforeUnmount(() => {
 .frequency-chart.frequency-segment-hover :deep(.barlayer),
 .frequency-chart.frequency-segment-hover :deep(.bars) {
   cursor: pointer !important;
+}
+
+.track-label-overlay {
+  position: absolute;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(2, 6, 23, 0.88);
+}
+
+.hover-guide-line {
+  position: absolute;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: rgba(226, 232, 240, 0.74);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.16);
+}
+
+.hover-guide-tooltip {
+  position: absolute;
+  max-height: 360px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 116, 139, 0.72);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.92);
+  padding: 8px 10px;
+  font-size: 11px;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.32);
 }
 
 .frequency-segment-hitbox {

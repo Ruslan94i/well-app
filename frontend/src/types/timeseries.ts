@@ -75,7 +75,41 @@ export interface OpzEventFlag {
   id: string
   date: string
   operationType: string
+  category?: string | null
+  composition?: string | null
+  volume?: number | null
+  capexOpex?: string | null
   comment: string
+}
+
+export interface GtmEventFlag {
+  id: string
+  date: string
+  startDate: string
+  endDate: string
+  operationType: string
+  comment: string
+  durationDays: number | null
+  oilBefore: number | null
+  liquidBefore: number | null
+  waterCutBefore: number | null
+  oilAfter: number | null
+  liquidAfter: number | null
+  waterCutAfter: number | null
+}
+
+export interface GdiEventFlag {
+  id: string
+  date: string
+  startDate: string
+  endDate: string
+  operationType: string
+  acceptedVdpPressure: number | null
+  productivityVogel: number | null
+  quality: number | null
+  comment: string
+  executor: string | null
+  durationHours: number | null
 }
 
 export interface EspInstallationPeriod {
@@ -90,8 +124,62 @@ export interface HierarchicalEventTracks {
   dailyCauses: DailyCauseBand[]
   opzEvents: OpzEventFlag[]
   espWashEvents: OpzEventFlag[]
+  gtmEvents: GtmEventFlag[]
+  gdiEvents: GdiEventFlag[]
   modelEventIntervals: EventInterval[]
   modelRootCauseIntervals: EventInterval[]
+}
+
+export interface GtmContextEvent {
+  id: string
+  wellId: string
+  startDate: string
+  endDate: string
+  operationType: string
+  direction: string | null
+  durationDays: number | null
+  oilBefore: number | null
+  liquidBefore: number | null
+  waterCutBefore: number | null
+  oilAfter: number | null
+  liquidAfter: number | null
+  waterCutAfter: number | null
+  comment: string
+}
+
+export interface OpzContextEvent {
+  id: string
+  wellId: string
+  date: string
+  operationType: string
+  category: string | null
+  composition: string | null
+  volume: number | null
+  capexOpex: string | null
+  result: string | null
+  deltaOil: number | null
+  comment: string
+}
+
+export interface GdiContextEvent {
+  id: string
+  wellId: string
+  startDate: string
+  endDate: string
+  operationType: string
+  acceptedVdpPressure: number | null
+  productivityVogel: number | null
+  quality: number | null
+  executor: string | null
+  durationHours: number | null
+  comment: string
+}
+
+export interface WellContext {
+  wellId: string
+  gtm: GtmContextEvent[]
+  opz: OpzContextEvent[]
+  gdi: GdiContextEvent[]
 }
 
 export interface AnnotationClassOption {

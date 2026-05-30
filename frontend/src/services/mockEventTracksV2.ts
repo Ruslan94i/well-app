@@ -388,6 +388,8 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
       dailyCauses: [],
       opzEvents: [],
       espWashEvents: [],
+      gtmEvents: [],
+      gdiEvents: [],
       modelEventIntervals: [],
       modelRootCauseIntervals: []
     }
@@ -406,6 +408,8 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
     dailyCauses,
     opzEvents,
     espWashEvents,
+    gtmEvents: [],
+    gdiEvents: [],
     modelEventIntervals,
     modelRootCauseIntervals
   }

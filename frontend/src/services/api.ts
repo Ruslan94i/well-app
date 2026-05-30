@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { MarkupState, TimeSeriesPoint } from '@/types/timeseries'
+import type { MarkupState, TimeSeriesPoint, WellContext } from '@/types/timeseries'
 
 const backendBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -17,6 +17,11 @@ export async function fetchWellTimeseries(
 
 export async function fetchWellIds(): Promise<string[]> {
   const response = await api.get<string[]>('/wells')
+  return response.data
+}
+
+export async function fetchWellContext(wellId: string): Promise<WellContext> {
+  const response = await api.get<WellContext>(`/wells/${wellId}/context`)
   return response.data
 }
 
