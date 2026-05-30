@@ -338,6 +338,29 @@ function getEspSegmentLabel(startDate: string, endDate: string, espId: string): 
   return espId.length > maxLength ? `${espId.slice(0, maxLength)}...` : espId
 }
 
+function getEffectiveEspEndDate(endDate: string | null): string {
+  if (endDate) {
+    return endDate
+  }
+
+  const fallbackDates = [
+    props.data[props.data.length - 1]?.date,
+    props.trMonitoringData[props.trMonitoringData.length - 1]?.date
+  ].filter((value): value is string => Boolean(value))
+
+  return fallbackDates.length
+    ? fallbackDates.reduce((maxDate, value) => (value > maxDate ? value : maxDate))
+    : new Date().toISOString().slice(0, 10)
+}
+
+function formatEspInfo(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '—'
+  }
+
+  return String(value)
+}
+
 function calculateDurationDays(startDate: string, endDate: string): number {
   const start = new Date(startDate)
   const end = new Date(endDate)
@@ -956,7 +979,9 @@ function buildTrackTraces() {
           {
             type: 'bar',
             orientation: 'h',
-            x: props.eventTracks.installedEspPeriods.map((item) => toDurationMs(item.startDate, item.endDate)),
+            x: props.eventTracks.installedEspPeriods.map((item) =>
+              toDurationMs(item.startDate, getEffectiveEspEndDate(item.endDate))
+            ),
             base: props.eventTracks.installedEspPeriods.map((item) => item.startDate),
             y: props.eventTracks.installedEspPeriods.map(() => 0.5),
             width: 0.48,
@@ -970,7 +995,7 @@ function buildTrackTraces() {
             yaxis: 'y6',
             showlegend: false,
             text: props.eventTracks.installedEspPeriods.map((item) =>
-              getEspSegmentLabel(item.startDate, item.endDate, item.espId)
+              getEspSegmentLabel(item.startDate, getEffectiveEspEndDate(item.endDate), item.espId)
             ),
             textposition: 'inside',
             insidetextanchor: 'middle',
@@ -982,10 +1007,25 @@ function buildTrackTraces() {
             customdata: props.eventTracks.installedEspPeriods.map((item) => ({
               espId: item.espId,
               startDate: item.startDate,
-              endDate: item.endDate
+              endDate: item.endDate ?? '—',
+              failureDate: item.failureDate ?? '—',
+              liftReason: item.liftReason ?? '—',
+              espSize: item.espSize ?? '—',
+              nominalRate: formatEspInfo(item.nominalRate),
+              gasSeparatorType: item.gasSeparatorType ?? '—',
+              motorPowerKw: formatEspInfo(item.motorPowerKw)
             })),
-            hovertemplate:
-              '<b>%{customdata.espId}</b><br>%{customdata.startDate} -> %{customdata.endDate}<extra></extra>'
+            hovertemplate: props.eventTracks.installedEspPeriods.map((item) =>
+              item.isFountain
+                ? '<b>%{customdata.espId}</b><br>Дата монтажа ЭЦН: %{customdata.startDate}<br>Дата демонтажа: %{customdata.endDate}<extra></extra>'
+                : '<b>%{customdata.espId}</b><br>Дата монтажа ЭЦН: %{customdata.startDate}<br>Дата демонтажа: %{customdata.endDate}<br>' +
+                  'Дата отказа: %{customdata.failureDate}<br>' +
+                  'Причина подъема: %{customdata.liftReason}<br>' +
+                  'Габарит УЭЦН: %{customdata.espSize}<br>' +
+                  'Ном. Произв. м3/сут: %{customdata.nominalRate}<br>' +
+                  'Тип Газосепаратора: %{customdata.gasSeparatorType}<br>' +
+                  'Мощность, кВт для ПЭД: %{customdata.motorPowerKw}<extra></extra>'
+            )
           }
         ]
       : []

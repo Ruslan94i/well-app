@@ -144,7 +144,14 @@ export interface EspInstallationPeriod {
   id: string
   espId: string
   startDate: string
-  endDate: string
+  endDate: string | null
+  failureDate?: string | null
+  liftReason?: string | null
+  espSize?: string | null
+  nominalRate?: number | null
+  gasSeparatorType?: string | null
+  motorPowerKw?: number | null
+  isFountain?: boolean
 }
 
 export interface HierarchicalEventTracks {
