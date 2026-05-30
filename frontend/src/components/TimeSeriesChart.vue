@@ -271,9 +271,23 @@ const seriesConfig: Record<
     dash?: 'solid' | 'dot' | 'dash' | 'dashdot'
     source?: 'tr'
     shape?: 'linear' | 'hv'
+    chartType?: 'line' | 'bar'
+    barWidthDays?: number
+    barOffsetDays?: number
+    markerLineColor?: string
+    opacity?: number
   }
 > = {
-  qliq: { label: 'Дебит жидкости', color: '#e5e7eb', axis: 'y', width: 2.8 },
+  qliq: {
+    label: 'Дебит жидкости',
+    color: '#020617',
+    axis: 'y',
+    chartType: 'bar',
+    barWidthDays: 0.52,
+    barOffsetDays: -0.44,
+    markerLineColor: 'rgba(226,232,240,0.62)',
+    opacity: 0.9
+  },
   buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
   casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
   load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 1.4 },
@@ -281,12 +295,39 @@ const seriesConfig: Record<
   intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
   esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 1.4 },
   active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 1.3 },
-  bdpv_volume_rate: { label: 'БДПВ Объем в пересчете на сутки', color: '#38bdf8', axis: 'y15', width: 1.3 },
-  bdpv_water_flow: { label: 'БДПВ Расход воды', color: '#06b6d4', axis: 'y15', width: 1.3, dash: 'dot' },
+  bdpv_volume_rate: {
+    label: 'БДПВ Объем в пересчете на сутки',
+    color: '#38bdf8',
+    axis: 'y',
+    chartType: 'bar',
+    barWidthDays: 0.48,
+    barOffsetDays: -0.12,
+    markerLineColor: '#0e7490',
+    opacity: 0.82
+  },
+  bdpv_water_flow: {
+    label: 'БДПВ Расход воды',
+    color: '#0ea5e9',
+    axis: 'y',
+    chartType: 'bar',
+    barWidthDays: 0.3,
+    barOffsetDays: 0.08,
+    markerLineColor: '#075985',
+    opacity: 0.86
+  },
   collector_pressure: { label: 'Давление в коллекторе', color: '#facc15', axis: 'y3', width: 1.35 },
   full_power: { label: 'Полная мощность', color: '#14b8a6', axis: 'y14', width: 1.3 },
   qgas: { label: 'Расход газа на сутки', color: '#fdba74', axis: 'y12', width: 2.1 },
-  qoil: { label: 'Расход нефти', color: '#c4a484', axis: 'y', width: 2.8 },
+  qoil: {
+    label: 'Расход нефти',
+    color: '#92400e',
+    axis: 'y',
+    chartType: 'bar',
+    barWidthDays: 0.44,
+    barOffsetDays: 0.3,
+    markerLineColor: '#451a03',
+    opacity: 0.82
+  },
   gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
   gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
   qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' },
@@ -294,8 +335,28 @@ const seriesConfig: Record<
   tr_dynamic_level: { label: 'ТР: Н д', color: '#c084fc', axis: 'y16', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
   tr_intake_pressure: { label: 'ТР: Р на приёме', color: '#f87171', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
   tr_bottomhole_pressure: { label: 'ТР: Рзаб', color: '#fb923c', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
-  tr_oil_rate: { label: 'ТР: Q нефти', color: '#c4a484', axis: 'y', width: 1.8, dash: 'dash', source: 'tr', shape: 'hv' },
-  tr_liquid_rate: { label: 'ТР: Q жидкости', color: '#e5e7eb', axis: 'y', width: 1.8, dash: 'dash', source: 'tr', shape: 'hv' },
+  tr_oil_rate: {
+    label: 'ТР: Q нефти',
+    color: '#92400e',
+    axis: 'y',
+    source: 'tr',
+    chartType: 'bar',
+    barWidthDays: 0.22,
+    barOffsetDays: 0.48,
+    markerLineColor: '#f59e0b',
+    opacity: 0.9
+  },
+  tr_liquid_rate: {
+    label: 'ТР: Q жидкости',
+    color: '#020617',
+    axis: 'y',
+    source: 'tr',
+    chartType: 'bar',
+    barWidthDays: 0.24,
+    barOffsetDays: -0.66,
+    markerLineColor: 'rgba(226,232,240,0.82)',
+    opacity: 0.94
+  },
   tr_water_cut: { label: 'ТР: Вода', color: '#7dd3fc', axis: 'y2', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
   tr_pump_pressure: { label: 'ТР: Рнас', color: '#facc15', axis: 'y3', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
   tr_gas_factor: { label: 'ТР: ГФ', color: '#a78bfa', axis: 'y13', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
@@ -522,6 +583,20 @@ function getActiveSeriesValues(keys: SeriesKey[]): Array<number | null> {
   return keys.flatMap((key) => (props.activeSeries.includes(key) ? getSeriesValues(key) : []))
 }
 
+function getPrimaryAxisValues(): Array<number | null> {
+  return [
+    ...getSeriesValues('qliq'),
+    ...getSeriesValues('qoil'),
+    ...getSeriesValues('qliq_wfm'),
+    ...getActiveSeriesValues([
+      'tr_liquid_rate',
+      'tr_oil_rate',
+      'bdpv_volume_rate',
+      'bdpv_water_flow'
+    ])
+  ]
+}
+
 function buildAnnotationLaneAssignment(annotations: SavedAnnotation[]): AnnotationLaneAssignment {
   if (annotations.length === 0) {
     return {
@@ -652,11 +727,7 @@ function getSelectionShapes() {
 
 function buildMainTraces() {
   const x = props.data.map((item) => item.date)
-  const baseRange = buildStableRange([
-    ...getSeriesValues('qliq'),
-    ...getSeriesValues('qoil'),
-    ...getSeriesValues('qliq_wfm')
-  ])
+  const baseRange = buildStableRange(getPrimaryAxisValues())
 
   const visibleSeries = props.activeSeries.map((seriesKey) => {
     const config = seriesConfig[seriesKey]
@@ -666,6 +737,27 @@ function buildMainTraces() {
     const seriesY = isTrSeriesKey(seriesKey)
       ? props.trMonitoringData.map((item) => item[seriesKey])
       : props.data.map((item) => item[seriesKey])
+
+    if (config.chartType === 'bar') {
+      return {
+        x: seriesX,
+        y: seriesY,
+        type: 'bar',
+        name: config.label,
+        yaxis: config.axis,
+        width: (config.barWidthDays ?? 0.42) * MS_PER_DAY,
+        offset: (config.barOffsetDays ?? 0) * MS_PER_DAY,
+        opacity: config.opacity ?? 0.82,
+        marker: {
+          color: config.color,
+          line: {
+            color: config.markerLineColor ?? config.color,
+            width: 0.75
+          }
+        },
+        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
+      }
+    }
 
     return {
       x: seriesX,
@@ -1728,18 +1820,11 @@ function renderChart() {
     props.activeSeries.includes('gas_liquid_factor') ||
     props.activeSeries.includes('tr_gas_factor')
   const hasPowerSeries = props.activeSeries.includes('active_power') || props.activeSeries.includes('full_power')
-  const hasBdpvSeries =
-    props.activeSeries.includes('bdpv_volume_rate') || props.activeSeries.includes('bdpv_water_flow')
   const hasDynamicLevelSeries = props.activeSeries.includes('tr_dynamic_level')
   const hasProductivitySeries = props.activeSeries.includes('tr_productivity')
   const firstDate = props.data[0]?.date
   const lastDate = props.data[props.data.length - 1]?.date
-  const mainAxisConfig = buildNiceAxis([
-    ...getSeriesValues('qliq'),
-    ...getSeriesValues('qoil'),
-    ...getSeriesValues('qliq_wfm'),
-    ...getActiveSeriesValues(['tr_liquid_rate', 'tr_oil_rate'])
-  ], 6)
+  const mainAxisConfig = buildNiceAxis(getPrimaryAxisValues(), 6)
   const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
   const percentAxisConfig = buildNiceAxis([
     ...getSeriesValues('water_cut'),
@@ -1762,10 +1847,6 @@ function renderChart() {
   const powerAxisConfig = buildNiceAxis([
     ...getSeriesValues('active_power'),
     ...getSeriesValues('full_power')
-  ], 5)
-  const bdpvAxisConfig = buildNiceAxis([
-    ...getSeriesValues('bdpv_volume_rate'),
-    ...getSeriesValues('bdpv_water_flow')
   ], 5)
   const factorAxisConfig = buildNiceAxis([
     ...getSeriesValues('gas_factor'),
@@ -1858,7 +1939,7 @@ function renderChart() {
       rangeslider: { visible: false }
     },
     yaxis: {
-      title: 'Дебит жидкости / дебит нефти',
+      title: 'Дебиты / БДПВ',
       domain: trackLayout.mainDomain,
       range: mainAxisConfig.range,
       autorange: false,
@@ -1974,27 +2055,6 @@ function renderChart() {
         tickmode: 'linear',
         tick0: powerAxisConfig.tick0,
         dtick: powerAxisConfig.dtick,
-        showgrid: false
-      }
-    })
-  }
-
-  if (hasBdpvSeries) {
-    Object.assign(layout, {
-      yaxis15: {
-        title: 'БДПВ',
-        overlaying: 'y',
-        side: 'left',
-        anchor: 'free',
-        position: 0.16,
-        range: bdpvAxisConfig.range,
-        autorange: false,
-        fixedrange: true,
-        titlefont: { color: '#38bdf8', size: 11 },
-        tickfont: { color: '#38bdf8', size: 10 },
-        tickmode: 'linear',
-        tick0: bdpvAxisConfig.tick0,
-        dtick: bdpvAxisConfig.dtick,
         showgrid: false
       }
     })
