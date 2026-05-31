@@ -16,6 +16,17 @@
         {{ item.label }}
       </div>
     </div>
+    <div class="pointer-events-none absolute inset-0 z-[12]">
+      <div
+        v-for="item in espSegmentLabelOverlayItems"
+        :key="item.key"
+        class="esp-segment-label-overlay"
+        :style="item.style"
+        :title="item.fullLabel"
+      >
+        {{ item.label }}
+      </div>
+    </div>
     <div class="pointer-events-none absolute inset-0 z-[13]">
       <button
         v-for="item in trackHoverOverlayItems"
@@ -219,6 +230,13 @@ interface TrackLayoutRow {
 interface TrackLabelOverlayItem {
   key: TrackLayoutRow['axis']
   label: string
+  style: Record<string, string>
+}
+
+interface EspSegmentLabelOverlayItem {
+  key: string
+  label: string
+  fullLabel: string
   style: Record<string, string>
 }
 
@@ -439,15 +457,7 @@ function getEspColor(espId: string): string {
   return palette[hash % palette.length] ?? '#64748b'
 }
 
-function getEspSegmentLabel(startDate: string, endDate: string, espId: string): string {
-  const durationDays = calculateDurationDays(startDate, endDate)
-
-  if (durationDays < 14) {
-    return ''
-  }
-
-  const maxLength = durationDays >= 120 ? 24 : durationDays >= 60 ? 18 : durationDays >= 30 ? 14 : 9
-
+function getEspSegmentLabel(espId: string, maxLength: number): string {
   return espId.length > maxLength ? `${espId.slice(0, maxLength)}...` : espId
 }
 
@@ -1191,7 +1201,7 @@ function buildTrackTraces() {
             ),
             base: props.eventTracks.installedEspPeriods.map((item) => item.startDate),
             y: props.eventTracks.installedEspPeriods.map(() => 0.5),
-            width: 0.48,
+            width: 0.64,
             marker: {
               color: props.eventTracks.installedEspPeriods.map((item) => getEspColor(item.espId)),
               line: {
@@ -1201,13 +1211,11 @@ function buildTrackTraces() {
             },
             yaxis: 'y6',
             showlegend: false,
-            text: props.eventTracks.installedEspPeriods.map((item) =>
-              getEspSegmentLabel(item.startDate, getEffectiveEspEndDate(item.endDate), item.espId)
-            ),
+            text: props.eventTracks.installedEspPeriods.map(() => ''),
             textposition: 'inside',
             insidetextanchor: 'middle',
             textfont: {
-              size: 22,
+              size: 18,
               color: '#f8fafc'
             },
             cliponaxis: true,
@@ -1219,6 +1227,7 @@ function buildTrackTraces() {
               liftReason: item.liftReason ?? '—',
               espSize: item.espSize ?? '—',
               nominalRate: formatEspInfo(item.nominalRate),
+              nominalHead: formatEspInfo(item.nominalHead),
               gasSeparatorType: item.gasSeparatorType ?? '—',
               motorPowerKw: formatEspInfo(item.motorPowerKw)
             })),
@@ -1230,6 +1239,7 @@ function buildTrackTraces() {
                   'Причина подъема: %{customdata.liftReason}<br>' +
                   'Габарит УЭЦН: %{customdata.espSize}<br>' +
                   'Ном. Произв. м3/сут: %{customdata.nominalRate}<br>' +
+                  'Ном.напор (50Гц): %{customdata.nominalHead}<br>' +
                   'Тип Газосепаратора: %{customdata.gasSeparatorType}<br>' +
                   'Мощность, кВт для ПЭД: %{customdata.motorPowerKw}<extra></extra>'
             )
@@ -1264,7 +1274,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const rowSpecs = [
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
-    { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.56, range: [0, 1] as [number, number] },
+    { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
     { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
     { axis: 'y9' as const, label: 'Режимы', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange }
   ]
@@ -1510,6 +1520,33 @@ function getTrackIntervalOverlayGeometry(
   }
 }
 
+const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() => {
+  const minLabelWidth = 58
+
+  return props.eventTracks.installedEspPeriods
+    .map((period) => {
+      const endDate = getEffectiveEspEndDate(period.endDate)
+      const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, 0.5, 30)
+      if (!style) {
+        return null
+      }
+
+      const width = Number.parseFloat(style.width ?? '0')
+      if (!Number.isFinite(width) || width < minLabelWidth) {
+        return null
+      }
+
+      const maxLength = Math.max(5, Math.floor((width - 18) / 9))
+      return {
+        key: `esp-label-${period.id}`,
+        label: getEspSegmentLabel(period.espId, maxLength),
+        fullLabel: period.espId,
+        style
+      }
+    })
+    .filter((item): item is EspSegmentLabelOverlayItem => Boolean(item))
+})
+
 function toTrackLine(label: string, value: string | number | null | undefined): TrackHoverLine {
   return {
     label,
@@ -1615,6 +1652,7 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
             toTrackLine('Причина подъема', period.liftReason),
             toTrackLine('Габарит УЭЦН', period.espSize),
             toTrackLine('Ном. Произв. м3/сут', period.nominalRate),
+            toTrackLine('Ном.напор (50Гц)', period.nominalHead),
             toTrackLine('Тип Газосепаратора', period.gasSeparatorType),
             toTrackLine('Мощность, кВт для ПЭД', period.motorPowerKw)
           ]
@@ -2759,6 +2797,23 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(2, 6, 23, 0.88);
+}
+
+.esp-segment-label-overlay {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 8px;
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.85);
+  white-space: nowrap;
 }
 
 .hover-guide-line {

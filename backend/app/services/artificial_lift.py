@@ -26,9 +26,11 @@ COLUMNS = {
     "failure_date": "J",
     "dismantle_date": "K",
     "lift_reason": "N",
+    "manufacturer": "S",
     "esp_type": "T",
     "esp_size": "V",
     "nominal_rate": "Y",
+    "nominal_head": "Z",
     "gas_separator_type": "BL",
     "motor_power_kw": "CR",
 }
@@ -153,6 +155,58 @@ def _is_fountain_goal(goal: object) -> bool:
     return normalized.startswith("фонтан")
 
 
+def _format_equipment_number(value: object) -> str | None:
+    parsed = _parse_float(value)
+    if parsed is None:
+        return None
+
+    rounded = round(parsed)
+    if math.isclose(parsed, rounded, abs_tol=0.01):
+        return str(int(rounded))
+
+    return f"{parsed:.1f}".rstrip("0").rstrip(".")
+
+
+def _extract_esp_size(esp_type: object) -> str | None:
+    match = re.search(r"ЭЦН\s*([0-9]+[АAаa]?)", _clean_text(esp_type), flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _normalize_esp_size(size: object, esp_type: object) -> str | None:
+    raw_size = _clean_text(size) or _extract_esp_size(esp_type)
+    if not raw_size:
+        return None
+
+    return raw_size.replace(" ", "").upper().replace("A", "А")
+
+
+def _is_schlumberger_equipment(manufacturer: object, esp_type: object) -> bool:
+    normalized_manufacturer = _clean_text(manufacturer).casefold()
+    if "шлюмберже" in normalized_manufacturer or "schlumberger" in normalized_manufacturer:
+        return True
+
+    normalized_type = _clean_text(esp_type).upper()
+    return bool(re.fullmatch(r"(?:S|SN|G|GN|MT)[A-Z0-9-]+", normalized_type))
+
+
+def _build_esp_id(row: dict[str, object], is_fountain: bool) -> str:
+    if is_fountain:
+        return "Воронка"
+
+    esp_type = _clean_text(row.get(COLUMNS["esp_type"]))
+    if _is_schlumberger_equipment(row.get(COLUMNS["manufacturer"]), esp_type):
+        return esp_type or "УЭЦН"
+
+    esp_size = _normalize_esp_size(row.get(COLUMNS["esp_size"]), esp_type)
+    nominal_rate = _format_equipment_number(row.get(COLUMNS["nominal_rate"]))
+    nominal_head = _format_equipment_number(row.get(COLUMNS["nominal_head"]))
+
+    if "эцн" in esp_type.casefold() and esp_size and nominal_rate and nominal_head:
+        return f"ЭЦН{esp_size}-{nominal_rate}-{nominal_head}"
+
+    return esp_type or "УЭЦН"
+
+
 def get_well_artificial_lift_periods(well_id: str) -> list[dict[str, object]]:
     normalized_well_id = well_id.strip().casefold()
     periods: list[dict[str, object]] = []
@@ -167,9 +221,7 @@ def get_well_artificial_lift_periods(well_id: str) -> list[dict[str, object]]:
             continue
 
         is_fountain = _is_fountain_goal(row.get(COLUMNS["goal"]))
-        esp_id = "Воронка" if is_fountain else _clean_text(row.get(COLUMNS["esp_type"]))
-        if not esp_id:
-            esp_id = "УЭЦН"
+        esp_id = _build_esp_id(row, is_fountain)
 
         dismantle_date = _parse_date(row.get(COLUMNS["dismantle_date"]))
         failure_date = _parse_date(row.get(COLUMNS["failure_date"]))
@@ -185,6 +237,7 @@ def get_well_artificial_lift_periods(well_id: str) -> list[dict[str, object]]:
                 "liftReason": _clean_text(row.get(COLUMNS["lift_reason"])) or None,
                 "espSize": None if is_fountain else _clean_text(row.get(COLUMNS["esp_size"])) or None,
                 "nominalRate": None if is_fountain else _parse_float(row.get(COLUMNS["nominal_rate"])),
+                "nominalHead": None if is_fountain else _parse_float(row.get(COLUMNS["nominal_head"])),
                 "gasSeparatorType": None if is_fountain else _clean_text(row.get(COLUMNS["gas_separator_type"])) or None,
                 "motorPowerKw": None if is_fountain else _parse_float(row.get(COLUMNS["motor_power_kw"])),
                 "isFountain": is_fountain,

@@ -149,6 +149,7 @@ export interface EspInstallationPeriod {
   liftReason?: string | null
   espSize?: string | null
   nominalRate?: number | null
+  nominalHead?: number | null
   gasSeparatorType?: string | null
   motorPowerKw?: number | null
   isFountain?: boolean

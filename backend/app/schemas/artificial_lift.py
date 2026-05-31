@@ -11,6 +11,7 @@ class ArtificialLiftPeriod(BaseModel):
     liftReason: str | None = None
     espSize: str | None = None
     nominalRate: float | None = None
+    nominalHead: float | None = None
     gasSeparatorType: str | None = None
     motorPowerKw: float | None = None
     isFountain: bool = False
