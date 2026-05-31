@@ -73,6 +73,19 @@
         </div>
       </div>
     </div>
+    <div class="pointer-events-none absolute inset-0 z-[14]">
+      <button
+        v-for="item in savedAnnotationOverlayItems"
+        :key="item.annotation.id"
+        type="button"
+        class="saved-annotation-hitbox"
+        :class="{ 'is-selected': item.annotation.id === props.selectedAnnotationId }"
+        :style="item.style"
+        :title="item.payload.label"
+        @click.stop="handleSavedAnnotationOverlayClick(item.payload)"
+        @wheel.prevent="handleChartWheel"
+      />
+    </div>
     <div v-if="props.interactionMode === 'annotate'" class="pointer-events-none absolute inset-0 z-[9]">
       <button
         v-for="item in frequencySegmentOverlayItems"
@@ -245,6 +258,12 @@ interface FrequencySegmentOverlayItem {
   style: Record<string, string>
 }
 
+interface SavedAnnotationOverlayItem {
+  annotation: SavedAnnotation
+  payload: TimelineAnnotationClickPayload
+  style: Record<string, string>
+}
+
 interface TrackHoverLine {
   label: string
   value: string
@@ -290,6 +309,9 @@ const MIN_VISIBLE_RANGE_MS = MS_PER_DAY * 2
 const X_AXIS_ZOOM_FACTOR = 0.82
 const X_AXIS_PAN_RATIO = 0.35
 const FREQUENCY_SEGMENT_HITBOX_HEIGHT = 28
+const FREQUENCY_SEGMENT_TRACK_Y = 0.18
+const ANNOTATION_LANE_BASE_Y = 1.55
+const ANNOTATION_HITBOX_HEIGHT = 30
 
 interface PlotlyRelayoutEvent {
   'xaxis.range[0]'?: string
@@ -908,8 +930,8 @@ function buildFrequencySegmentTrace() {
       orientation: 'h',
       x: props.frequencySegments.map((item) => toDurationMs(item.startDate, item.endDate)),
       base: props.frequencySegments.map((item) => item.startDate),
-      y: props.frequencySegments.map(() => 0),
-      width: 0.52,
+      y: props.frequencySegments.map(() => FREQUENCY_SEGMENT_TRACK_Y),
+      width: 0.34,
       marker: {
         color: props.frequencySegments.map((item) =>
           props.selectedFrequencySegmentIds.includes(item.id) ? 'rgba(56,189,248,0.52)' : 'rgba(56,189,248,0.16)'
@@ -944,7 +966,7 @@ function buildFrequencyBreakpointTrace() {
       type: 'scatter',
       mode: 'markers',
       x: props.frequencyBreakpoints.map((item) => item.date),
-      y: props.frequencyBreakpoints.map(() => 0),
+      y: props.frequencyBreakpoints.map(() => FREQUENCY_SEGMENT_TRACK_Y),
       yaxis: 'y8',
       showlegend: false,
       marker: {
@@ -986,8 +1008,8 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
       orientation: 'h',
       x: trackAnnotations.map((item) => toDurationMs(item.startDate, item.endDate)),
       base: trackAnnotations.map((item) => item.startDate),
-      y: laneAssignment.lanes.map((laneIndex) => laneIndex + 1.2),
-      width: 0.72,
+      y: laneAssignment.lanes.map((laneIndex) => laneIndex + ANNOTATION_LANE_BASE_Y),
+      width: 0.58,
       marker: {
         color: trackAnnotations.map((item) =>
           item.annotationKind === 'event' ? getAnnotationColor(item.eventType) : getRootCauseColor(item.rootCause)
@@ -1262,7 +1284,7 @@ function getSavedAnnotationTrackRange(annotationKind: 'event' | 'rootCause'): [n
   const laneCount = buildAnnotationLaneAssignment(
     props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
   ).laneCount
-  return [annotationKind === 'event' ? -0.2 : 0, Math.max(2, laneCount + 1.6)]
+  return [0, Math.max(2.45, laneCount + ANNOTATION_LANE_BASE_Y + 0.72)]
 }
 
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
@@ -1546,6 +1568,56 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
     })
     .filter((item): item is EspSegmentLabelOverlayItem => Boolean(item))
 })
+
+function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotationClickPayload {
+  return {
+    annotationId: annotation.id,
+    source: 'manual',
+    layer: annotation.annotationKind,
+    label: annotation.annotationKind === 'event' ? getEventTypeLabel(annotation.eventType) : getRootCauseLabel(annotation.rootCause),
+    startDate: annotation.startDate,
+    endDate: annotation.endDate,
+    durationDays: annotation.durationDays,
+    actions: annotation.actions ?? []
+  }
+}
+
+function buildSavedAnnotationOverlayItems(annotationKind: 'event' | 'rootCause'): SavedAnnotationOverlayItem[] {
+  const trackAnnotations = props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
+  const axis = annotationKind === 'event' ? 'y8' : 'y9'
+  const laneAssignment = buildAnnotationLaneAssignment(trackAnnotations)
+
+  return trackAnnotations
+    .map((annotation, index) => {
+      const laneY = (laneAssignment.lanes[index] ?? 0) + ANNOTATION_LANE_BASE_Y
+      const style = getTrackIntervalOverlayGeometry(
+        axis,
+        annotation.startDate,
+        annotation.endDate,
+        laneY,
+        ANNOTATION_HITBOX_HEIGHT
+      )
+
+      return style
+        ? {
+            annotation,
+            payload: getSavedAnnotationPayload(annotation),
+            style
+          }
+        : null
+    })
+    .filter((item): item is SavedAnnotationOverlayItem => Boolean(item))
+}
+
+const savedAnnotationOverlayItems = computed<SavedAnnotationOverlayItem[]>(() => [
+  ...buildSavedAnnotationOverlayItems('event'),
+  ...buildSavedAnnotationOverlayItems('rootCause')
+])
+
+function handleSavedAnnotationOverlayClick(payload: TimelineAnnotationClickPayload) {
+  suppressBackgroundClick(300)
+  emit('annotation-clicked', payload)
+}
 
 function toTrackLine(label: string, value: string | number | null | undefined): TrackHoverLine {
   return {
@@ -2072,7 +2144,7 @@ function getFrequencySegmentOverlayGeometry(segment: FrequencySegment): Record<s
   const trackLayout = getTrackLayoutRows()
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const rowRangeSpan = eventRow.range[1] - eventRow.range[0]
-  const yRatioInRow = rowRangeSpan > 0 ? (0 - eventRow.range[0]) / rowRangeSpan : 0
+  const yRatioInRow = rowRangeSpan > 0 ? (FREQUENCY_SEGMENT_TRACK_Y - eventRow.range[0]) / rowRangeSpan : 0
   const paperY = eventRow.domain[0] + yRatioInRow * (eventRow.domain[1] - eventRow.domain[0])
   const centerY = CHART_MARGIN_TOP + (1 - paperY) * plotHeight
   const left = CHART_MARGIN_LEFT + ((clippedStartMs - visibleStartMs) / visibleSpanMs) * plotWidth
@@ -2857,6 +2929,23 @@ onBeforeUnmount(() => {
   padding: 9px 11px;
   font-size: 11px;
   box-shadow: 0 14px 30px rgba(2, 6, 23, 0.38);
+}
+
+.saved-annotation-hitbox {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+}
+
+.saved-annotation-hitbox:hover,
+.saved-annotation-hitbox.is-selected {
+  border-color: rgba(248, 250, 252, 0.82);
+  background: rgba(248, 250, 252, 0.06);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.32);
 }
 
 .frequency-segment-hitbox {

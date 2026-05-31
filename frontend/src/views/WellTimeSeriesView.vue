@@ -398,6 +398,30 @@
           </div>
 
           <div v-if="selectedInterval" class="mt-3 space-y-4 rounded-xl border border-slate-700 bg-slate-800/90 p-4">
+            <div v-if="isEditMode && boundarySliderMax > 0" class="space-y-3 rounded-lg border border-slate-700 bg-slate-900/45 px-3 py-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Границы интервала</label>
+                <div class="text-xs font-medium text-slate-300">{{ selectedInterval.durationDays }} сут.</div>
+              </div>
+              <n-slider
+                v-model:value="annotationBoundarySliderValue"
+                range
+                :min="0"
+                :max="boundarySliderMax"
+                :step="1"
+                :tooltip="false"
+              />
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="rounded-md bg-slate-950/40 px-2 py-1.5">
+                  <div class="uppercase tracking-[0.14em] text-slate-500">Начало</div>
+                  <div class="mt-1 font-semibold text-slate-100">{{ selectedInterval.startDate }}</div>
+                </div>
+                <div class="rounded-md bg-slate-950/40 px-2 py-1.5 text-right">
+                  <div class="uppercase tracking-[0.14em] text-slate-500">Конец</div>
+                  <div class="mt-1 font-semibold text-slate-100">{{ selectedInterval.endDate }}</div>
+                </div>
+              </div>
+            </div>
 
             <div class="space-y-2">
               <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Класс эпизода</label>
@@ -707,7 +731,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { fetchArtificialLiftPeriods, fetchMarkup, fetchTrMonitoring, fetchVspPeriods, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
@@ -1399,6 +1423,69 @@ const annotationPanelTitle = computed(() => {
   return 'Создание аннотации'
 })
 const hasUnsavedChanges = computed(() => draftHasUnsavedChanges())
+const DAY_MS = 86400000
+
+const annotationBoundaryBounds = computed<VisibleDateRange | null>(() => {
+  const dates = [
+    chartData.value[0]?.date,
+    chartData.value[chartData.value.length - 1]?.date,
+    trMonitoringData.value[0]?.date,
+    trMonitoringData.value[trMonitoringData.value.length - 1]?.date,
+    visibleDateRange.value?.startDate,
+    visibleDateRange.value?.endDate,
+    selectedInterval.value?.startDate,
+    selectedInterval.value?.endDate
+  ].filter((value): value is string => Boolean(value))
+
+  if (!dates.length) {
+    return null
+  }
+
+  return {
+    startDate: dates.reduce((minDate, value) => (value < minDate ? value : minDate)),
+    endDate: dates.reduce((maxDate, value) => (value > maxDate ? value : maxDate))
+  }
+})
+
+const boundarySliderMax = computed(() => {
+  const bounds = annotationBoundaryBounds.value
+  if (!bounds) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor((toTimestamp(bounds.endDate) - toTimestamp(bounds.startDate)) / DAY_MS))
+})
+
+const annotationBoundarySliderValue = computed<number[]>({
+  get() {
+    const bounds = annotationBoundaryBounds.value
+    if (!bounds || !selectedInterval.value) {
+      return [0, 0]
+    }
+
+    const startOffset = Math.floor((toTimestamp(selectedInterval.value.startDate) - toTimestamp(bounds.startDate)) / DAY_MS)
+    const endOffset = Math.floor((toTimestamp(selectedInterval.value.endDate) - toTimestamp(bounds.startDate)) / DAY_MS)
+    return [
+      Math.max(0, Math.min(boundarySliderMax.value, startOffset)),
+      Math.max(0, Math.min(boundarySliderMax.value, endOffset))
+    ]
+  },
+  set(value) {
+    const bounds = annotationBoundaryBounds.value
+    if (!bounds || !selectedInterval.value || value.length < 2) {
+      return
+    }
+
+    const [rawStart, rawEnd] = value
+    const startOffset = Math.max(0, Math.min(boundarySliderMax.value, Math.floor(rawStart ?? 0)))
+    const endOffset = Math.max(0, Math.min(boundarySliderMax.value, Math.floor(rawEnd ?? startOffset)))
+    selectedInterval.value = buildInterval(
+      shiftIsoDate(bounds.startDate, Math.min(startOffset, endOffset)),
+      shiftIsoDate(bounds.startDate, Math.max(startOffset, endOffset))
+    )
+    clearFrequencySegmentSelection()
+  }
+})
 
 function toIsoDate(timestamp: number | null | undefined): string | undefined {
   if (!timestamp) {
