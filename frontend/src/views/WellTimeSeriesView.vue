@@ -113,6 +113,7 @@
               ref="chartRef"
               :data="chartData"
               :tr-monitoring-data="trMonitoringData"
+              :vsp-periods="vspPeriods"
               :active-series="activeSeries"
               :selected-interval="selectedInterval"
               :event-tracks="eventTracks"
@@ -708,7 +709,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, useMessage } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
-import { fetchArtificialLiftPeriods, fetchMarkup, fetchTrMonitoring, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
+import { fetchArtificialLiftPeriods, fetchMarkup, fetchTrMonitoring, fetchVspPeriods, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -738,6 +739,7 @@ import type {
   TimelineAnnotationClickPayload,
   TimeSeriesPoint,
   TrMonitoringPoint,
+  VspPeriod,
   VisibleDateRange,
   WellContext,
   WellGroupId
@@ -1117,6 +1119,7 @@ const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_p
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
 const chartData = ref<TimeSeriesPoint[]>([])
 const trMonitoringData = ref<TrMonitoringPoint[]>([])
+const vspPeriods = ref<VspPeriod[]>([])
 const artificialLiftPeriods = ref<EspInstallationPeriod[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
@@ -2389,6 +2392,7 @@ async function loadData() {
   if (!selectedWell.value) {
     chartData.value = []
     trMonitoringData.value = []
+    vspPeriods.value = []
     artificialLiftPeriods.value = []
     visibleDateRange.value = null
     wellContext.value = null
@@ -2399,6 +2403,7 @@ async function loadData() {
   errorMessage.value = ''
   wellContext.value = null
   trMonitoringData.value = []
+  vspPeriods.value = []
   artificialLiftPeriods.value = []
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
@@ -2426,19 +2431,21 @@ async function loadData() {
   }
 
   try {
-    const [data, context, trData, liftPeriods] = await Promise.all([
+    const [data, context, trData, liftPeriods, vspData] = await Promise.all([
       useMockTelemetry
         ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
         : fetchWellTimeseries(selectedWell.value, params),
       fetchWellContext(selectedWell.value).catch(() => null),
       fetchTrMonitoring(selectedWell.value, trParams).catch(() => []),
-      fetchArtificialLiftPeriods(selectedWell.value).catch(() => [])
+      fetchArtificialLiftPeriods(selectedWell.value).catch(() => []),
+      fetchVspPeriods(selectedWell.value).catch(() => [])
     ])
 
     chartData.value = data
     wellContext.value = context
     trMonitoringData.value = trData
     artificialLiftPeriods.value = liftPeriods
+    vspPeriods.value = vspData
     visibleDateRange.value = getFullDateRange(data, trData)
     if (!context) {
       message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
@@ -2448,6 +2455,7 @@ async function loadData() {
 
     chartData.value = fallbackData
     trMonitoringData.value = []
+    vspPeriods.value = []
     artificialLiftPeriods.value = []
     wellContext.value = null
     visibleDateRange.value = getFullDateRange(fallbackData)

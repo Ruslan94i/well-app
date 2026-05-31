@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     reference_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "reference"
     tr_monitoring_data_path: Path = reference_data_path / "tr_monitoring.csv"
     artificial_lift_data_path: Path = reference_data_path / "artificial_lift.xlsx"
+    intra_shift_downtime_data_path: Path = reference_data_path / "intra_shift_downtime_20260521_105050.xlsx"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

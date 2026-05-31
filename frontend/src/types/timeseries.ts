@@ -154,6 +154,16 @@ export interface EspInstallationPeriod {
   isFountain?: boolean
 }
 
+export interface VspPeriod {
+  id: string
+  wellId: string
+  startDate: string
+  endDate: string
+  status: 'work' | 'downtime'
+  wellState: string
+  wellStateCode: string
+}
+
 export interface HierarchicalEventTracks {
   installedEspPeriods: EspInstallationPeriod[]
   dailyCauses: DailyCauseBand[]

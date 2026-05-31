@@ -128,12 +128,14 @@ import type {
   TimeSeriesPoint,
   TrMonitoringPoint,
   TrMonitoringSeriesKey,
-  VisibleDateRange
+  VisibleDateRange,
+  VspPeriod
 } from '@/types/timeseries'
 
 const props = defineProps<{
   data: TimeSeriesPoint[]
   trMonitoringData: TrMonitoringPoint[]
+  vspPeriods: VspPeriod[]
   activeSeries: SeriesKey[]
   selectedInterval: SelectedInterval | null
   eventTracks: HierarchicalEventTracks
@@ -207,7 +209,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y6' | 'y7' | 'y8' | 'y9'
+  axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
   label: string
   labelColor: string
   domain: [number, number]
@@ -544,6 +546,10 @@ function getSelectedDatesFromPlotlyEvent(eventData: Record<string, unknown>): st
 
 function toDurationMs(startDate: string, endDate: string): number {
   return Math.max(86400000, new Date(endDate).getTime() - new Date(startDate).getTime() + 86400000)
+}
+
+function toExactDurationMs(startDate: string, endDate: string): number {
+  return Math.max(60000, new Date(endDate).getTime() - new Date(startDate).getTime())
 }
 
 function getInclusiveDateAxisEnd(endDate: string): string {
@@ -1026,7 +1032,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'diamond',
-              size: 12,
+              size: 9,
               color: '#d97706',
               line: {
                 color: '#9a3412',
@@ -1068,7 +1074,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'square',
-              size: 11,
+              size: 9,
               color: '#a855f7',
               line: {
                 color: '#6d28d9',
@@ -1104,7 +1110,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'circle',
-              size: 10,
+              size: 8,
               color: '#2dd4bf',
               line: {
                 color: '#0f766e',
@@ -1131,6 +1137,46 @@ function buildContextMarkerTrackTraces() {
       : []
 
   return [...opzTrace, ...gtmTrace, ...gdiTrace]
+}
+
+function buildVspTrackTrace() {
+  if (props.vspPeriods.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: props.vspPeriods.map((period) => toExactDurationMs(period.startDate, period.endDate)),
+      base: props.vspPeriods.map((period) => period.startDate),
+      y: props.vspPeriods.map(() => 0.5),
+      width: 0.44,
+      marker: {
+        color: props.vspPeriods.map((period) =>
+          period.status === 'work' ? 'rgba(34,197,94,0.88)' : 'rgba(100,116,139,0.78)'
+        ),
+        line: {
+          color: props.vspPeriods.map((period) => (period.status === 'work' ? '#16a34a' : '#475569')),
+          width: 0.7
+        }
+      },
+      yaxis: 'y5',
+      showlegend: false,
+      customdata: props.vspPeriods.map((period) => ({
+        startDate: period.startDate,
+        endDate: period.endDate,
+        status: period.status === 'work' ? 'В работе' : 'Простой',
+        wellState: period.wellState,
+        wellStateCode: period.wellStateCode
+      })),
+      hovertemplate:
+        '<b>ВСП</b><br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Статус: %{customdata.status}<br>' +
+        'Состояние: %{customdata.wellState}<br>' +
+        'Код: %{customdata.wellStateCode}<extra></extra>'
+    }
+  ]
 }
 
 function buildTrackTraces() {
@@ -1194,6 +1240,7 @@ function buildTrackTraces() {
   return [
     ...buildFrequencySegmentTrace(),
     ...buildContextMarkerTrackTraces(),
+    ...buildVspTrackTrace(),
     ...espInstallationTrace,
     ...buildSavedAnnotationTrace('y8', 'event'),
     ...buildSavedAnnotationTrace('y9', 'rootCause'),
@@ -1215,7 +1262,8 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const rootCauseLaneCount = Math.max(1, Math.ceil(rootCauseRange[1] - 1.6))
 
   const rowSpecs = [
-    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.62, range: [0, 1] as [number, number] },
+    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
+    { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.56, range: [0, 1] as [number, number] },
     { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
     { axis: 'y9' as const, label: 'Режимы', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange }
@@ -1294,7 +1342,9 @@ function getFullVisibleDateRange(): VisibleDateRange | null {
     props.data[0]?.date,
     props.data[props.data.length - 1]?.date,
     props.trMonitoringData[0]?.date,
-    props.trMonitoringData[props.trMonitoringData.length - 1]?.date
+    props.trMonitoringData[props.trMonitoringData.length - 1]?.date,
+    props.vspPeriods[0]?.startDate,
+    props.vspPeriods[props.vspPeriods.length - 1]?.endDate
   ].filter((value): value is string => Boolean(value))
 
   if (!dates.length) {
@@ -1471,7 +1521,7 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
   const items: TrackHoverOverlayItem[] = []
 
   props.eventTracks.gtmEvents.forEach((event) => {
-    const style = getTrackPointOverlayGeometry('y7', event.date, 0.5, 30)
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.5, 22)
     if (!style) return
 
     items.push({
@@ -1488,7 +1538,7 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
   })
 
   props.eventTracks.opzEvents.forEach((event) => {
-    const style = getTrackPointOverlayGeometry('y7', event.date, 0.72, 30)
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.72, 22)
     if (!style) return
 
     items.push({
@@ -1508,7 +1558,7 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
   })
 
   props.eventTracks.gdiEvents.forEach((event) => {
-    const style = getTrackPointOverlayGeometry('y7', event.date, 0.28, 30)
+    const style = getTrackPointOverlayGeometry('y7', event.date, 0.28, 22)
     if (!style) return
 
     items.push({
@@ -1522,6 +1572,24 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
         toTrackLine('Кпрод Вогель, м3/сут/ ат', formatMarkerNumber(event.productivityVogel, 1)),
         toTrackLine('Кач-во ГДИ', formatMarkerNumber(event.quality, 0)),
         toTrackLine('Комментарий', event.comment)
+      ]
+    })
+  })
+
+  props.vspPeriods.forEach((period) => {
+    const style = getTrackIntervalOverlayGeometry('y5', period.startDate, period.endDate, 0.5, 22)
+    if (!style) return
+
+    items.push({
+      key: `vsp-${period.id}`,
+      title: 'ВСП',
+      style,
+      lines: [
+        toTrackLine('Начало', period.startDate.replace('T', ' ')),
+        toTrackLine('Конец', period.endDate.replace('T', ' ')),
+        toTrackLine('Тип', period.status === 'work' ? 'В работе' : 'Простой'),
+        toTrackLine('Состояние', period.wellState),
+        toTrackLine('Код', period.wellStateCode)
       ]
     })
   })
@@ -2116,6 +2184,7 @@ function renderChart() {
   const productivityAxisConfig = buildNiceAxis(getSeriesValues('tr_productivity'), 5)
   const trackLayout = getTrackLayoutRows()
   const contextRow = getTrackRowByAxis(trackLayout.rows, 'y7')
+  const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const rootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y9')
@@ -2256,6 +2325,14 @@ function renderChart() {
       tick0: frequencyAxisConfig.tick0,
       dtick: frequencyAxisConfig.dtick,
       showgrid: false
+    },
+    yaxis5: {
+      domain: vspRow.domain,
+      range: vspRow.range,
+      fixedrange: true,
+      showgrid: false,
+      showticklabels: false,
+      zeroline: false
     },
     yaxis6: {
       domain: espRow.domain,
@@ -2599,6 +2676,7 @@ watch(
   () => [
     props.data,
     props.trMonitoringData,
+    props.vspPeriods,
     props.activeSeries,
     props.selectedInterval,
     props.eventTracks,
