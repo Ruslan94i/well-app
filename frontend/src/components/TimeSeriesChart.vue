@@ -312,6 +312,9 @@ const FREQUENCY_SEGMENT_HITBOX_HEIGHT = 28
 const FREQUENCY_SEGMENT_TRACK_Y = 0.18
 const ANNOTATION_LANE_BASE_Y = 1.55
 const ANNOTATION_HITBOX_HEIGHT = 30
+const ESP_TRACK_CENTER_Y = 0.5
+const ESP_TRACK_BAR_WIDTH = 0.64
+const ESP_LABEL_HEIGHT = 16
 
 interface PlotlyRelayoutEvent {
   'xaxis.range[0]'?: string
@@ -1222,8 +1225,8 @@ function buildTrackTraces() {
               toDurationMs(item.startDate, getEffectiveEspEndDate(item.endDate))
             ),
             base: props.eventTracks.installedEspPeriods.map((item) => item.startDate),
-            y: props.eventTracks.installedEspPeriods.map(() => 0.5),
-            width: 0.64,
+            y: props.eventTracks.installedEspPeriods.map(() => ESP_TRACK_CENTER_Y),
+            width: ESP_TRACK_BAR_WIDTH,
             marker: {
               color: props.eventTracks.installedEspPeriods.map((item) => getEspColor(item.espId)),
               line: {
@@ -1546,9 +1549,10 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
   const minLabelWidth = 58
 
   return props.eventTracks.installedEspPeriods
-    .map((period) => {
+    .map((period): EspSegmentLabelOverlayItem | null => {
       const endDate = getEffectiveEspEndDate(period.endDate)
-      const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, 0.5, 30)
+      const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, ESP_TRACK_CENTER_Y, ESP_LABEL_HEIGHT)
+      const barBottomY = getTrackYCenter('y6', ESP_TRACK_CENTER_Y - ESP_TRACK_BAR_WIDTH / 2)
       if (!style) {
         return null
       }
@@ -1559,11 +1563,17 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
       }
 
       const maxLength = Math.max(5, Math.floor((width - 18) / 9))
+      const labelStyle: Record<string, string> = {
+        ...style,
+        top: barBottomY === null ? (style.top ?? '0px') : `${barBottomY - ESP_LABEL_HEIGHT - 1}px`,
+        height: `${ESP_LABEL_HEIGHT}px`
+      }
+
       return {
         key: `esp-label-${period.id}`,
         label: getEspSegmentLabel(period.espId, maxLength),
         fullLabel: period.espId,
-        style
+        style: labelStyle
       }
     })
     .filter((item): item is EspSegmentLabelOverlayItem => Boolean(item))
@@ -2874,12 +2884,12 @@ onBeforeUnmount(() => {
 .esp-segment-label-overlay {
   position: absolute;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   overflow: hidden;
-  padding: 0 8px;
+  padding: 0 8px 1px;
   color: #f8fafc;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   text-align: center;
