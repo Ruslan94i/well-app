@@ -1,5 +1,10 @@
 ﻿<template>
-  <div class="relative h-[920px] w-full" @mousemove="handleChartPointerMove" @mouseleave="clearHoverGuide">
+  <div
+    class="relative h-[920px] w-full"
+    @mousedown.capture="handleAnnotationDragStart"
+    @mousemove="handleChartPointerMove"
+    @mouseleave="clearHoverGuide"
+  >
     <div
       ref="chartEl"
       class="frequency-chart h-full w-full"
@@ -115,7 +120,8 @@
     </div>
     <div
       v-if="canUseTimePanSlider"
-      class="absolute bottom-3 left-[calc(50%+24px)] z-10 w-[min(560px,42vw)] -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 shadow-lg"
+      class="time-pan-slider-shell"
+      :style="timePanSliderOverlayStyle"
     >
       <input
         type="range"
@@ -248,6 +254,8 @@ interface EspSegmentLabelOverlayItem {
   label: string
   fullLabel: string
   style: Record<string, string>
+  leftPx: number
+  rightPx: number
 }
 
 interface FrequencySegmentOverlayItem {
@@ -328,8 +336,10 @@ const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
 let suppressBackgroundClickUntil = 0
+let suppressDeselectUntil = 0
 let hoveredFrequencySegment: FrequencySegmentCustomdata | null = null
 let chartResizeObserver: ResizeObserver | null = null
+let annotationDragStart: { clientX: number; date: string } | null = null
 
 function handleNativeChartClick(event: Event) {
   if (Date.now() < suppressBackgroundClickUntil) {
@@ -1620,16 +1630,16 @@ function getTrackIntervalOverlayGeometry(
 const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() => {
   const minLabelWidth = 58
 
-  return props.eventTracks.installedEspPeriods
+  const rawItems = props.eventTracks.installedEspPeriods
     .map((period): EspSegmentLabelOverlayItem | null => {
       const endDate = getEffectiveEspEndDate(period.endDate)
       const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, ESP_TRACK_CENTER_Y, ESP_LABEL_HEIGHT)
-      const barBottomY = getTrackYCenter('y6', ESP_TRACK_CENTER_Y - ESP_TRACK_BAR_WIDTH / 2)
       if (!style) {
         return null
       }
 
       const width = Number.parseFloat(style.width ?? '0')
+      const left = Number.parseFloat(style.left ?? '0')
       if (!Number.isFinite(width) || width < minLabelWidth) {
         return null
       }
@@ -1637,7 +1647,6 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
       const maxLength = Math.max(5, Math.floor((width - 18) / 9))
       const labelStyle: Record<string, string> = {
         ...style,
-        top: barBottomY === null ? (style.top ?? '0px') : `${barBottomY - ESP_LABEL_HEIGHT - 1}px`,
         height: `${ESP_LABEL_HEIGHT}px`
       }
 
@@ -1645,10 +1654,24 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
         key: `esp-label-${period.id}`,
         label: getEspSegmentLabel(period.espId, maxLength),
         fullLabel: period.espId,
-        style: labelStyle
+        style: labelStyle,
+        leftPx: left,
+        rightPx: left + width
       }
     })
     .filter((item): item is EspSegmentLabelOverlayItem => Boolean(item))
+
+  return rawItems
+    .sort((left, right) => left.leftPx - right.leftPx)
+    .reduce<EspSegmentLabelOverlayItem[]>((items, item) => {
+      const previousItem = items[items.length - 1]
+      if (previousItem && item.leftPx < previousItem.rightPx + 6) {
+        return items
+      }
+
+      items.push(item)
+      return items
+    }, [])
 })
 
 function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotationClickPayload {
@@ -1847,7 +1870,7 @@ function clearTrackHoverTooltip() {
   trackHoverTooltip.value = null
 }
 
-function getPointerDateFromEvent(event: MouseEvent): string | null {
+function getPointerDateFromEvent(event: MouseEvent, options?: { clamp?: boolean }): string | null {
   const currentRange = getCurrentDateRangeMs()
 
   if (!chartEl.value || !currentRange) {
@@ -1858,7 +1881,7 @@ function getPointerDateFromEvent(event: MouseEvent): string | null {
   const plotBounds = getPlotBounds()
   const localX = event.clientX - rect.left
 
-  if (localX < plotBounds.left || localX > plotBounds.right) {
+  if (!options?.clamp && (localX < plotBounds.left || localX > plotBounds.right)) {
     return null
   }
 
@@ -2007,6 +2030,55 @@ function handleChartPointerMove(event: MouseEvent) {
   hoverGuideDate.value = getPointerDateFromEvent(event)
 }
 
+function shouldIgnoreAnnotationDragTarget(target: HTMLElement | null): boolean {
+  return Boolean(
+    target?.closest(
+      '.modebar, .legend, .time-pan-slider-shell, .track-hover-hitbox, .saved-annotation-hitbox, .frequency-segment-hitbox, .frequency-segment-add-button, input, button'
+    )
+  )
+}
+
+function handleAnnotationDragStart(event: MouseEvent) {
+  if (props.interactionMode !== 'annotate' || event.button !== 0) {
+    return
+  }
+
+  const target = event.target as HTMLElement | null
+  if (shouldIgnoreAnnotationDragTarget(target)) {
+    return
+  }
+
+  const date = getPointerDateFromEvent(event)
+  if (!date) {
+    return
+  }
+
+  annotationDragStart = {
+    clientX: event.clientX,
+    date
+  }
+  window.addEventListener('mouseup', handleAnnotationDragEnd, { once: true })
+}
+
+function handleAnnotationDragEnd(event: MouseEvent) {
+  if (!annotationDragStart) {
+    return
+  }
+
+  const dragStart = annotationDragStart
+  annotationDragStart = null
+  const endDate = getPointerDateFromEvent(event, { clamp: true })
+  const movedEnough = Math.abs(event.clientX - dragStart.clientX) >= 6
+
+  if (!endDate || !movedEnough || props.interactionMode !== 'annotate') {
+    return
+  }
+
+  suppressBackgroundClick()
+  resetPlotlySelectionState()
+  emit('interval-selected', normalizeSelectedInterval(dragStart.date, endDate))
+}
+
 function clearHoverGuide() {
   hoverGuideDate.value = null
   clearFrequencySegmentHover()
@@ -2063,6 +2135,7 @@ function resetPlotlySelectionState() {
     return
   }
 
+  suppressDeselectUntil = Date.now() + 300
   void Plotly.restyle(chartEl.value, { selectedpoints: null })
   void Plotly.relayout(chartEl.value, {
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
@@ -2124,6 +2197,18 @@ const timePanSliderValue = computed(() => {
   }
 
   return Math.round(((currentRange[0] - fullRange[0]) / availableSpan) * TIME_PAN_SLIDER_MAX)
+})
+
+const timePanSliderOverlayStyle = computed<Record<string, string>>(() => {
+  const trackLayout = getTrackLayoutRows()
+  const plotBounds = getPlotBounds()
+  const mainBottomY = plotBounds.top + (1 - trackLayout.mainDomain[0]) * plotBounds.height
+
+  return {
+    left: `${plotBounds.left}px`,
+    top: `${mainBottomY + 6}px`,
+    width: `${plotBounds.width}px`
+  }
 })
 
 function handleTimePanSliderInput(event: Event) {
@@ -2738,6 +2823,10 @@ function attachEventHandlers() {
   })
 
   plotlyElement.on?.('plotly_deselect', () => {
+    if (Date.now() < suppressDeselectUntil) {
+      return
+    }
+
     if (props.interactionMode === 'annotate') {
       emit('interval-selected', null)
     }
@@ -2922,6 +3011,7 @@ watch(
 onBeforeUnmount(() => {
   chartResizeObserver?.disconnect()
   chartResizeObserver = null
+  window.removeEventListener('mouseup', handleAnnotationDragEnd)
   chartEl.value?.removeEventListener('click', handleNativeChartClick)
   chartEl.value?.removeEventListener('dblclick', handleNativeChartDoubleClick)
   if (chartEl.value) {
@@ -2988,10 +3078,10 @@ onBeforeUnmount(() => {
 .esp-segment-label-overlay {
   position: absolute;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 0 8px 1px;
+  padding: 0 8px;
   color: #f8fafc;
   font-size: 13px;
   font-weight: 700;
@@ -3104,15 +3194,56 @@ onBeforeUnmount(() => {
   background: #7dd3fc;
 }
 
+.time-pan-slider-shell {
+  position: absolute;
+  z-index: 16;
+  height: 18px;
+  pointer-events: auto;
+}
+
 .time-pan-slider {
   display: block;
   width: 100%;
-  height: 14px;
+  height: 18px;
   accent-color: #38bdf8;
   cursor: grab;
+  background: transparent;
+  appearance: none;
 }
 
 .time-pan-slider:active {
   cursor: grabbing;
+}
+
+.time-pan-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(100, 116, 139, 0.58);
+}
+
+.time-pan-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 56px;
+  height: 13px;
+  margin-top: -4px;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  border-radius: 9999px;
+  background: #38bdf8;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
+}
+
+.time-pan-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 9999px;
+  background: rgba(100, 116, 139, 0.58);
+}
+
+.time-pan-slider::-moz-range-thumb {
+  width: 56px;
+  height: 13px;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  border-radius: 9999px;
+  background: #38bdf8;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
 }
 </style>

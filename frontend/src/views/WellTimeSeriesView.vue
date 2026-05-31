@@ -460,6 +460,7 @@
                 <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия эпизода</label>
                 <n-select
                   v-model:value="episodeForm.eventActions"
+                  v-model:show="eventActionSelectOpen"
                   size="medium"
                   multiple
                   clearable
@@ -467,6 +468,7 @@
                   :options="eventActionOptionsForDraft"
                   placeholder="Выберите мероприятия эпизода"
                   class="w-full"
+                  @update:value="handleEventActionsUpdated"
                 />
                 <div class="flex gap-2">
                   <n-input
@@ -517,6 +519,7 @@
                 <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия режима</label>
                 <n-select
                   v-model:value="episodeForm.rootCauseActions"
+                  v-model:show="rootCauseActionSelectOpen"
                   size="medium"
                   multiple
                   clearable
@@ -524,6 +527,7 @@
                   :options="rootCauseActionOptionsForDraft"
                   placeholder="Выберите мероприятия режима"
                   class="w-full"
+                  @update:value="handleRootCauseActionsUpdated"
                 />
                 <div class="flex gap-2">
                   <n-input
@@ -941,6 +945,13 @@ interface PersistedUiState {
   interactionMode?: InteractionMode
 }
 
+type GroupedSelectOption = SelectOption | {
+  type: 'group'
+  key: string
+  label: string
+  children: SelectOption[]
+}
+
 interface AnalysisWindowMetrics {
   qliq: number | null
   qoil: number | null
@@ -1230,6 +1241,8 @@ const editingAnnotationKind = ref<AnnotationKind | null>(null)
 const selectedFrequencyBreakpointId = ref<string | null>(null)
 const selectedFrequencySegmentIds = ref<string[]>([])
 const additiveFrequencySelectionArmed = ref(false)
+const eventActionSelectOpen = ref(false)
+const rootCauseActionSelectOpen = ref(false)
 const groupSaveFeedback = ref<'idle' | 'saved'>('idle')
 const groupMigrationTarget = ref<WellGroupId | typeof CREATE_NEW_GROUP_OPTION | null>(null)
 const newGroupName = ref('')
@@ -1432,7 +1445,7 @@ function isInteractionMode(mode: InteractionMode): boolean {
 }
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
-function getActionOptionsForDraft(annotationKind: AnnotationKind): SelectOption[] {
+function getActionOptionsForDraft(annotationKind: AnnotationKind): GroupedSelectOption[] {
   const selectedCategory =
     annotationKind === 'event' ? episodeForm.value.episodeType.trim() : episodeForm.value.rootCause.trim()
   const usedActionValues = new Set<string>()
@@ -1464,7 +1477,29 @@ function getActionOptionsForDraft(annotationKind: AnnotationKind): SelectOption[
     .filter((option): option is SelectOption => Boolean(option))
   const otherOptions = actionOptions.value.filter((option) => !usedActionValues.has(option.value))
 
-  return [...suggestedOptions, ...otherOptions]
+  if (suggestedOptions.length === 0) {
+    return otherOptions
+  }
+
+  const groupedOptions: GroupedSelectOption[] = [
+    {
+      type: 'group',
+      key: `${annotationKind}-suggested-actions`,
+      label: 'Ранее для этой причины',
+      children: suggestedOptions
+    }
+  ]
+
+  if (otherOptions.length > 0) {
+    groupedOptions.push({
+      type: 'group',
+      key: `${annotationKind}-all-actions`,
+      label: 'Все мероприятия',
+      children: otherOptions
+    })
+  }
+
+  return groupedOptions
 }
 const eventActionOptionsForDraft = computed(() => getActionOptionsForDraft('event'))
 const rootCauseActionOptionsForDraft = computed(() => getActionOptionsForDraft('rootCause'))
@@ -2152,6 +2187,20 @@ function setDraftActionsTarget(kind: AnnotationKind, actions: string[]): void {
   }
 
   episodeForm.value.rootCauseActions = actions
+}
+
+function normalizeSelectedActions(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function handleEventActionsUpdated(value: unknown): void {
+  episodeForm.value.eventActions = normalizeSelectedActions(value)
+  eventActionSelectOpen.value = false
+}
+
+function handleRootCauseActionsUpdated(value: unknown): void {
+  episodeForm.value.rootCauseActions = normalizeSelectedActions(value)
+  rootCauseActionSelectOpen.value = false
 }
 
 function addActionClass(kind: AnnotationKind): string | null {
