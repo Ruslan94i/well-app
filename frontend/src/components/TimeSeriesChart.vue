@@ -113,24 +113,21 @@
         +
       </button>
     </div>
-    <button
-      type="button"
-      class="absolute left-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-lg leading-none text-slate-100 shadow-lg transition hover:border-sky-400 hover:text-sky-200 disabled:pointer-events-none disabled:opacity-30"
-      :disabled="!canPanLeft"
-      title="Прокрутить график влево"
-      @click="panVisibleRange(-1)"
+    <div
+      v-if="canUseTimePanSlider"
+      class="absolute bottom-3 left-[calc(50%+24px)] z-10 w-[min(560px,42vw)] -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 shadow-lg"
     >
-      ‹
-    </button>
-    <button
-      type="button"
-      class="absolute right-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900/85 text-lg leading-none text-slate-100 shadow-lg transition hover:border-sky-400 hover:text-sky-200 disabled:pointer-events-none disabled:opacity-30"
-      :disabled="!canPanRight"
-      title="Прокрутить график вправо"
-      @click="panVisibleRange(1)"
-    >
-      ›
-    </button>
+      <input
+        type="range"
+        min="0"
+        :max="TIME_PAN_SLIDER_MAX"
+        step="1"
+        :value="timePanSliderValue"
+        class="time-pan-slider"
+        title="Прокрутить график по времени"
+        @input="handleTimePanSliderInput"
+      />
+    </div>
   </div>
 </template>
 
@@ -307,7 +304,7 @@ const CHART_MARGIN_BOTTOM = 42
 const MS_PER_DAY = 86400000
 const MIN_VISIBLE_RANGE_MS = MS_PER_DAY * 2
 const X_AXIS_ZOOM_FACTOR = 0.82
-const X_AXIS_PAN_RATIO = 0.35
+const TIME_PAN_SLIDER_MAX = 1000
 const FREQUENCY_SEGMENT_HITBOX_HEIGHT = 28
 const FREQUENCY_SEGMENT_TRACK_Y = 0.18
 const ANNOTATION_LANE_BASE_Y = 1.55
@@ -577,14 +574,6 @@ function getSelectedDatesFromPlotlyEvent(eventData: Record<string, unknown>): st
   const endDate = normalizePlotlyDateValue(range[1])
 
   return startDate && endDate ? [startDate, endDate].sort() : []
-}
-
-function toDurationMs(startDate: string, endDate: string): number {
-  return Math.max(86400000, new Date(endDate).getTime() - new Date(startDate).getTime() + 86400000)
-}
-
-function toExactDurationMs(startDate: string, endDate: string): number {
-  return Math.max(60000, new Date(endDate).getTime() - new Date(startDate).getTime())
 }
 
 function getInclusiveDateAxisEnd(endDate: string): string {
@@ -927,30 +916,41 @@ function buildFrequencySegmentTrace() {
     return []
   }
 
+  const visibleSegments = props.frequencySegments
+    .map((segment) => {
+      const bar = getVisibleIntervalBar(segment.startDate, segment.endDate)
+      return bar ? { segment, bar } : null
+    })
+    .filter((item): item is { segment: FrequencySegment; bar: { base: string; durationMs: number } } => Boolean(item))
+
+  if (visibleSegments.length === 0) {
+    return []
+  }
+
   return [
     {
       type: 'bar',
       orientation: 'h',
-      x: props.frequencySegments.map((item) => toDurationMs(item.startDate, item.endDate)),
-      base: props.frequencySegments.map((item) => item.startDate),
-      y: props.frequencySegments.map(() => FREQUENCY_SEGMENT_TRACK_Y),
+      x: visibleSegments.map((item) => item.bar.durationMs),
+      base: visibleSegments.map((item) => item.bar.base),
+      y: visibleSegments.map(() => FREQUENCY_SEGMENT_TRACK_Y),
       width: 0.34,
       marker: {
-        color: props.frequencySegments.map((item) =>
-          props.selectedFrequencySegmentIds.includes(item.id) ? 'rgba(56,189,248,0.52)' : 'rgba(56,189,248,0.16)'
+        color: visibleSegments.map((item) =>
+          props.selectedFrequencySegmentIds.includes(item.segment.id) ? 'rgba(56,189,248,0.52)' : 'rgba(56,189,248,0.16)'
         ),
         line: {
-          color: props.frequencySegments.map((item) =>
-            props.selectedFrequencySegmentIds.includes(item.id) ? 'rgba(248,250,252,0.92)' : 'rgba(125,211,252,0.30)'
+          color: visibleSegments.map((item) =>
+            props.selectedFrequencySegmentIds.includes(item.segment.id) ? 'rgba(248,250,252,0.92)' : 'rgba(125,211,252,0.30)'
           ),
-          width: props.frequencySegments.map((item) => (props.selectedFrequencySegmentIds.includes(item.id) ? 1.6 : 0.8))
+          width: visibleSegments.map((item) => (props.selectedFrequencySegmentIds.includes(item.segment.id) ? 1.6 : 0.8))
         }
       },
       yaxis: 'y8',
       showlegend: false,
-      customdata: props.frequencySegments.map((item): FrequencySegmentCustomdata => ({
+      customdata: visibleSegments.map((item): FrequencySegmentCustomdata => ({
         kind: 'frequencySegment',
-        ...item
+        ...item.segment
       })),
       hovertemplate:
         '<b>Промежуток частоты</b><br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
@@ -1004,45 +1004,63 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
   }
 
   const laneAssignment = buildAnnotationLaneAssignment(trackAnnotations)
+  const visibleAnnotations = trackAnnotations
+    .map((annotation, index) => {
+      const bar = getVisibleIntervalBar(annotation.startDate, annotation.endDate)
+      return bar ? { annotation, index, bar } : null
+    })
+    .filter(
+      (item): item is { annotation: SavedAnnotation; index: number; bar: { base: string; durationMs: number } } =>
+        Boolean(item)
+    )
+
+  if (visibleAnnotations.length === 0) {
+    return []
+  }
 
   return [
     {
       type: 'bar',
       orientation: 'h',
-      x: trackAnnotations.map((item) => toDurationMs(item.startDate, item.endDate)),
-      base: trackAnnotations.map((item) => item.startDate),
-      y: laneAssignment.lanes.map((laneIndex) => laneIndex + ANNOTATION_LANE_BASE_Y),
+      x: visibleAnnotations.map((item) => item.bar.durationMs),
+      base: visibleAnnotations.map((item) => item.bar.base),
+      y: visibleAnnotations.map((item) => (laneAssignment.lanes[item.index] ?? 0) + ANNOTATION_LANE_BASE_Y),
       width: 0.58,
       marker: {
-        color: trackAnnotations.map((item) =>
-          item.annotationKind === 'event' ? getAnnotationColor(item.eventType) : getRootCauseColor(item.rootCause)
+        color: visibleAnnotations.map((item) =>
+          item.annotation.annotationKind === 'event'
+            ? getAnnotationColor(item.annotation.eventType)
+            : getRootCauseColor(item.annotation.rootCause)
         ),
         line: {
-          color: trackAnnotations.map((item) =>
-            item.id === props.selectedAnnotationId
+          color: visibleAnnotations.map((item) =>
+            item.annotation.id === props.selectedAnnotationId
               ? '#0f172a'
-              : item.annotationKind === 'event'
-                ? getAnnotationColor(item.eventType)
-                : getRootCauseColor(item.rootCause)
+              : item.annotation.annotationKind === 'event'
+                ? getAnnotationColor(item.annotation.eventType)
+                : getRootCauseColor(item.annotation.rootCause)
           ),
-          width: trackAnnotations.map((item) => (item.id === props.selectedAnnotationId ? 2.5 : 1.1))
+          width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 2.5 : 1.1))
         },
-        opacity: trackAnnotations.map((item) => (item.id === props.selectedAnnotationId ? 1 : 0.88))
+        opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.88))
       },
       yaxis: trackAxis,
       showlegend: false,
-      customdata: trackAnnotations.map((item) => ({
+      customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
-        annotationId: item.id,
+        annotationId: item.annotation.id,
         source: 'manual' as const,
-        layer: item.annotationKind,
-        annotationKind: item.annotationKind === 'event' ? 'Эпизод' : 'Режим',
-        startDate: item.startDate,
-        endDate: item.endDate,
-        durationDays: item.durationDays,
-        categoryLabel: item.annotationKind === 'event' ? getEventTypeLabel(item.eventType) : getRootCauseLabel(item.rootCause),
-        actions: item.actions ?? [],
-        actionsText: item.actions?.length ? item.actions.join(', ') : 'не назначены'
+        layer: item.annotation.annotationKind,
+        annotationKind: item.annotation.annotationKind === 'event' ? 'Эпизод' : 'Режим',
+        startDate: item.annotation.startDate,
+        endDate: item.annotation.endDate,
+        durationDays: item.annotation.durationDays,
+        categoryLabel:
+          item.annotation.annotationKind === 'event'
+            ? getEventTypeLabel(item.annotation.eventType)
+            : getRootCauseLabel(item.annotation.rootCause),
+        actions: item.annotation.actions ?? [],
+        actionsText: item.annotation.actions?.length ? item.annotation.actions.join(', ') : 'не назначены'
       })),
       hovertemplate:
         '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
@@ -1179,31 +1197,42 @@ function buildVspTrackTrace() {
     return []
   }
 
+  const visiblePeriods = props.vspPeriods
+    .map((period) => {
+      const bar = getVisibleIntervalBar(period.startDate, period.endDate, { inclusiveEnd: false })
+      return bar ? { period, bar } : null
+    })
+    .filter((item): item is { period: VspPeriod; bar: { base: string; durationMs: number } } => Boolean(item))
+
+  if (visiblePeriods.length === 0) {
+    return []
+  }
+
   return [
     {
       type: 'bar',
       orientation: 'h',
-      x: props.vspPeriods.map((period) => toExactDurationMs(period.startDate, period.endDate)),
-      base: props.vspPeriods.map((period) => period.startDate),
-      y: props.vspPeriods.map(() => 0.5),
+      x: visiblePeriods.map((item) => item.bar.durationMs),
+      base: visiblePeriods.map((item) => item.bar.base),
+      y: visiblePeriods.map(() => 0.5),
       width: 0.44,
       marker: {
-        color: props.vspPeriods.map((period) =>
-          period.status === 'work' ? 'rgba(34,197,94,0.88)' : 'rgba(100,116,139,0.78)'
+        color: visiblePeriods.map((item) =>
+          item.period.status === 'work' ? 'rgba(34,197,94,0.88)' : 'rgba(100,116,139,0.78)'
         ),
         line: {
-          color: props.vspPeriods.map((period) => (period.status === 'work' ? '#16a34a' : '#475569')),
+          color: visiblePeriods.map((item) => (item.period.status === 'work' ? '#16a34a' : '#475569')),
           width: 0.7
         }
       },
       yaxis: 'y5',
       showlegend: false,
-      customdata: props.vspPeriods.map((period) => ({
-        startDate: period.startDate,
-        endDate: period.endDate,
-        status: period.status === 'work' ? 'В работе' : 'Простой',
-        wellState: period.wellState,
-        wellStateCode: period.wellStateCode
+      customdata: visiblePeriods.map((item) => ({
+        startDate: item.period.startDate,
+        endDate: item.period.endDate,
+        status: item.period.status === 'work' ? 'В работе' : 'Простой',
+        wellState: item.period.wellState,
+        wellStateCode: item.period.wellStateCode
       })),
       hovertemplate:
         '<b>ВСП</b><br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
@@ -1215,28 +1244,41 @@ function buildVspTrackTrace() {
 }
 
 function buildTrackTraces() {
+  const visibleEspPeriods = props.eventTracks.installedEspPeriods
+    .map((period) => {
+      const effectiveEndDate = getEffectiveEspEndDate(period.endDate)
+      const bar = getVisibleIntervalBar(period.startDate, effectiveEndDate)
+      return bar ? { period, effectiveEndDate, bar } : null
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        period: (typeof props.eventTracks.installedEspPeriods)[number]
+        effectiveEndDate: string
+        bar: { base: string; durationMs: number }
+      } => Boolean(item)
+    )
   const espInstallationTrace =
-    props.eventTracks.installedEspPeriods.length > 0
+    visibleEspPeriods.length > 0
       ? [
           {
             type: 'bar',
             orientation: 'h',
-            x: props.eventTracks.installedEspPeriods.map((item) =>
-              toDurationMs(item.startDate, getEffectiveEspEndDate(item.endDate))
-            ),
-            base: props.eventTracks.installedEspPeriods.map((item) => item.startDate),
-            y: props.eventTracks.installedEspPeriods.map(() => ESP_TRACK_CENTER_Y),
+            x: visibleEspPeriods.map((item) => item.bar.durationMs),
+            base: visibleEspPeriods.map((item) => item.bar.base),
+            y: visibleEspPeriods.map(() => ESP_TRACK_CENTER_Y),
             width: ESP_TRACK_BAR_WIDTH,
             marker: {
-              color: props.eventTracks.installedEspPeriods.map((item) => getEspColor(item.espId)),
+              color: visibleEspPeriods.map((item) => getEspColor(item.period.espId)),
               line: {
-                color: props.eventTracks.installedEspPeriods.map(() => 'rgba(226,232,240,0.52)'),
+                color: visibleEspPeriods.map(() => 'rgba(226,232,240,0.52)'),
                 width: 0.9
               }
             },
             yaxis: 'y6',
             showlegend: false,
-            text: props.eventTracks.installedEspPeriods.map(() => ''),
+            text: visibleEspPeriods.map(() => ''),
             textposition: 'inside',
             insidetextanchor: 'middle',
             textfont: {
@@ -1244,20 +1286,20 @@ function buildTrackTraces() {
               color: '#f8fafc'
             },
             cliponaxis: true,
-            customdata: props.eventTracks.installedEspPeriods.map((item) => ({
-              espId: item.espId,
-              startDate: item.startDate,
-              endDate: item.endDate ?? '—',
-              failureDate: item.failureDate ?? '—',
-              liftReason: item.liftReason ?? '—',
-              espSize: item.espSize ?? '—',
-              nominalRate: formatEspInfo(item.nominalRate),
-              nominalHead: formatEspInfo(item.nominalHead),
-              gasSeparatorType: item.gasSeparatorType ?? '—',
-              motorPowerKw: formatEspInfo(item.motorPowerKw)
+            customdata: visibleEspPeriods.map((item) => ({
+              espId: item.period.espId,
+              startDate: item.period.startDate,
+              endDate: item.period.endDate ?? '—',
+              failureDate: item.period.failureDate ?? '—',
+              liftReason: item.period.liftReason ?? '—',
+              espSize: item.period.espSize ?? '—',
+              nominalRate: formatEspInfo(item.period.nominalRate),
+              nominalHead: formatEspInfo(item.period.nominalHead),
+              gasSeparatorType: item.period.gasSeparatorType ?? '—',
+              motorPowerKw: formatEspInfo(item.period.motorPowerKw)
             })),
-            hovertemplate: props.eventTracks.installedEspPeriods.map((item) =>
-              item.isFountain
+            hovertemplate: visibleEspPeriods.map((item) =>
+              item.period.isFountain
                 ? '<b>%{customdata.espId}</b><br>Дата монтажа ЭЦН: %{customdata.startDate}<br>Дата демонтажа: %{customdata.endDate}<extra></extra>'
                 : '<b>%{customdata.espId}</b><br>Дата монтажа ЭЦН: %{customdata.startDate}<br>Дата демонтажа: %{customdata.endDate}<br>' +
                   'Дата отказа: %{customdata.failureDate}<br>' +
@@ -1433,6 +1475,36 @@ function getCurrentDateRangeMs(): [number, number] | null {
   return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
 }
 
+function getVisibleIntervalBar(
+  startDate: string,
+  endDate: string,
+  options?: { inclusiveEnd?: boolean }
+): { base: string; durationMs: number } | null {
+  const currentRange = getCurrentDateRangeMs()
+  const startMs = parseIsoDateMs(startDate)
+  const endMs = parseIsoDateMs(endDate)
+
+  if (!currentRange || startMs === null || endMs === null) {
+    return null
+  }
+
+  const inclusiveEnd = options?.inclusiveEnd ?? true
+  const intervalEndMs = endMs + (inclusiveEnd ? MS_PER_DAY : 0)
+  const visibleStartMs = currentRange[0]
+  const visibleEndMs = currentRange[1] + MS_PER_DAY
+  const clippedStartMs = Math.max(startMs, visibleStartMs)
+  const clippedEndMs = Math.min(intervalEndMs, visibleEndMs)
+
+  if (clippedEndMs <= clippedStartMs) {
+    return null
+  }
+
+  return {
+    base: clippedStartMs === startMs ? startDate : formatIsoDateMs(clippedStartMs),
+    durationMs: Math.max(60000, clippedEndMs - clippedStartMs)
+  }
+}
+
 function getPlotBounds() {
   const plotWidth = Math.max(1, chartSize.value.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
   const plotHeight = Math.max(1, chartSize.value.height - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM)
@@ -1525,7 +1597,7 @@ function getTrackIntervalOverlayGeometry(
 
   const plotBounds = getPlotBounds()
   const visibleStartMs = currentRange[0]
-  const visibleEndMs = currentRange[1]
+  const visibleEndMs = currentRange[1] + MS_PER_DAY
   const visibleSpanMs = Math.max(MS_PER_DAY, visibleEndMs - visibleStartMs)
   const clippedStartMs = Math.max(startMs, visibleStartMs)
   const clippedEndMs = Math.min(endMs + MS_PER_DAY, visibleEndMs)
@@ -2018,36 +2090,49 @@ function handleChartWheel(event: WheelEvent) {
   setVisibleDateRange(clampDateRangeMs(nextStartMs, nextEndMs, fullRange))
 }
 
-function panVisibleRange(direction: -1 | 1) {
+const canUseTimePanSlider = computed(() => {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+
+  return Boolean(fullRange && currentRange && currentRange[1] - currentRange[0] < fullRange[1] - fullRange[0] - MS_PER_DAY / 2)
+})
+
+const timePanSliderValue = computed(() => {
   const fullRange = getFullDateRangeMs()
   const currentRange = getCurrentDateRangeMs()
 
   if (!fullRange || !currentRange) {
-    return
+    return 0
   }
 
   const currentSpan = currentRange[1] - currentRange[0]
-  const fullSpan = fullRange[1] - fullRange[0]
+  const availableSpan = fullRange[1] - fullRange[0] - currentSpan
+  if (availableSpan <= 0) {
+    return 0
+  }
 
-  if (currentSpan >= fullSpan) {
+  return Math.round(((currentRange[0] - fullRange[0]) / availableSpan) * TIME_PAN_SLIDER_MAX)
+})
+
+function handleTimePanSliderInput(event: Event) {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+  const input = event.target as HTMLInputElement | null
+
+  if (!fullRange || !currentRange || !input) {
     return
   }
 
-  const offset = currentSpan * X_AXIS_PAN_RATIO * direction
-  setVisibleDateRange(clampDateRangeMs(currentRange[0] + offset, currentRange[1] + offset, fullRange))
+  const sliderValue = Number(input.value)
+  const currentSpan = currentRange[1] - currentRange[0]
+  const availableSpan = fullRange[1] - fullRange[0] - currentSpan
+  if (!Number.isFinite(sliderValue) || availableSpan <= 0) {
+    return
+  }
+
+  const nextStartMs = fullRange[0] + (availableSpan * sliderValue) / TIME_PAN_SLIDER_MAX
+  setVisibleDateRange(clampDateRangeMs(nextStartMs, nextStartMs + currentSpan, fullRange))
 }
-
-const canPanLeft = computed(() => {
-  const fullRange = getFullDateRangeMs()
-  const currentRange = getCurrentDateRangeMs()
-  return Boolean(fullRange && currentRange && currentRange[0] > fullRange[0] + MS_PER_DAY / 2)
-})
-
-const canPanRight = computed(() => {
-  const fullRange = getFullDateRangeMs()
-  const currentRange = getCurrentDateRangeMs()
-  return Boolean(fullRange && currentRange && currentRange[1] < fullRange[1] - MS_PER_DAY / 2)
-})
 
 function getPrimaryCustomdata(
   eventData: Record<string, unknown>
@@ -2142,7 +2227,7 @@ function getFrequencySegmentOverlayGeometry(segment: FrequencySegment): Record<s
   const plotWidth = Math.max(1, chartSize.value.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
   const plotHeight = Math.max(1, chartSize.value.height - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM)
   const visibleStartMs = currentRange[0]
-  const visibleEndMs = currentRange[1]
+  const visibleEndMs = currentRange[1] + MS_PER_DAY
   const visibleSpanMs = Math.max(MS_PER_DAY, visibleEndMs - visibleStartMs)
   const clippedStartMs = Math.max(segmentStartMs, visibleStartMs)
   const clippedEndMs = Math.min(segmentEndMs + MS_PER_DAY, visibleEndMs)
@@ -2998,5 +3083,17 @@ onBeforeUnmount(() => {
 
 .frequency-segment-add-button:hover {
   background: #7dd3fc;
+}
+
+.time-pan-slider {
+  display: block;
+  width: 100%;
+  height: 14px;
+  accent-color: #38bdf8;
+  cursor: grab;
+}
+
+.time-pan-slider:active {
+  cursor: grabbing;
 }
 </style>

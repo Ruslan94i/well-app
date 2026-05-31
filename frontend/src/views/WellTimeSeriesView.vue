@@ -464,7 +464,7 @@
                   multiple
                   clearable
                   filterable
-                  :options="actionOptions"
+                  :options="eventActionOptionsForDraft"
                   placeholder="Выберите мероприятия эпизода"
                   class="w-full"
                 />
@@ -521,7 +521,7 @@
                   multiple
                   clearable
                   filterable
-                  :options="actionOptions"
+                  :options="rootCauseActionOptionsForDraft"
                   placeholder="Выберите мероприятия режима"
                   class="w-full"
                 />
@@ -732,6 +732,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import { fetchArtificialLiftPeriods, fetchMarkup, fetchTrMonitoring, fetchVspPeriods, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
@@ -786,6 +787,8 @@ const MARKUP_STORAGE_KEYS = {
   manualFrequencyBreakpoints: 'wellInsight.markup.manualFrequencyBreakpoints.v1',
   suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1'
 }
+const UI_STATE_STORAGE_KEY = 'wellInsight.uiState.v1'
+const ANNOTATION_SNAP_THRESHOLD_MS = 86400000 / 2
 
 const defaultWellOptions: { label: string; value: string }[] = []
 const wellOptions = ref(defaultWellOptions)
@@ -794,6 +797,10 @@ const knownFieldCodes = ['Au', 'Az', 'Da', 'Ic', 'Mc', 'Vt', 'Ya']
 const getFieldGroupId = (fieldCode: string): WellGroupId => `field-${fieldCode.toLowerCase()}`
 const formatFieldGroupLabel = (fieldCode: string): string =>
   fieldCode === 'other' ? 'Без группы' : fieldCode
+const getWellFieldCodeFromId = (wellId: string): string => {
+  const [fieldCode] = wellId.split('_')
+  return fieldCode?.trim() || 'other'
+}
 const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownFieldCodes.map((fieldCode) => ({
   label: formatFieldGroupLabel(fieldCode),
   value: getFieldGroupId(fieldCode)
@@ -927,6 +934,11 @@ interface ModelGroupSettings {
   algorithm: ModelAlgorithm
   split: ModelSplit
   parameterImportances: Record<ModelInfluenceKey, ImportanceLevel>
+}
+
+interface PersistedUiState {
+  selectedWell?: string
+  interactionMode?: InteractionMode
 }
 
 interface AnalysisWindowMetrics {
@@ -1136,8 +1148,44 @@ function simulateModelQuality(groupId: WellGroupId, settings: ModelGroupSettings
   return Math.max(0.5, Math.min(0.94, Number(rawScore.toFixed(2))))
 }
 
-const selectedWell = ref(DEFAULT_WELL_ID)
-const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(DEFAULT_FIELD_CODE))
+function isInteractionModeValue(value: unknown): value is InteractionMode {
+  return value === 'navigate' || value === 'annotate' || value === 'modelTuning'
+}
+
+function loadPersistedUiState(): PersistedUiState {
+  try {
+    const rawValue = localStorage.getItem(UI_STATE_STORAGE_KEY)
+    if (!rawValue) {
+      return {}
+    }
+
+    const parsedValue = JSON.parse(rawValue) as PersistedUiState
+    return {
+      selectedWell: typeof parsedValue.selectedWell === 'string' ? parsedValue.selectedWell : undefined,
+      interactionMode: isInteractionModeValue(parsedValue.interactionMode) ? parsedValue.interactionMode : undefined
+    }
+  } catch {
+    return {}
+  }
+}
+
+function persistUiState(): void {
+  try {
+    localStorage.setItem(
+      UI_STATE_STORAGE_KEY,
+      JSON.stringify({
+        selectedWell: selectedWell.value,
+        interactionMode: interactionMode.value
+      })
+    )
+  } catch {
+    // Пользовательская разметка важнее UI-предпочтений: ошибку localStorage здесь можно игнорировать.
+  }
+}
+
+const persistedUiState = loadPersistedUiState()
+const selectedWell = ref(persistedUiState.selectedWell || DEFAULT_WELL_ID)
+const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE)))
 const dateRange = ref<[number, number] | null>(null)
 const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_pressure', 'esp_frequency', 'active_power']
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
@@ -1148,9 +1196,9 @@ const artificialLiftPeriods = ref<EspInstallationPeriod[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
-const interactionMode = ref<InteractionMode>('navigate')
+const interactionMode = ref<InteractionMode>(persistedUiState.interactionMode ?? 'navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
-const modelSelectedGroupId = ref<WellGroupId>(getFieldGroupId(DEFAULT_FIELD_CODE))
+const modelSelectedGroupId = ref<WellGroupId>(getFieldGroupId(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE)))
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -1384,6 +1432,42 @@ function isInteractionMode(mode: InteractionMode): boolean {
 }
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
+function getActionOptionsForDraft(annotationKind: AnnotationKind): SelectOption[] {
+  const selectedCategory =
+    annotationKind === 'event' ? episodeForm.value.episodeType.trim() : episodeForm.value.rootCause.trim()
+  const usedActionValues = new Set<string>()
+
+  if (selectedCategory) {
+    savedAnnotations.value.forEach((annotation) => {
+      if (annotation.annotationKind !== annotationKind || getAnnotationCategory(annotation) !== selectedCategory) {
+        return
+      }
+
+      getAnnotationActions(annotation).forEach((action) => {
+        if (action.trim()) {
+          usedActionValues.add(action)
+        }
+      })
+    })
+  }
+
+  const optionsByValue = new Map<string, SelectOption>(actionOptions.value.map((option) => [option.value, option]))
+  usedActionValues.forEach((value) => {
+    if (!optionsByValue.has(value)) {
+      optionsByValue.set(value, { label: value, value })
+    }
+  })
+
+  const suggestedOptions = [...usedActionValues]
+    .sort((left, right) => left.localeCompare(right, 'ru'))
+    .map((value) => optionsByValue.get(value))
+    .filter((option): option is SelectOption => Boolean(option))
+  const otherOptions = actionOptions.value.filter((option) => !usedActionValues.has(option.value))
+
+  return [...suggestedOptions, ...otherOptions]
+}
+const eventActionOptionsForDraft = computed(() => getActionOptionsForDraft('event'))
+const rootCauseActionOptionsForDraft = computed(() => getActionOptionsForDraft('rootCause'))
 const currentManualFrequencyBreakpoints = computed(() =>
   manualFrequencyBreakpoints.value.filter((item) => item.wellId === selectedWell.value)
 )
@@ -1569,6 +1653,52 @@ function buildInterval(startDate: string, endDate: string): SelectedInterval {
     endDate: normalizedEnd,
     durationDays: Math.max(1, Math.floor((toTimestamp(normalizedEnd) - toTimestamp(normalizedStart)) / 86400000) + 1)
   }
+}
+
+function snapDateToClosestBoundary(date: string, candidates: string[]): string {
+  const timestamp = toTimestamp(date)
+  if (!Number.isFinite(timestamp)) {
+    return date
+  }
+
+  let closestDate = date
+  let closestDistance = ANNOTATION_SNAP_THRESHOLD_MS + 1
+
+  candidates.forEach((candidate) => {
+    const candidateTimestamp = toTimestamp(candidate)
+    if (!Number.isFinite(candidateTimestamp)) {
+      return
+    }
+
+    const distance = Math.abs(candidateTimestamp - timestamp)
+    if (distance <= ANNOTATION_SNAP_THRESHOLD_MS && distance < closestDistance) {
+      closestDate = candidate
+      closestDistance = distance
+    }
+  })
+
+  return closestDate
+}
+
+function snapIntervalToAnnotationBoundaries(interval: SelectedInterval): SelectedInterval {
+  const annotations = currentWellAnnotations.value.filter((annotation) => annotation.id !== editingAnnotationId.value)
+  if (annotations.length === 0) {
+    return interval
+  }
+
+  const startCandidates = annotations.flatMap((annotation) => [
+    annotation.startDate,
+    shiftIsoDate(annotation.endDate, 1)
+  ])
+  const endCandidates = annotations.flatMap((annotation) => [
+    shiftIsoDate(annotation.startDate, -1),
+    annotation.endDate
+  ])
+
+  return buildInterval(
+    snapDateToClosestBoundary(interval.startDate, startCandidates),
+    snapDateToClosestBoundary(interval.endDate, endCandidates)
+  )
 }
 
 function normalizeFrequencyValue(value: number | null | undefined): number | null {
@@ -2394,19 +2524,10 @@ function mergeAdjacentAnnotations(
 }
 
 function normalizeAnnotationsForLayer(incomingAnnotation: SavedAnnotation): void {
-  const untouchedAnnotations = savedAnnotations.value.filter(
-    (item) => item.wellId !== incomingAnnotation.wellId || item.annotationKind !== incomingAnnotation.annotationKind
-  )
-  const sameLayer = savedAnnotations.value.filter(
-    (item) =>
-      item.wellId === incomingAnnotation.wellId &&
-      item.annotationKind === incomingAnnotation.annotationKind &&
-      item.id !== incomingAnnotation.id
-  )
-  const trimmedLayer = resolveLayerOverlap(sameLayer, incomingAnnotation)
-  const normalizedLayer = mergeAdjacentAnnotations([...trimmedLayer, incomingAnnotation], incomingAnnotation.id)
-
-  savedAnnotations.value = [...untouchedAnnotations, ...normalizedLayer].sort(
+  savedAnnotations.value = [
+    ...savedAnnotations.value.filter((item) => item.id !== incomingAnnotation.id),
+    incomingAnnotation
+  ].sort(
     (left, right) => toTimestamp(right.startDate) - toTimestamp(left.startDate)
   )
 }
@@ -2460,8 +2581,7 @@ function getDraftIntervalsForNewAnnotation(): SelectedInterval[] {
 }
 
 function getWellFieldCode(wellId: string): string {
-  const [fieldCode] = wellId.split('_')
-  return fieldCode?.trim() || 'other'
+  return getWellFieldCodeFromId(wellId)
 }
 
 function buildWellGroupOptions(wellIds: string[]): { label: string; value: WellGroupId }[] {
@@ -2574,17 +2694,22 @@ async function initializeWellOptions() {
       modelQualityByGroup.value[group.value] = simulateModelQuality(group.value, settings)
     })
 
-    if (!wellGroupOptions.value.some((option) => option.value === navigationGroupId.value)) {
+    if (!wellIds.includes(selectedWell.value)) {
+      selectedWell.value = wellIds.includes(DEFAULT_WELL_ID) ? DEFAULT_WELL_ID : wellIds[0] ?? ''
+    }
+
+    const selectedGroupId = wellGroupAssignments.value[selectedWell.value] ?? null
+    if (selectedGroupId && wellGroupOptions.value.some((option) => option.value === selectedGroupId)) {
+      navigationGroupId.value = selectedGroupId
+      if (!wellGroupOptions.value.some((option) => option.value === modelSelectedGroupId.value)) {
+        modelSelectedGroupId.value = selectedGroupId
+      }
+    } else if (!wellGroupOptions.value.some((option) => option.value === navigationGroupId.value)) {
       navigationGroupId.value = wellGroupOptions.value[0]?.value ?? null
     }
 
     if (!wellGroupOptions.value.some((option) => option.value === modelSelectedGroupId.value)) {
       modelSelectedGroupId.value = wellGroupOptions.value[0]?.value ?? 'field-au'
-    }
-
-    if (!wellIds.includes(selectedWell.value)) {
-      const firstWellInCurrentGroup = filteredWellOptions.value[0]?.value
-      selectedWell.value = firstWellInCurrentGroup ?? wellIds[0] ?? ''
     }
   } catch {
     message.warning('Не удалось загрузить список скважин с backend. Используется локальный список.')
@@ -2771,7 +2896,7 @@ async function restoreAutoFrequencyBreakpoints(): Promise<void> {
 }
 
 function handleIntervalSelected(value: SelectedInterval | null) {
-  selectedInterval.value = value
+  selectedInterval.value = value ? snapIntervalToAnnotationBoundaries(value) : null
   selectedFrequencyBreakpointId.value = null
   clearFrequencySegmentSelection()
 
@@ -2781,9 +2906,9 @@ function handleIntervalSelected(value: SelectedInterval | null) {
     return
   }
 
-  if (!editingAnnotationId.value) {
-    episodeForm.value = createDefaultEpisodeForm()
-  }
+  editingAnnotationId.value = null
+  editingAnnotationKind.value = null
+  episodeForm.value = createDefaultEpisodeForm()
 }
 
 function handleFrequencySegmentClicked(payload: FrequencySegmentClickPayload) {
@@ -2792,7 +2917,7 @@ function handleFrequencySegmentClicked(payload: FrequencySegmentClickPayload) {
   }
 
   selectedFrequencyBreakpointId.value = null
-  selectedInterval.value = buildInterval(payload.startDate, payload.endDate)
+  selectedInterval.value = snapIntervalToAnnotationBoundaries(buildInterval(payload.startDate, payload.endDate))
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
   episodeForm.value = createDefaultEpisodeForm()
@@ -3131,9 +3256,19 @@ watch(
     newGroupName.value = ''
     selectedFrequencyBreakpointId.value = null
     clearFrequencySegmentSelection()
+    const assignedGroupId = wellGroupAssignments.value[wellId] ?? null
+    if (
+      assignedGroupId &&
+      navigationGroupId.value !== assignedGroupId &&
+      wellGroupOptions.value.some((option) => option.value === assignedGroupId)
+    ) {
+      navigationGroupId.value = assignedGroupId
+    }
   },
   { immediate: true }
 )
+
+watch([selectedWell, interactionMode], persistUiState, { immediate: true })
 
 watch(
   modelSelectedGroupId,
