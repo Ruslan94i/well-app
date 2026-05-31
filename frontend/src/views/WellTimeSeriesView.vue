@@ -2995,7 +2995,15 @@ function resetAnnotationSelection() {
 }
 
 function clearSelection(options?: { force?: boolean }) {
-  if (!selectedInterval.value && !editingAnnotationId.value) {
+  const hasUiSelection =
+    selectedInterval.value ||
+    editingAnnotationId.value ||
+    editingAnnotationKind.value ||
+    selectedFrequencyBreakpointId.value ||
+    selectedFrequencySegmentIds.value.length > 0
+
+  if (!hasUiSelection) {
+    chartRef.value?.clearSelection()
     return
   }
 

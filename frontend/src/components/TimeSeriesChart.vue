@@ -2058,6 +2058,18 @@ function setVisibleDateRange(range: [number, number]) {
   emit('visible-range-changed', nextRange)
 }
 
+function resetPlotlySelectionState() {
+  if (!chartEl.value) {
+    return
+  }
+
+  void Plotly.restyle(chartEl.value, { selectedpoints: null })
+  void Plotly.relayout(chartEl.value, {
+    dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
+    selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined
+  })
+}
+
 function handleChartWheel(event: WheelEvent) {
   const fullRange = getFullDateRangeMs()
   const currentRange = getCurrentDateRangeMs()
@@ -2725,6 +2737,12 @@ function attachEventHandlers() {
     }
   })
 
+  plotlyElement.on?.('plotly_deselect', () => {
+    if (props.interactionMode === 'annotate') {
+      emit('interval-selected', null)
+    }
+  })
+
   plotlyElement.on?.('plotly_hover', (eventData: Record<string, unknown>) => {
     const customdata = getEventCustomdataByKind<FrequencySegmentCustomdata>(eventData, 'frequencySegment')
 
@@ -2816,6 +2834,7 @@ function attachEventHandlers() {
 }
 
 function clearSelection() {
+  resetPlotlySelectionState()
   emit('interval-selected', null)
 }
 
