@@ -109,6 +109,16 @@
             Загрузка данных с backend...
           </div>
           <div v-else class="space-y-4">
+            <div class="flex justify-end">
+              <n-button
+                secondary
+                size="small"
+                :loading="graphDataExporting"
+                @click="downloadGraphDataExport"
+              >
+                Выгрузить CSV
+              </n-button>
+            </div>
             <TimeSeriesChart
               ref="chartRef"
               :data="chartData"
@@ -679,7 +689,17 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
-import { fetchArtificialLiftPeriods, fetchMarkup, fetchTrMonitoring, fetchVspPeriods, fetchWellContext, fetchWellIds, fetchWellTimeseries, saveMarkup } from '@/services/api'
+import {
+  fetchArtificialLiftPeriods,
+  fetchGraphDataExportCsv,
+  fetchMarkup,
+  fetchTrMonitoring,
+  fetchVspPeriods,
+  fetchWellContext,
+  fetchWellIds,
+  fetchWellTimeseries,
+  saveMarkup
+} from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -1178,6 +1198,7 @@ const newGroupName = ref('')
 const newEpisodeClassName = ref('')
 const newEventActionName = ref('')
 const loading = ref(false)
+const graphDataExporting = ref(false)
 const errorMessage = ref('')
 const wellContext = ref<WellContext | null>(null)
 const markupLoaded = ref(false)
@@ -2326,6 +2347,24 @@ function exportAnalysis(drillDown: AnalysisDrillDown) {
   link.download = `analysis_${drillDown.interval.startDate}_${drillDown.interval.endDate}.json`
   link.click()
   URL.revokeObjectURL(url)
+}
+
+async function downloadGraphDataExport(): Promise<void> {
+  graphDataExporting.value = true
+
+  try {
+    const blob = await fetchGraphDataExportCsv()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `well_graph_data_${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    message.error('Не удалось сформировать CSV-выгрузку.')
+  } finally {
+    graphDataExporting.value = false
+  }
 }
 
 function getAnnotationCategory(annotation: SavedAnnotation): string {

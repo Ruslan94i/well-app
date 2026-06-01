@@ -78,3 +78,10 @@ export async function saveMarkup(markup: MarkupState): Promise<MarkupState> {
   const response = await api.put<MarkupState>('/markup', markup)
   return response.data
 }
+
+export async function fetchGraphDataExportCsv(): Promise<Blob> {
+  const response = await api.get<Blob>('/export/graph-data.csv', {
+    responseType: 'blob'
+  })
+  return response.data
+}
