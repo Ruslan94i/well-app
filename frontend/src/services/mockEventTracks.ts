@@ -85,33 +85,11 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
       espWashEvents: [],
       gtmEvents: [],
       gdiEvents: [],
-      modelEventIntervals: [],
-      modelRootCauseIntervals: []
+      modelEventIntervals: []
     }
   }
 
   const scenario = detectScenario(data)
-  const scenarioRootCauses: Record<typeof scenario, EventInterval[]> = {
-    degradation: [
-      createInterval(data, 'model-cause-1', 0.18, 0.41, 'деградация ЭЦН', '#e7d7c8'),
-      createInterval(data, 'model-cause-2', 0.43, 0.49, 'останов ВСП', '#d9dee7'),
-      createInterval(data, 'model-cause-3', 0.53, 0.67, 'эффект ОПЗ', '#d8efe6'),
-      createInterval(data, 'model-cause-4', 0.74, 0.96, 'прорыв воды', '#d8e6ff')
-    ],
-    unstable: [
-      createInterval(data, 'model-cause-1', 0.2, 0.34, 'нестабильная работа', '#e5defa'),
-      createInterval(data, 'model-cause-2', 0.35, 0.5, 'останов ВСП', '#d9dee7'),
-      createInterval(data, 'model-cause-3', 0.58, 0.79, 'замена ЭЦН', '#d7edf2'),
-      createInterval(data, 'model-cause-4', 0.8, 0.96, 'эффект ОПЗ', '#d8efe6')
-    ],
-    water: [
-      createInterval(data, 'model-cause-1', 0.14, 0.28, 'деградация ЭЦН', '#e7d7c8'),
-      createInterval(data, 'model-cause-2', 0.39, 0.56, 'эффект ОПЗ', '#d8efe6'),
-      createInterval(data, 'model-cause-3', 0.57, 0.94, 'прорыв воды', '#d8e6ff'),
-      createInterval(data, 'model-cause-4', 0.94, 0.99, 'смена режима', '#e3e8ef')
-    ]
-  }
-
   const scenarioEvents: Record<typeof scenario, EventInterval[]> = {
     degradation: [
       createInterval(data, 'model-event-1', 0.27, 0.3, 'локальное снижение дебита', '#f2c6a8'),
@@ -139,18 +117,7 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
     ]
   }
 
-  const modelRootCauseIntervals = scenarioRootCauses[scenario]
   const modelEventIntervals = scenarioEvents[scenario]
-
-  const dailyCauseByRoot = new Map<string, { label: string; color: string }>([
-    ['деградация ЭЦН', { label: 'деградация ЭЦН', color: '#dfd1c4' }],
-    ['нестабильная работа', { label: 'нестабильная работа', color: '#e5defa' }],
-    ['останов ВСП', { label: 'простои ВСП', color: '#d8dee9' }],
-    ['эффект ОПЗ', { label: 'последействие ОПЗ', color: '#d5ede3' }],
-    ['прорыв воды', { label: 'водоприток', color: '#d4e4ff' }],
-    ['замена ЭЦН', { label: 'замена ЭЦН', color: '#d7edf2' }],
-    ['смена режима', { label: 'смена режима', color: '#e3e8ef' }]
-  ])
 
   const dailyCauseByEvent = new Map<string, { label: string; color: string }>([
     ['локальное снижение дебита', { label: 'локальное снижение дебита', color: '#ead4c5' }],
@@ -164,11 +131,9 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
   const fallbackDailyCause = { label: 'стабильная работа', color: '#e2e8f0' }
 
   const dailyCauses: DailyCauseBand[] = data.map((point) => {
-    const activeRootCause = modelRootCauseIntervals.find((interval) => interval.startDate <= point.date && point.date <= interval.endDate)
     const activeEvent = modelEventIntervals.find((interval) => interval.startDate <= point.date && point.date <= interval.endDate)
     const causeItem =
       (activeEvent && dailyCauseByEvent.get(activeEvent.label)) ||
-      (activeRootCause && dailyCauseByRoot.get(activeRootCause.label)) ||
       fallbackDailyCause
 
     return {
@@ -198,7 +163,7 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
             id: 'opz-1',
             date: data[getScaledIndex(data, 0.84)]?.date ?? data[0]?.date ?? '',
             operationType: 'обработка призабойной зоны',
-            comment: 'ОПЗ выполнена после стабилизации режима и замены ЭЦН.'
+            comment: 'ОПЗ выполнена после стабилизации работы и замены ЭЦН.'
           }
         ].filter((item) => item.date)
       : [
@@ -212,7 +177,7 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
             id: 'opz-2',
             date: data[getScaledIndex(data, scenario === 'water' ? 0.49 : 0.56)]?.date ?? data[0]?.date ?? '',
             operationType: 'освоение после ОПЗ',
-            comment: 'Стабилизация режима после обработки и вывода на рабочую частоту.'
+            comment: 'Стабилизация работы после обработки и вывода на рабочую частоту.'
           }
         ].filter((item) => item.date)
 
@@ -223,7 +188,6 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
     espWashEvents: [],
     gtmEvents: [],
     gdiEvents: [],
-    modelEventIntervals,
-    modelRootCauseIntervals
+    modelEventIntervals
   }
 }

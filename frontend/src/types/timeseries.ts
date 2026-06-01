@@ -173,7 +173,6 @@ export interface HierarchicalEventTracks {
   gtmEvents: GtmEventFlag[]
   gdiEvents: GdiEventFlag[]
   modelEventIntervals: EventInterval[]
-  modelRootCauseIntervals: EventInterval[]
 }
 
 export interface GtmContextEvent {
@@ -257,22 +256,18 @@ export interface FrequencySegment extends SelectedInterval {
 }
 
 export type EpisodeType = string
-export type RootCause = string
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 export type WellGroupId = string
 
 export interface EpisodeFormState {
   episodeType: EpisodeType
-  rootCause: RootCause
   confidenceEvent: ConfidenceLevel
-  confidenceCause: ConfidenceLevel
   eventActions: string[]
-  rootCauseActions: string[]
   comment: string
 }
 
-export type AnnotationKind = 'event' | 'rootCause'
+export type AnnotationKind = 'event'
 
 interface AnnotationBase extends SelectedInterval {
   id: string
@@ -289,18 +284,11 @@ export interface SavedEventAnnotation extends AnnotationBase {
   confidenceEvent: ConfidenceLevel
 }
 
-export interface SavedRootCauseAnnotation extends AnnotationBase {
-  annotationKind: 'rootCause'
-  rootCause: RootCause
-  confidenceCause: ConfidenceLevel
-}
-
-export type SavedAnnotation = SavedEventAnnotation | SavedRootCauseAnnotation
+export type SavedAnnotation = SavedEventAnnotation
 
 export interface MarkupState {
   annotations: SavedAnnotation[]
   episodeClasses: AnnotationClassOption[]
-  modeClasses: AnnotationClassOption[]
   actionClasses: AnnotationClassOption[]
   manualFrequencyBreakpoints: FrequencyBreakpoint[]
   suppressedFrequencyBreakpoints: FrequencyBreakpointSuppression[]
@@ -309,7 +297,7 @@ export interface MarkupState {
 export interface TimelineAnnotationClickPayload {
   annotationId?: string
   source: 'manual' | 'model'
-  layer: 'event' | 'rootCause'
+  layer: 'event'
   label: string
   startDate: string
   endDate: string

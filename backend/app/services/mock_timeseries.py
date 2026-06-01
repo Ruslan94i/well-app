@@ -52,9 +52,9 @@ def _get_scenario_params(seed: int) -> dict[str, float]:
             "water_start": 126.0,
             "water_duration": 34.0,
             "water_amp": 14.0,
-            "regime_start": 148.0,
-            "regime_duration": 12.0,
-            "regime_amp": 2.2,
+            "operation_shift_start": 148.0,
+            "operation_shift_duration": 12.0,
+            "operation_shift_amp": 2.2,
         },
         {
             "qliq_start": 118.0,
@@ -74,9 +74,9 @@ def _get_scenario_params(seed: int) -> dict[str, float]:
             "water_start": 138.0,
             "water_duration": 24.0,
             "water_amp": 7.5,
-            "regime_start": 74.0,
-            "regime_duration": 10.0,
-            "regime_amp": 3.0,
+            "operation_shift_start": 74.0,
+            "operation_shift_duration": 10.0,
+            "operation_shift_amp": 3.0,
         },
         {
             "qliq_start": 121.0,
@@ -96,9 +96,9 @@ def _get_scenario_params(seed: int) -> dict[str, float]:
             "water_start": 92.0,
             "water_duration": 42.0,
             "water_amp": 16.0,
-            "regime_start": 146.0,
-            "regime_duration": 14.0,
-            "regime_amp": 3.6,
+            "operation_shift_start": 146.0,
+            "operation_shift_duration": 14.0,
+            "operation_shift_amp": 3.6,
         },
     )
 
@@ -150,10 +150,10 @@ def generate_well_timeseries(
         start=params["water_start"],
         duration=params["water_duration"],
     )
-    regime_shift = _smooth_step(
+    operation_shift = _smooth_step(
         timeline,
-        start=params["regime_start"],
-        duration=params["regime_duration"],
+        start=params["operation_shift_start"],
+        duration=params["operation_shift_duration"],
     )
 
     qliq_trend = params["qliq_start"] - params["qliq_decline"] * timeline
@@ -164,7 +164,7 @@ def generate_well_timeseries(
         + params["replacement_amp"] * replacement_reset
         + params["opz_amp"] * opz_effect
         - (0.32 * params["water_amp"]) * water_breakthrough
-        - (0.9 * params["regime_amp"]) * regime_shift
+        - (0.9 * params["operation_shift_amp"]) * operation_shift
         + 0.9 * np.sin(timeline / 17.0)
         + _smooth_noise(rng, total_days, scale=0.85, window=7)
     )
@@ -176,7 +176,7 @@ def generate_well_timeseries(
         + 0.9 * degradation
         - 1.1 * opz_effect
         + params["water_amp"] * water_breakthrough
-        + params["regime_amp"] * regime_shift
+        + params["operation_shift_amp"] * operation_shift
         + _smooth_noise(rng, total_days, scale=0.55, window=11)
     )
     water_cut = np.clip(water_cut, 8.0, 92.0)
@@ -199,7 +199,7 @@ def generate_well_timeseries(
         + 8.5 * replacement_reset
         + 14.0 * opz_effect
         + 12.0 * water_breakthrough
-        + 5.0 * regime_shift
+        + 5.0 * operation_shift
         + 4.0 * np.sin(timeline / 29.0)
         + _smooth_noise(rng, total_days, scale=3.2, window=9)
     )
@@ -223,7 +223,7 @@ def generate_well_timeseries(
         - (3.8 + 0.22 * params["downtime_amp"]) * downtime
         - (1.2 + 0.16 * params["replacement_amp"]) * replacement_reset
         + (1.8 + 0.14 * params["water_amp"]) * water_breakthrough
-        + 0.7 * params["regime_amp"] * regime_shift
+        + 0.7 * params["operation_shift_amp"] * operation_shift
         + 1.1 * np.sin(timeline / 21.0)
         + _smooth_noise(rng, total_days, scale=0.75, window=7)
     )
@@ -234,7 +234,7 @@ def generate_well_timeseries(
         - (1.0 + 0.12 * params["downtime_amp"]) * downtime
         + 0.14 * params["replacement_amp"] * replacement_reset
         - 0.025 * params["water_amp"] * water_breakthrough
-        + 0.1 * params["regime_amp"] * regime_shift
+        + 0.1 * params["operation_shift_amp"] * operation_shift
         + _smooth_noise(rng, total_days, scale=0.08, window=9)
     )
     esp_frequency = np.clip(esp_frequency, 43.5, 52.5)

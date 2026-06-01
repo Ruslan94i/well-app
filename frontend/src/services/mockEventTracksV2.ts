@@ -9,14 +9,6 @@ interface ScenarioSegment {
   label: string
 }
 
-interface EpisodeTemplate {
-  id: string
-  regimeId: string
-  startOffsetRatio: number
-  durationRatio: number
-  label: string
-}
-
 function clampIndex(index: number, maxIndex: number): number {
   return Math.max(0, Math.min(index, maxIndex))
 }
@@ -77,18 +69,6 @@ function detectScenario(data: TimeSeriesPoint[]): Scenario {
   return 'degradation'
 }
 
-const regimeColorMap: Record<string, string> = {
-  'Стабильная работа': '#8aa0b6',
-  'Деградация ЭЦН': '#b88b68',
-  'Рост обводненности': '#7aa7d6',
-  'Прорыв воды': '#5f8fd8',
-  'Нестабильный режим': '#8a7be0',
-  'Эффект после ОПЗ': '#6ba88f',
-  'Ограничение режима эксплуатации': '#7d8795',
-  'ВСП / простой': '#798496',
-  'После смены ЭЦН': '#5fa8c9'
-}
-
 const episodeColorMap: Record<string, string> = {
   'НУР': '#d7c6a4',
   'Кратковременная нестабильность': '#b6a7eb',
@@ -99,18 +79,6 @@ const episodeColorMap: Record<string, string> = {
   'Кратковременный рост обводненности': '#90c2e8',
   'Эффект после вмешательства': '#86c6b1'
 }
-
-const dailyCauseByRegime = new Map<string, { label: string; color: string }>([
-  ['Стабильная работа', { label: 'стабильная эксплуатация', color: '#73859c' }],
-  ['Деградация ЭЦН', { label: 'снижение эффективности ЭЦН', color: '#8d745f' }],
-  ['Рост обводненности', { label: 'устойчивый рост обводненности', color: '#6f9ec7' }],
-  ['Прорыв воды', { label: 'водоприток', color: '#5b86c7' }],
-  ['Нестабильный режим', { label: 'нестабильный режим', color: '#8276c5' }],
-  ['Эффект после ОПЗ', { label: 'последействие ОПЗ', color: '#5f9d88' }],
-  ['Ограничение режима эксплуатации', { label: 'ограничение эксплуатации', color: '#727b88' }],
-  ['ВСП / простой', { label: 'простой ВСП', color: '#697382' }],
-  ['После смены ЭЦН', { label: 'период после смены ЭЦН', color: '#5f96b0' }]
-])
 
 const dailyCauseByEpisode = new Map<string, { label: string; color: string }>([
   ['НУР', { label: 'НУР', color: '#bda98a' }],
@@ -123,157 +91,65 @@ const dailyCauseByEpisode = new Map<string, { label: string; color: string }>([
   ['Эффект после вмешательства', { label: 'локальный эффект вмешательства', color: '#78b6a2' }]
 ])
 
-function createIntervalFromIndexes(
+function createInterval(
   data: TimeSeriesPoint[],
-  id: string,
-  startIndex: number,
-  endIndex: number,
-  label: string,
-  color: string
-): EventInterval {
+  segment: ScenarioSegment
+): EventInterval | null {
+  const interval = getRangeDates(data, getScaledIndex(data, segment.startRatio), getScaledIndex(data, segment.endRatio))
+  if (!interval.startDate || !interval.endDate) {
+    return null
+  }
+
   return {
-    id,
-    ...getRangeDates(data, startIndex, endIndex),
-    label,
-    color
+    id: segment.id,
+    ...interval,
+    label: segment.label,
+    color: episodeColorMap[segment.label] ?? '#cbd5e1'
   }
 }
 
-function createSegments(
-  data: TimeSeriesPoint[],
-  segments: ScenarioSegment[],
-  palette: Record<string, string>
-): EventInterval[] {
-  return segments
-    .map((segment) =>
-      createIntervalFromIndexes(
-        data,
-        segment.id,
-        getScaledIndex(data, segment.startRatio),
-        getScaledIndex(data, segment.endRatio),
-        segment.label,
-        palette[segment.label] ?? '#94a3b8'
-      )
-    )
-    .filter((item) => item.startDate && item.endDate)
-}
-
-function createEpisodesInsideRegimes(
-  data: TimeSeriesPoint[],
-  regimes: EventInterval[],
-  templates: EpisodeTemplate[]
-): EventInterval[] {
-  return templates.flatMap((template) => {
-    const regime = regimes.find((item) => item.id === template.regimeId)
-    if (!regime) {
-      return []
-    }
-
-    const regimeStartIndex = data.findIndex((point) => point.date === regime.startDate)
-    const regimeEndIndex = data.findIndex((point) => point.date === regime.endDate)
-    if (regimeStartIndex < 0 || regimeEndIndex < 0 || regimeEndIndex <= regimeStartIndex) {
-      return []
-    }
-
-    const regimeLength = regimeEndIndex - regimeStartIndex + 1
-    const episodeStartIndex = clampIndex(
-      regimeStartIndex + Math.floor((regimeLength - 1) * template.startOffsetRatio),
-      regimeEndIndex
-    )
-    const episodeDuration = Math.max(1, Math.floor(regimeLength * template.durationRatio))
-    const episodeEndIndex = clampIndex(episodeStartIndex + episodeDuration - 1, regimeEndIndex)
-
-    return [
-      createIntervalFromIndexes(
-        data,
-        template.id,
-        episodeStartIndex,
-        episodeEndIndex,
-        template.label,
-        episodeColorMap[template.label] ?? '#cbd5e1'
-      )
-    ]
-  })
-}
-
-function createScenarioRegimes(data: TimeSeriesPoint[], scenario: Scenario): EventInterval[] {
-  const segmentsByScenario: Record<Scenario, ScenarioSegment[]> = {
+function createScenarioEpisodes(data: TimeSeriesPoint[], scenario: Scenario): EventInterval[] {
+  const episodesByScenario: Record<Scenario, ScenarioSegment[]> = {
     degradation: [
-      { id: 'regime-1', startRatio: 0.0, endRatio: 0.16, label: 'Стабильная работа' },
-      { id: 'regime-2', startRatio: 0.17, endRatio: 0.39, label: 'Деградация ЭЦН' },
-      { id: 'regime-3', startRatio: 0.4, endRatio: 0.47, label: 'ВСП / простой' },
-      { id: 'regime-4', startRatio: 0.48, endRatio: 0.61, label: 'После смены ЭЦН' },
-      { id: 'regime-5', startRatio: 0.62, endRatio: 0.76, label: 'Эффект после ОПЗ' },
-      { id: 'regime-6', startRatio: 0.77, endRatio: 0.88, label: 'Рост обводненности' },
-      { id: 'regime-7', startRatio: 0.89, endRatio: 1.0, label: 'Прорыв воды' }
+      { id: 'episode-1', startRatio: 0.24, endRatio: 0.28, label: 'Локальное падение дебита' },
+      { id: 'episode-2', startRatio: 0.36, endRatio: 0.39, label: 'Скачок частоты ЭЦН' },
+      { id: 'episode-3', startRatio: 0.43, endRatio: 0.47, label: 'Краткий простой' },
+      { id: 'episode-4', startRatio: 0.52, endRatio: 0.55, label: 'Временное восстановление дебита' },
+      { id: 'episode-5', startRatio: 0.62, endRatio: 0.65, label: 'Эффект после вмешательства' },
+      { id: 'episode-6', startRatio: 0.78, endRatio: 0.82, label: 'Кратковременный рост обводненности' },
+      { id: 'episode-7', startRatio: 0.9, endRatio: 0.94, label: 'НУР' }
     ],
     unstable: [
-      { id: 'regime-1', startRatio: 0.0, endRatio: 0.13, label: 'Стабильная работа' },
-      { id: 'regime-2', startRatio: 0.14, endRatio: 0.31, label: 'Нестабильный режим' },
-      { id: 'regime-3', startRatio: 0.32, endRatio: 0.42, label: 'Ограничение режима эксплуатации' },
-      { id: 'regime-4', startRatio: 0.43, endRatio: 0.5, label: 'ВСП / простой' },
-      { id: 'regime-5', startRatio: 0.51, endRatio: 0.71, label: 'После смены ЭЦН' },
-      { id: 'regime-6', startRatio: 0.72, endRatio: 0.83, label: 'Нестабильный режим' },
-      { id: 'regime-7', startRatio: 0.84, endRatio: 1.0, label: 'Эффект после ОПЗ' }
+      { id: 'episode-1', startRatio: 0.16, endRatio: 0.19, label: 'Кратковременная нестабильность' },
+      { id: 'episode-2', startRatio: 0.28, endRatio: 0.31, label: 'Скачок частоты ЭЦН' },
+      { id: 'episode-3', startRatio: 0.36, endRatio: 0.39, label: 'Локальное падение дебита' },
+      { id: 'episode-4', startRatio: 0.44, endRatio: 0.49, label: 'Краткий простой' },
+      { id: 'episode-5', startRatio: 0.58, endRatio: 0.62, label: 'Временное восстановление дебита' },
+      { id: 'episode-6', startRatio: 0.76, endRatio: 0.8, label: 'НУР' },
+      { id: 'episode-7', startRatio: 0.86, endRatio: 0.9, label: 'Эффект после вмешательства' }
     ],
     water: [
-      { id: 'regime-1', startRatio: 0.0, endRatio: 0.14, label: 'Стабильная работа' },
-      { id: 'regime-2', startRatio: 0.15, endRatio: 0.29, label: 'Деградация ЭЦН' },
-      { id: 'regime-3', startRatio: 0.3, endRatio: 0.46, label: 'Эффект после ОПЗ' },
-      { id: 'regime-4', startRatio: 0.47, endRatio: 0.62, label: 'Рост обводненности' },
-      { id: 'regime-5', startRatio: 0.63, endRatio: 0.9, label: 'Прорыв воды' },
-      { id: 'regime-6', startRatio: 0.91, endRatio: 1.0, label: 'Ограничение режима эксплуатации' }
+      { id: 'episode-1', startRatio: 0.2, endRatio: 0.23, label: 'Локальное падение дебита' },
+      { id: 'episode-2', startRatio: 0.32, endRatio: 0.35, label: 'Эффект после вмешательства' },
+      { id: 'episode-3', startRatio: 0.42, endRatio: 0.46, label: 'Временное восстановление дебита' },
+      { id: 'episode-4', startRatio: 0.56, endRatio: 0.6, label: 'Кратковременный рост обводненности' },
+      { id: 'episode-5', startRatio: 0.68, endRatio: 0.72, label: 'НУР' },
+      { id: 'episode-6', startRatio: 0.78, endRatio: 0.82, label: 'Кратковременная нестабильность' },
+      { id: 'episode-7', startRatio: 0.92, endRatio: 0.96, label: 'Скачок частоты ЭЦН' }
     ]
   }
 
-  return createSegments(data, segmentsByScenario[scenario], regimeColorMap)
+  return episodesByScenario[scenario]
+    .map((segment) => createInterval(data, segment))
+    .filter((item): item is EventInterval => Boolean(item))
 }
 
-function createScenarioEpisodes(data: TimeSeriesPoint[], scenario: Scenario, regimes: EventInterval[]): EventInterval[] {
-  const episodesByScenario: Record<Scenario, EpisodeTemplate[]> = {
-    degradation: [
-      { id: 'episode-1', regimeId: 'regime-2', startOffsetRatio: 0.32, durationRatio: 0.14, label: 'Локальное падение дебита' },
-      { id: 'episode-2', regimeId: 'regime-2', startOffsetRatio: 0.72, durationRatio: 0.12, label: 'Скачок частоты ЭЦН' },
-      { id: 'episode-3', regimeId: 'regime-3', startOffsetRatio: 0.18, durationRatio: 0.34, label: 'Краткий простой' },
-      { id: 'episode-4', regimeId: 'regime-4', startOffsetRatio: 0.14, durationRatio: 0.16, label: 'Временное восстановление дебита' },
-      { id: 'episode-5', regimeId: 'regime-5', startOffsetRatio: 0.08, durationRatio: 0.12, label: 'Эффект после вмешательства' },
-      { id: 'episode-6', regimeId: 'regime-6', startOffsetRatio: 0.42, durationRatio: 0.12, label: 'Кратковременный рост обводненности' },
-      { id: 'episode-7', regimeId: 'regime-7', startOffsetRatio: 0.24, durationRatio: 0.14, label: 'НУР' }
-    ],
-    unstable: [
-      { id: 'episode-1', regimeId: 'regime-2', startOffsetRatio: 0.18, durationRatio: 0.12, label: 'Кратковременная нестабильность' },
-      { id: 'episode-2', regimeId: 'regime-2', startOffsetRatio: 0.56, durationRatio: 0.12, label: 'Скачок частоты ЭЦН' },
-      { id: 'episode-3', regimeId: 'regime-3', startOffsetRatio: 0.36, durationRatio: 0.16, label: 'Локальное падение дебита' },
-      { id: 'episode-4', regimeId: 'regime-4', startOffsetRatio: 0.18, durationRatio: 0.28, label: 'Краткий простой' },
-      { id: 'episode-5', regimeId: 'regime-5', startOffsetRatio: 0.14, durationRatio: 0.16, label: 'Временное восстановление дебита' },
-      { id: 'episode-6', regimeId: 'regime-6', startOffsetRatio: 0.34, durationRatio: 0.12, label: 'НУР' },
-      { id: 'episode-7', regimeId: 'regime-7', startOffsetRatio: 0.12, durationRatio: 0.12, label: 'Эффект после вмешательства' }
-    ],
-    water: [
-      { id: 'episode-1', regimeId: 'regime-2', startOffsetRatio: 0.34, durationRatio: 0.12, label: 'Локальное падение дебита' },
-      { id: 'episode-2', regimeId: 'regime-3', startOffsetRatio: 0.16, durationRatio: 0.12, label: 'Эффект после вмешательства' },
-      { id: 'episode-3', regimeId: 'regime-3', startOffsetRatio: 0.52, durationRatio: 0.16, label: 'Временное восстановление дебита' },
-      { id: 'episode-4', regimeId: 'regime-4', startOffsetRatio: 0.38, durationRatio: 0.14, label: 'Кратковременный рост обводненности' },
-      { id: 'episode-5', regimeId: 'regime-5', startOffsetRatio: 0.18, durationRatio: 0.12, label: 'НУР' },
-      { id: 'episode-6', regimeId: 'regime-5', startOffsetRatio: 0.58, durationRatio: 0.12, label: 'Кратковременная нестабильность' },
-      { id: 'episode-7', regimeId: 'regime-6', startOffsetRatio: 0.22, durationRatio: 0.16, label: 'Скачок частоты ЭЦН' }
-    ]
-  }
-
-  return createEpisodesInsideRegimes(data, regimes, episodesByScenario[scenario])
-}
-
-function buildDailyCauses(data: TimeSeriesPoint[], regimes: EventInterval[], episodes: EventInterval[]): DailyCauseBand[] {
+function buildDailyCauses(data: TimeSeriesPoint[], episodes: EventInterval[]): DailyCauseBand[] {
   const fallbackDailyCause = { label: 'стабильная работа', color: '#6b7c93' }
 
   return data.map((point) => {
-    const activeRegime = regimes.find((interval) => interval.startDate <= point.date && point.date <= interval.endDate)
     const activeEpisode = episodes.find((interval) => interval.startDate <= point.date && point.date <= interval.endDate)
-
-    const causeItem =
-      (activeEpisode && dailyCauseByEpisode.get(activeEpisode.label)) ||
-      (activeRegime && dailyCauseByRegime.get(activeRegime.label)) ||
-      fallbackDailyCause
+    const causeItem = (activeEpisode && dailyCauseByEpisode.get(activeEpisode.label)) || fallbackDailyCause
 
     return {
       date: point.date,
@@ -311,7 +187,7 @@ function buildOpzEvents(data: TimeSeriesPoint[], scenario: Scenario): OpzEventFl
       {
         ratio: 0.68,
         operationType: 'освоение после ОПЗ',
-        comment: 'Контроль стабилизации после вывода скважины на рабочий режим.'
+        comment: 'Контроль стабилизации после вывода скважины на рабочую частоту.'
       }
     ],
     unstable: [
@@ -325,12 +201,12 @@ function buildOpzEvents(data: TimeSeriesPoint[], scenario: Scenario): OpzEventFl
       {
         ratio: 0.32,
         operationType: 'кислотная обработка',
-        comment: 'ОПЗ проведена в попытке поддержать дебит до начала устойчивого роста воды.'
+        comment: 'ОПЗ проведена в попытке поддержать дебит до устойчивого роста воды.'
       },
       {
         ratio: 0.38,
         operationType: 'освоение после ОПЗ',
-        comment: 'Кратковременный эффект после вмешательства и переход к новому режиму.'
+        comment: 'Кратковременный эффект после вмешательства и переход к новой динамике.'
       }
     ]
   }
@@ -360,7 +236,7 @@ function buildEspWashEvents(data: TimeSeriesPoint[], scenario: Scenario): OpzEve
       },
       {
         ratio: 0.73,
-        comment: 'Контрольная промывка ЭЦН перед повторной стабилизацией режима.'
+        comment: 'Контрольная промывка ЭЦН перед повторной стабилизацией работы.'
       }
     ],
     water: [
@@ -390,15 +266,13 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
       espWashEvents: [],
       gtmEvents: [],
       gdiEvents: [],
-      modelEventIntervals: [],
-      modelRootCauseIntervals: []
+      modelEventIntervals: []
     }
   }
 
   const scenario = detectScenario(data)
-  const modelRootCauseIntervals = createScenarioRegimes(data, scenario)
-  const modelEventIntervals = createScenarioEpisodes(data, scenario, modelRootCauseIntervals)
-  const dailyCauses = buildDailyCauses(data, modelRootCauseIntervals, modelEventIntervals)
+  const modelEventIntervals = createScenarioEpisodes(data, scenario)
+  const dailyCauses = buildDailyCauses(data, modelEventIntervals)
   const installedEspPeriods = buildInstalledEspPeriods(data, scenario)
   const opzEvents = buildOpzEvents(data, scenario)
   const espWashEvents = buildEspWashEvents(data, scenario)
@@ -410,7 +284,6 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
     espWashEvents,
     gtmEvents: [],
     gdiEvents: [],
-    modelEventIntervals,
-    modelRootCauseIntervals
+    modelEventIntervals
   }
 }

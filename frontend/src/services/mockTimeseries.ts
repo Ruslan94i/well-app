@@ -23,9 +23,9 @@ type ScenarioConfig = {
   waterStart: number
   waterDuration: number
   waterAmp: number
-  regimeStart: number
-  regimeDuration: number
-  regimeAmp: number
+  operationShiftStart: number
+  operationShiftDuration: number
+  operationShiftAmp: number
 }
 
 const DEFAULT_TOTAL_DAYS = 180
@@ -114,9 +114,9 @@ function getScenario(seed: number): ScenarioConfig {
         waterStart: 0.7,
         waterDuration: 0.19,
         waterAmp: 14,
-        regimeStart: 0.82,
-        regimeDuration: 0.07,
-        regimeAmp: 2.2
+        operationShiftStart: 0.82,
+        operationShiftDuration: 0.07,
+        operationShiftAmp: 2.2
       }
     case 1:
       return {
@@ -137,9 +137,9 @@ function getScenario(seed: number): ScenarioConfig {
         waterStart: 0.77,
         waterDuration: 0.14,
         waterAmp: 7.5,
-        regimeStart: 0.4,
-        regimeDuration: 0.06,
-        regimeAmp: 3
+        operationShiftStart: 0.4,
+        operationShiftDuration: 0.06,
+        operationShiftAmp: 3
       }
     default:
       return {
@@ -160,9 +160,9 @@ function getScenario(seed: number): ScenarioConfig {
         waterStart: 0.51,
         waterDuration: 0.24,
         waterAmp: 16,
-        regimeStart: 0.82,
-        regimeDuration: 0.08,
-        regimeAmp: 3.6
+        operationShiftStart: 0.82,
+        operationShiftDuration: 0.08,
+        operationShiftAmp: 3.6
       }
   }
 }
@@ -217,7 +217,7 @@ export function generateMockTimeseries(
       0
     )
     const waterBreakthrough = smoothStep(progress, scenario.waterStart, scenario.waterDuration)
-    const regimeShift = smoothStep(progress, scenario.regimeStart, scenario.regimeDuration)
+    const operationShift = smoothStep(progress, scenario.operationShiftStart, scenario.operationShiftDuration)
 
     const qliqBase =
       scenario.qliqStart -
@@ -227,7 +227,7 @@ export function generateMockTimeseries(
       scenario.replacementAmp * replacementReset +
       scenario.opzAmp * opzEffect -
       0.32 * scenario.waterAmp * waterBreakthrough -
-      0.9 * scenario.regimeAmp * regimeShift +
+      0.9 * scenario.operationShiftAmp * operationShift +
       0.9 * Math.sin(index / 17) +
       (random() - 0.5) * 1.1
     const qliq = clamp(qliqBase, 62)
@@ -238,7 +238,7 @@ export function generateMockTimeseries(
         0.9 * degradation -
         1.1 * opzEffect +
         scenario.waterAmp * waterBreakthrough +
-        scenario.regimeAmp * regimeShift +
+        scenario.operationShiftAmp * operationShift +
         (random() - 0.5) * 1.2,
       8,
       92
@@ -264,7 +264,7 @@ export function generateMockTimeseries(
         8.5 * replacementReset +
         14 * opzEffect +
         12 * waterBreakthrough +
-        5 * regimeShift +
+        5 * operationShift +
         4 * Math.sin(index / 29) +
         (random() - 0.5) * 6.4,
       145,
@@ -282,7 +282,7 @@ export function generateMockTimeseries(
         (3.8 + 0.22 * scenario.downtimeAmp) * downtime -
         (1.2 + 0.16 * scenario.replacementAmp) * replacementReset +
         (1.8 + 0.14 * scenario.waterAmp) * waterBreakthrough +
-        0.7 * scenario.regimeAmp * regimeShift +
+        0.7 * scenario.operationShiftAmp * operationShift +
         1.1 * Math.sin(index / 21) +
         (random() - 0.5) * 1.4
     )
@@ -292,7 +292,7 @@ export function generateMockTimeseries(
         (1 + 0.12 * scenario.downtimeAmp) * downtime +
         0.14 * scenario.replacementAmp * replacementReset -
         0.025 * scenario.waterAmp * waterBreakthrough +
-        0.1 * scenario.regimeAmp * regimeShift +
+        0.1 * scenario.operationShiftAmp * operationShift +
         (random() - 0.5) * 0.16,
       43.5,
       52.5

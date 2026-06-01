@@ -209,7 +209,7 @@ interface SavedAnnotationCustomdata {
   kind: 'annotation'
   annotationId?: string
   source: 'manual' | 'model'
-  layer: 'event' | 'rootCause'
+  layer: 'event'
   annotationKind: string
   startDate: string
   endDate: string
@@ -239,7 +239,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
+  axis: 'y5' | 'y6' | 'y7' | 'y8'
   label: string
   labelColor: string
   domain: [number, number]
@@ -474,15 +474,7 @@ function getAnnotationColor(label: string): string {
   return getPaletteColor(label || 'episode', ['#38bdf8', '#f97316', '#22c55e', '#eab308', '#ec4899', '#a855f7', '#14b8a6'])
 }
 
-function getRootCauseColor(label: string): string {
-  return getPaletteColor(label || 'mode', ['#94a3b8', '#60a5fa', '#f59e0b', '#10b981', '#c084fc', '#f472b6', '#2dd4bf'])
-}
-
 function getEventTypeLabel(label: string): string {
-  return label || 'Без класса'
-}
-
-function getRootCauseLabel(label: string): string {
   return label || 'Без класса'
 }
 
@@ -1009,8 +1001,8 @@ function buildFrequencyBreakpointTrace() {
   ]
 }
 
-function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'event' | 'rootCause') {
-  const trackAnnotations = props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
+function buildSavedAnnotationTrace() {
+  const trackAnnotations = props.savedAnnotations
 
   if (trackAnnotations.length === 0) {
     return []
@@ -1040,38 +1032,29 @@ function buildSavedAnnotationTrace(trackAxis: 'y8' | 'y9', annotationKind: 'even
       y: visibleAnnotations.map((item) => (laneAssignment.lanes[item.index] ?? 0) + ANNOTATION_LANE_BASE_Y),
       width: 0.58,
       marker: {
-        color: visibleAnnotations.map((item) =>
-          item.annotation.annotationKind === 'event'
-            ? getAnnotationColor(item.annotation.eventType)
-            : getRootCauseColor(item.annotation.rootCause)
-        ),
+        color: visibleAnnotations.map((item) => getAnnotationColor(item.annotation.eventType)),
         line: {
           color: visibleAnnotations.map((item) =>
             item.annotation.id === props.selectedAnnotationId
               ? '#0f172a'
-              : item.annotation.annotationKind === 'event'
-                ? getAnnotationColor(item.annotation.eventType)
-                : getRootCauseColor(item.annotation.rootCause)
+              : getAnnotationColor(item.annotation.eventType)
           ),
           width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 2.5 : 1.1))
         },
         opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.88))
       },
-      yaxis: trackAxis,
+      yaxis: 'y8',
       showlegend: false,
       customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
         annotationId: item.annotation.id,
         source: 'manual' as const,
-        layer: item.annotation.annotationKind,
-        annotationKind: item.annotation.annotationKind === 'event' ? 'Эпизод' : 'Режим',
+        layer: 'event' as const,
+        annotationKind: 'Эпизод',
         startDate: item.annotation.startDate,
         endDate: item.annotation.endDate,
         durationDays: item.annotation.durationDays,
-        categoryLabel:
-          item.annotation.annotationKind === 'event'
-            ? getEventTypeLabel(item.annotation.eventType)
-            : getRootCauseLabel(item.annotation.rootCause),
+        categoryLabel: getEventTypeLabel(item.annotation.eventType),
         actions: item.annotation.actions ?? [],
         actionsText: item.annotation.actions?.length ? item.annotation.actions.join(', ') : 'не назначены'
       })),
@@ -1332,31 +1315,25 @@ function buildTrackTraces() {
     ...buildContextMarkerTrackTraces(),
     ...buildVspTrackTrace(),
     ...espInstallationTrace,
-    ...buildSavedAnnotationTrace('y8', 'event'),
-    ...buildSavedAnnotationTrace('y9', 'rootCause'),
+    ...buildSavedAnnotationTrace(),
     ...buildFrequencyBreakpointTrace()
   ]
 }
 
-function getSavedAnnotationTrackRange(annotationKind: 'event' | 'rootCause'): [number, number] {
-  const laneCount = buildAnnotationLaneAssignment(
-    props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
-  ).laneCount
+function getSavedAnnotationTrackRange(): [number, number] {
+  const laneCount = buildAnnotationLaneAssignment(props.savedAnnotations).laneCount
   return [0, Math.max(2.45, laneCount + ANNOTATION_LANE_BASE_Y + 0.72)]
 }
 
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
-  const eventRange = getSavedAnnotationTrackRange('event')
-  const rootCauseRange = getSavedAnnotationTrackRange('rootCause')
+  const eventRange = getSavedAnnotationTrackRange()
   const eventLaneCount = Math.max(1, Math.ceil(eventRange[1] - 1.6))
-  const rootCauseLaneCount = Math.max(1, Math.ceil(rootCauseRange[1] - 1.6))
 
   const rowSpecs = [
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
-    { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange },
-    { axis: 'y9' as const, label: 'Режимы', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * rootCauseLaneCount), range: rootCauseRange }
+    { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -1687,8 +1664,8 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
   return {
     annotationId: annotation.id,
     source: 'manual',
-    layer: annotation.annotationKind,
-    label: annotation.annotationKind === 'event' ? getEventTypeLabel(annotation.eventType) : getRootCauseLabel(annotation.rootCause),
+    layer: 'event',
+    label: getEventTypeLabel(annotation.eventType),
     startDate: annotation.startDate,
     endDate: annotation.endDate,
     durationDays: annotation.durationDays,
@@ -1696,9 +1673,9 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
   }
 }
 
-function buildSavedAnnotationOverlayItems(annotationKind: 'event' | 'rootCause'): SavedAnnotationOverlayItem[] {
-  const trackAnnotations = props.savedAnnotations.filter((item) => item.annotationKind === annotationKind)
-  const axis = annotationKind === 'event' ? 'y8' : 'y9'
+function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
+  const trackAnnotations = props.savedAnnotations
+  const axis = 'y8'
   const laneAssignment = buildAnnotationLaneAssignment(trackAnnotations)
 
   return trackAnnotations
@@ -1723,10 +1700,7 @@ function buildSavedAnnotationOverlayItems(annotationKind: 'event' | 'rootCause')
     .filter((item): item is SavedAnnotationOverlayItem => Boolean(item))
 }
 
-const savedAnnotationOverlayItems = computed<SavedAnnotationOverlayItem[]>(() => [
-  ...buildSavedAnnotationOverlayItems('event'),
-  ...buildSavedAnnotationOverlayItems('rootCause')
-])
+const savedAnnotationOverlayItems = computed<SavedAnnotationOverlayItem[]>(() => buildSavedAnnotationOverlayItems())
 
 function handleSavedAnnotationOverlayClick(payload: TimelineAnnotationClickPayload) {
   suppressBackgroundClick(300)
@@ -2526,7 +2500,6 @@ function renderChart() {
   const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
-  const rootCauseRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
     ...getSelectionShapes(),
@@ -2801,19 +2774,6 @@ function renderChart() {
       yaxis8: {
         domain: eventRow.domain,
         range: eventRow.range,
-        fixedrange: true,
-        showgrid: false,
-        showticklabels: false,
-        zeroline: false
-      }
-    })
-  }
-
-  if (rootCauseRow) {
-    Object.assign(layout, {
-      yaxis9: {
-        domain: rootCauseRow.domain,
-        range: rootCauseRow.range,
         fixedrange: true,
         showgrid: false,
         showticklabels: false,

@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AnnotationClassOption(BaseModel):
@@ -41,19 +41,26 @@ class SavedEventAnnotation(AnnotationBase):
     confidenceEvent: Literal["low", "medium", "high"]
 
 
-class SavedRootCauseAnnotation(AnnotationBase):
-    annotationKind: Literal["rootCause"]
-    rootCause: str
-    confidenceCause: Literal["low", "medium", "high"]
-
-
-SavedAnnotation = SavedEventAnnotation | SavedRootCauseAnnotation
+SavedAnnotation = SavedEventAnnotation
 
 
 class MarkupState(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     annotations: list[SavedAnnotation] = Field(default_factory=list)
     episodeClasses: list[AnnotationClassOption] = Field(default_factory=list)
-    modeClasses: list[AnnotationClassOption] = Field(default_factory=list)
     actionClasses: list[AnnotationClassOption] = Field(default_factory=list)
     manualFrequencyBreakpoints: list[FrequencyBreakpoint] = Field(default_factory=list)
     suppressedFrequencyBreakpoints: list[FrequencyBreakpointSuppression] = Field(default_factory=list)
+
+    @field_validator("annotations", mode="before")
+    @classmethod
+    def keep_event_annotations(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return []
+
+        return [
+            item
+            for item in value
+            if isinstance(item, dict) and item.get("annotationKind") == "event"
+        ]

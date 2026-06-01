@@ -57,7 +57,7 @@
           <div class="space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-2">
-                <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Режим</span>
+                <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Вкладка</span>
                 <div class="inline-flex rounded-lg border border-slate-700 bg-slate-900/70 p-1">
                   <button
                     class="rounded-md px-3 py-1.5 text-sm transition"
@@ -149,7 +149,7 @@
               <div>
                 <h2 class="text-base font-semibold text-slate-100">Аналитика интервала</h2>
                 <p class="mt-1 text-xs leading-5 text-slate-400">
-                  Нажмите на эпизод или режим на timeline, чтобы получить инженерное сравнение до, в периоде и после интервала.
+                  Нажмите на эпизод на timeline, чтобы получить инженерное сравнение до, в периоде и после интервала.
                 </p>
               </div>
             </div>
@@ -271,7 +271,7 @@
               v-else
               class="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-4 text-sm text-slate-400"
             >
-              Нажмите на сохранённый эпизод или режим на timeline, чтобы открыть аналитическое сравнение.
+              Нажмите на сохранённый эпизод на timeline, чтобы открыть аналитическое сравнение.
             </div>
           </template>
 
@@ -482,65 +482,6 @@
               <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить эпизод</n-button>
             </div>
 
-            <div class="space-y-2">
-              <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Класс режима</label>
-              <n-select
-                v-model:value="episodeForm.rootCause"
-                size="medium"
-                :options="rootCauseOptions"
-                clearable
-                filterable
-                placeholder="Выберите класс режима"
-                class="w-full"
-              />
-              <div class="flex gap-2">
-                <n-input
-                  v-model:value="newModeClassName"
-                  size="medium"
-                  placeholder="Новый класс режима"
-                />
-                <n-button secondary size="medium" @click="addModeClass">Добавить</n-button>
-              </div>
-            </div>
-
-            <div>
-              <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Уверенность режима</label>
-              <n-radio-group v-model:value="episodeForm.confidenceCause" size="small">
-                <div class="flex flex-wrap gap-3">
-                  <n-radio
-                    v-for="option in confidenceOptions"
-                    :key="`cause-${option.value}`"
-                    :value="option.value"
-                    :label="option.label"
-                  />
-                </div>
-              </n-radio-group>
-              <div class="mt-3 space-y-2">
-                <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия режима</label>
-                <n-select
-                  v-model:value="episodeForm.rootCauseActions"
-                  v-model:show="rootCauseActionSelectOpen"
-                  size="medium"
-                  multiple
-                  clearable
-                  filterable
-                  :options="rootCauseActionOptionsForDraft"
-                  placeholder="Выберите мероприятия режима"
-                  class="w-full"
-                  @update:value="handleRootCauseActionsUpdated"
-                />
-                <div class="flex gap-2">
-                  <n-input
-                    v-model:value="newModeActionName"
-                    size="medium"
-                    placeholder="Новое мероприятие"
-                  />
-                  <n-button secondary size="medium" @click="addModeActionClass">Добавить</n-button>
-                </div>
-              </div>
-              <n-button class="mt-2" type="primary" secondary size="medium" @click="saveRootCause">Сохранить режим</n-button>
-            </div>
-
             <div>
               <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Комментарий</label>
               <n-input
@@ -564,7 +505,7 @@
             v-else
             class="mt-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-4 text-sm text-slate-400"
           >
-            Интервал ещё не выбран. Переключитесь в режим разметки и протяните мышью по графику, чтобы выбрать временное окно.
+            Интервал ещё не выбран. Перейдите на вкладку разметки и протяните мышью по графику, чтобы выбрать временное окно.
           </div>
 
           <div class="mt-3 rounded-xl border border-slate-700 bg-slate-800/90 px-3 py-3">
@@ -582,7 +523,7 @@
               >
                 <div class="text-xs font-medium text-slate-200">{{ episode.startDate }} -> {{ episode.endDate }}</div>
                 <div class="mt-1 text-xs text-slate-400">
-                  {{ episode.annotationKind === 'event' ? `Эпизод: ${getEpisodeTypeLabel(episode.eventType)}` : `Режим: ${getRootCauseLabel(episode.rootCause)}` }}
+                  {{ `Эпизод: ${getEpisodeTypeLabel(episode.eventType)}` }}
                 </div>
                 <div v-if="episode.actions.length" class="mt-1 text-xs text-slate-500">
                   {{ episode.actions.join(', ') }}
@@ -759,10 +700,8 @@ import type {
   InteractionMode,
   MarkupState,
   OpzEventFlag,
-  RootCause,
   SavedAnnotation,
   SavedEventAnnotation,
-  SavedRootCauseAnnotation,
   SelectedInterval,
   SeriesKey,
   TimelineAnnotationClickPayload,
@@ -786,7 +725,6 @@ const FREQUENCY_CHANGE_THRESHOLD = 0.1
 const MARKUP_STORAGE_KEYS = {
   annotations: 'wellInsight.markup.annotations.v1',
   episodeClasses: 'wellInsight.markup.episodeClasses.v1',
-  modeClasses: 'wellInsight.markup.modeClasses.v1',
   actionClasses: 'wellInsight.markup.actionClasses.v1',
   manualFrequencyBreakpoints: 'wellInsight.markup.manualFrequencyBreakpoints.v1',
   suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1'
@@ -843,11 +781,8 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
 function createDefaultEpisodeForm(): EpisodeFormState {
   return {
     episodeType: '',
-    rootCause: '',
     confidenceEvent: 'medium',
-    confidenceCause: 'medium',
     eventActions: [],
-    rootCauseActions: [],
     comment: ''
   }
 }
@@ -1079,10 +1014,6 @@ function getEpisodeTypeLabel(value: EpisodeType): string {
   return episodeTypeOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
-function getRootCauseLabel(value: RootCause): string {
-  return rootCauseOptions.value.find((option) => option.value === value)?.label ?? value
-}
-
 function getWellGroupLabel(value: WellGroupId | null | undefined): string {
   if (!value) {
     return 'Не назначена'
@@ -1232,7 +1163,6 @@ const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
 const episodeTypeOptions = ref<AnnotationClassOption[]>([])
-const rootCauseOptions = ref<AnnotationClassOption[]>([])
 const actionOptions = ref<AnnotationClassOption[]>([])
 const manualFrequencyBreakpoints = ref<FrequencyBreakpoint[]>([])
 const suppressedFrequencyBreakpoints = ref<FrequencyBreakpointSuppression[]>([])
@@ -1242,14 +1172,11 @@ const selectedFrequencyBreakpointId = ref<string | null>(null)
 const selectedFrequencySegmentIds = ref<string[]>([])
 const additiveFrequencySelectionArmed = ref(false)
 const eventActionSelectOpen = ref(false)
-const rootCauseActionSelectOpen = ref(false)
 const groupSaveFeedback = ref<'idle' | 'saved'>('idle')
 const groupMigrationTarget = ref<WellGroupId | typeof CREATE_NEW_GROUP_OPTION | null>(null)
 const newGroupName = ref('')
 const newEpisodeClassName = ref('')
-const newModeClassName = ref('')
 const newEventActionName = ref('')
-const newModeActionName = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const wellContext = ref<WellContext | null>(null)
@@ -1323,8 +1250,7 @@ const eventTracks = computed(() => {
     gtmEvents: contextTracks.gtmEvents,
     gdiEvents: contextTracks.gdiEvents,
     dailyCauses: [],
-    modelEventIntervals: [],
-    modelRootCauseIntervals: []
+    modelEventIntervals: []
   }
 })
 const groupMigrationOptions = computed(() => [
@@ -1379,11 +1305,11 @@ const currentTabTitle = computed(() => {
 })
 const currentTabDescription = computed(() => {
   if (interactionMode.value === 'navigate') {
-    return 'Анализ работы скважины во времени: сверху — телеметрия, снизу — сохранённые эпизоды и режимы'
+    return 'Анализ работы скважины во времени: сверху — телеметрия, снизу — сохранённые эпизоды'
   }
 
   if (interactionMode.value === 'annotate') {
-    return 'Разметка интервалов: выделяйте начало и конец, затем сохраняйте пользовательский эпизод или режим'
+    return 'Разметка интервалов: выделяйте начало и конец, затем сохраняйте пользовательский эпизод'
   }
 
   return 'Подбор параметров модели: настройте влияние факторов и оцените качество (R²) для выбранной группы скважин'
@@ -1424,7 +1350,7 @@ const analysisDrillDown = computed<AnalysisDrillDown | null>(() => {
 
   return {
     interval,
-    layerLabel: interval.layer === 'event' ? 'Эпизод' : 'Режим',
+    layerLabel: 'Эпизод',
     before,
     during,
     after,
@@ -1445,14 +1371,13 @@ function isInteractionMode(mode: InteractionMode): boolean {
 }
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
-function getActionOptionsForDraft(annotationKind: AnnotationKind): GroupedSelectOption[] {
-  const selectedCategory =
-    annotationKind === 'event' ? episodeForm.value.episodeType.trim() : episodeForm.value.rootCause.trim()
+function getActionOptionsForDraft(): GroupedSelectOption[] {
+  const selectedCategory = episodeForm.value.episodeType.trim()
   const usedActionValues = new Set<string>()
 
   if (selectedCategory) {
     savedAnnotations.value.forEach((annotation) => {
-      if (annotation.annotationKind !== annotationKind || getAnnotationCategory(annotation) !== selectedCategory) {
+      if (getAnnotationCategory(annotation) !== selectedCategory) {
         return
       }
 
@@ -1484,7 +1409,7 @@ function getActionOptionsForDraft(annotationKind: AnnotationKind): GroupedSelect
   const groupedOptions: GroupedSelectOption[] = [
     {
       type: 'group',
-      key: `${annotationKind}-suggested-actions`,
+      key: 'event-suggested-actions',
       label: 'Ранее для этой причины',
       children: suggestedOptions
     }
@@ -1493,7 +1418,7 @@ function getActionOptionsForDraft(annotationKind: AnnotationKind): GroupedSelect
   if (otherOptions.length > 0) {
     groupedOptions.push({
       type: 'group',
-      key: `${annotationKind}-all-actions`,
+      key: 'event-all-actions',
       label: 'Все мероприятия',
       children: otherOptions
     })
@@ -1501,8 +1426,7 @@ function getActionOptionsForDraft(annotationKind: AnnotationKind): GroupedSelect
 
   return groupedOptions
 }
-const eventActionOptionsForDraft = computed(() => getActionOptionsForDraft('event'))
-const rootCauseActionOptionsForDraft = computed(() => getActionOptionsForDraft('rootCause'))
+const eventActionOptionsForDraft = computed(() => getActionOptionsForDraft())
 const currentManualFrequencyBreakpoints = computed(() =>
   manualFrequencyBreakpoints.value.filter((item) => item.wellId === selectedWell.value)
 )
@@ -1533,10 +1457,6 @@ const isEditMode = computed(() => editingAnnotationId.value !== null)
 const annotationPanelTitle = computed(() => {
   if (editingAnnotationKind.value === 'event') {
     return 'Редактирование эпизода'
-  }
-
-  if (editingAnnotationKind.value === 'rootCause') {
-    return 'Редактирование режима'
   }
 
   return 'Создание аннотации'
@@ -1621,12 +1541,9 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
     durationDays: episode.durationDays
   }
   episodeForm.value = {
-    episodeType: episode.annotationKind === 'event' ? episode.eventType : '',
-    rootCause: episode.annotationKind === 'rootCause' ? episode.rootCause : '',
-    confidenceEvent: episode.annotationKind === 'event' ? episode.confidenceEvent : 'medium',
-    confidenceCause: episode.annotationKind === 'rootCause' ? episode.confidenceCause : 'medium',
-    eventActions: episode.annotationKind === 'event' ? (episode.actions ?? []) : [],
-    rootCauseActions: episode.annotationKind === 'rootCause' ? (episode.actions ?? []) : [],
+    episodeType: episode.eventType,
+    confidenceEvent: episode.confidenceEvent,
+    eventActions: episode.actions ?? [],
     comment: episode.comment
   }
   editingAnnotationId.value = episode.id
@@ -1924,10 +1841,39 @@ function normalizeSavedAnnotations(annotations: unknown): SavedAnnotation[] {
     return []
   }
 
-  return (annotations as SavedAnnotation[]).map((annotation) => ({
-    ...annotation,
-    actions: Array.isArray(annotation.actions) ? annotation.actions : []
-  }))
+  return annotations
+    .map((rawAnnotation): SavedAnnotation | null => {
+      const annotation = rawAnnotation as Record<string, unknown>
+
+      if (annotation.annotationKind !== 'event') {
+        return null
+      }
+
+      const startDate = String(annotation.startDate ?? '').slice(0, 10)
+      const endDate = String(annotation.endDate ?? '').slice(0, 10)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        return null
+      }
+
+      const interval = buildInterval(startDate, endDate)
+      const confidenceEvent: ConfidenceLevel =
+        annotation.confidenceEvent === 'low' || annotation.confidenceEvent === 'high' ? annotation.confidenceEvent : 'medium'
+
+      return {
+        id: String(annotation.id || createAnnotationId('event')),
+        wellId: String(annotation.wellId ?? selectedWell.value),
+        wellGroupId: typeof annotation.wellGroupId === 'string' ? annotation.wellGroupId : null,
+        annotationKind: 'event',
+        eventType: String(annotation.eventType ?? '').trim(),
+        confidenceEvent,
+        comment: String(annotation.comment ?? ''),
+        actions: Array.isArray(annotation.actions)
+          ? annotation.actions.filter((item): item is string => typeof item === 'string')
+          : [],
+        ...interval
+      }
+    })
+    .filter((annotation): annotation is SavedAnnotation => Boolean(annotation))
 }
 
 function normalizeFrequencyBreakpoints(breakpoints: unknown): FrequencyBreakpoint[] {
@@ -1996,7 +1942,6 @@ function normalizeMarkupState(markup: Partial<MarkupState> | null | undefined): 
   return {
     annotations: normalizeSavedAnnotations(markup?.annotations),
     episodeClasses: normalizeClassOptions(markup?.episodeClasses),
-    modeClasses: normalizeClassOptions(markup?.modeClasses),
     actionClasses: normalizeClassOptions(markup?.actionClasses),
     manualFrequencyBreakpoints: normalizeFrequencyBreakpoints(markup?.manualFrequencyBreakpoints),
     suppressedFrequencyBreakpoints: normalizeFrequencyBreakpointSuppressions(markup?.suppressedFrequencyBreakpoints)
@@ -2007,7 +1952,6 @@ function buildCurrentMarkupState(): MarkupState {
   return {
     annotations: savedAnnotations.value,
     episodeClasses: episodeTypeOptions.value,
-    modeClasses: rootCauseOptions.value,
     actionClasses: actionOptions.value,
     manualFrequencyBreakpoints: manualFrequencyBreakpoints.value,
     suppressedFrequencyBreakpoints: suppressedFrequencyBreakpoints.value
@@ -2017,7 +1961,6 @@ function buildCurrentMarkupState(): MarkupState {
 function applyMarkupState(markup: MarkupState): void {
   savedAnnotations.value = markup.annotations
   episodeTypeOptions.value = markup.episodeClasses
-  rootCauseOptions.value = markup.modeClasses
   actionOptions.value = markup.actionClasses
   manualFrequencyBreakpoints.value = markup.manualFrequencyBreakpoints
   suppressedFrequencyBreakpoints.value = markup.suppressedFrequencyBreakpoints
@@ -2027,7 +1970,6 @@ function hasMarkupStateData(markup: MarkupState): boolean {
   return (
     markup.annotations.length > 0 ||
     markup.episodeClasses.length > 0 ||
-    markup.modeClasses.length > 0 ||
     markup.actionClasses.length > 0 ||
     markup.manualFrequencyBreakpoints.length > 0 ||
     markup.suppressedFrequencyBreakpoints.length > 0
@@ -2038,7 +1980,6 @@ function readLegacyMarkupState(): MarkupState | null {
   const legacyMarkup = normalizeMarkupState({
     annotations: readStoredValue<SavedAnnotation[]>(MARKUP_STORAGE_KEYS.annotations, []),
     episodeClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.episodeClasses, []),
-    modeClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.modeClasses, []),
     actionClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.actionClasses, []),
     manualFrequencyBreakpoints: readStoredValue<FrequencyBreakpoint[]>(MARKUP_STORAGE_KEYS.manualFrequencyBreakpoints, []),
     suppressedFrequencyBreakpoints: readStoredValue<FrequencyBreakpointSuppression[]>(MARKUP_STORAGE_KEYS.suppressedFrequencyBreakpoints, [])
@@ -2128,65 +2069,37 @@ async function restorePersistentMarkup(): Promise<void> {
   }
 }
 
-function addAnnotationClass(kind: AnnotationKind): string | null {
-  const className = (kind === 'event' ? newEpisodeClassName.value : newModeClassName.value).trim()
+function addAnnotationClass(): string | null {
+  const className = newEpisodeClassName.value.trim()
 
   if (!className) {
-    message.error(kind === 'event' ? 'Введите название класса эпизода.' : 'Введите название класса режима.')
+    message.error('Введите название класса эпизода.')
     return null
   }
 
-  const options = kind === 'event' ? episodeTypeOptions : rootCauseOptions
+  const options = episodeTypeOptions
   const existingOption = options.value.find(
     (option) => option.value.toLocaleLowerCase('ru') === className.toLocaleLowerCase('ru')
   )
 
   if (existingOption) {
-    if (kind === 'event') {
-      episodeForm.value.episodeType = existingOption.value
-      newEpisodeClassName.value = ''
-    } else {
-      episodeForm.value.rootCause = existingOption.value
-      newModeClassName.value = ''
-    }
-
+    episodeForm.value.episodeType = existingOption.value
+    newEpisodeClassName.value = ''
     return existingOption.value
   }
 
   const option = { label: className, value: className }
   options.value = [...options.value, option].sort((left, right) => left.label.localeCompare(right.label, 'ru'))
 
-  if (kind === 'event') {
-    episodeForm.value.episodeType = option.value
-    newEpisodeClassName.value = ''
-  } else {
-    episodeForm.value.rootCause = option.value
-    newModeClassName.value = ''
-  }
+  episodeForm.value.episodeType = option.value
+  newEpisodeClassName.value = ''
 
-  message.success(kind === 'event' ? 'Класс эпизода добавлен.' : 'Класс режима добавлен.')
+  message.success('Класс эпизода добавлен.')
   return option.value
 }
 
 function addEpisodeClass(): void {
-  addAnnotationClass('event')
-}
-
-function addModeClass(): void {
-  addAnnotationClass('rootCause')
-}
-
-function getDraftActionsTarget(kind: AnnotationKind): string[] {
-  return kind === 'event' ? episodeForm.value.eventActions : episodeForm.value.rootCauseActions
-}
-
-function setDraftActionsTarget(kind: AnnotationKind, actions: string[]): void {
-  if (kind === 'event') {
-    episodeForm.value.eventActions = actions
-    return
-  }
-
-  episodeForm.value.rootCauseActions = actions
+  addAnnotationClass()
 }
 
 function normalizeSelectedActions(value: unknown): string[] {
@@ -2198,13 +2111,8 @@ function handleEventActionsUpdated(value: unknown): void {
   eventActionSelectOpen.value = false
 }
 
-function handleRootCauseActionsUpdated(value: unknown): void {
-  episodeForm.value.rootCauseActions = normalizeSelectedActions(value)
-  rootCauseActionSelectOpen.value = false
-}
-
-function addActionClass(kind: AnnotationKind): string | null {
-  const actionInput = kind === 'event' ? newEventActionName : newModeActionName
+function addActionClass(): string | null {
+  const actionInput = newEventActionName
   const actionName = actionInput.value.trim()
 
   if (!actionName) {
@@ -2217,9 +2125,9 @@ function addActionClass(kind: AnnotationKind): string | null {
   )
 
   if (existingOption) {
-    const currentActions = getDraftActionsTarget(kind)
+    const currentActions = episodeForm.value.eventActions
     if (!currentActions.includes(existingOption.value)) {
-      setDraftActionsTarget(kind, [...currentActions, existingOption.value])
+      episodeForm.value.eventActions = [...currentActions, existingOption.value]
     }
     actionInput.value = ''
     return existingOption.value
@@ -2227,28 +2135,24 @@ function addActionClass(kind: AnnotationKind): string | null {
 
   const option = { label: actionName, value: actionName }
   actionOptions.value = [...actionOptions.value, option].sort((left, right) => left.label.localeCompare(right.label, 'ru'))
-  setDraftActionsTarget(kind, [...getDraftActionsTarget(kind), option.value])
+  episodeForm.value.eventActions = [...episodeForm.value.eventActions, option.value]
   actionInput.value = ''
   message.success('Мероприятие добавлено.')
   return option.value
 }
 
 function addEventActionClass(): void {
-  addActionClass('event')
+  addActionClass()
 }
 
-function addModeActionClass(): void {
-  addActionClass('rootCause')
-}
-
-function resolveDraftClass(kind: AnnotationKind): string | null {
-  const selectedValue = kind === 'event' ? episodeForm.value.episodeType : episodeForm.value.rootCause
+function resolveDraftClass(): string | null {
+  const selectedValue = episodeForm.value.episodeType
 
   if (selectedValue) {
     return selectedValue
   }
 
-  return addAnnotationClass(kind)
+  return addAnnotationClass()
 }
 
 function getAverageMetric(points: TimeSeriesPoint[], key: keyof AnalysisWindowMetrics): number | null {
@@ -2305,7 +2209,7 @@ function buildSuggestedActions(
   const frequencyResponse = Math.abs((after.qliq ?? 0) - (during.qliq ?? 0))
 
   if (liquidDrop > 4 && oilDrop > 3 && waterCutRise < 3) {
-    actions.push('Проверить состояние ЭЦН, текущий режим работы и результаты диагностики оборудования.')
+    actions.push('Проверить состояние ЭЦН, текущие параметры работы и результаты диагностики оборудования.')
   }
 
   if (waterCutRise > 5 && oilDrop > 2.5) {
@@ -2317,15 +2221,15 @@ function buildSuggestedActions(
   }
 
   if (interval.label.toLowerCase().includes('частот') || frequencyResponse > 3.5) {
-    actions.push('Проверить возможность дальнейшей оптимизации режима по частоте ЭЦН на основе отклика дебита.')
+    actions.push('Проверить возможность дальнейшей оптимизации частоты ЭЦН на основе отклика дебита.')
   }
 
   if (pressureRise > 2 && liquidDrop > 3) {
-    actions.push('Проверить изменение гидродинамического режима и выполнить анализ ограничений по приему насоса.')
+    actions.push('Проверить гидродинамические изменения и выполнить анализ ограничений по приему насоса.')
   }
 
   if (interval.label.toLowerCase().includes('нестабиль')) {
-    actions.push('Проверить устойчивость электропитания, автоматику управления и факторы, вызывающие колебания режима.')
+    actions.push('Проверить устойчивость электропитания, автоматику управления и факторы, вызывающие колебания работы.')
   }
 
   if (interval.label.toLowerCase().includes('замена эцн')) {
@@ -2350,7 +2254,7 @@ function buildAnalysisConfidence(
     oilDrop > 2.5,
     liquidDrop > 3,
     waterCutRise > 4,
-    interval.layer === 'rootCause',
+    interval.layer === 'event',
     Math.abs((during.water_cut ?? 0) - (after.water_cut ?? during.water_cut ?? 0)) < 3.5
   ].filter(Boolean).length
   const contradictorySignals = [
@@ -2425,7 +2329,7 @@ function exportAnalysis(drillDown: AnalysisDrillDown) {
 }
 
 function getAnnotationCategory(annotation: SavedAnnotation): string {
-  return annotation.annotationKind === 'event' ? annotation.eventType : annotation.rootCause
+  return annotation.eventType
 }
 
 function getAnnotationActions(annotation: SavedAnnotation): string[] {
@@ -2454,27 +2358,13 @@ function createSplitAnnotation(
 ): SavedAnnotation {
   const interval = buildInterval(startDate, endDate)
 
-  if (annotation.annotationKind === 'event') {
-      return {
-        id: idOverride ?? annotation.id,
-        wellId: annotation.wellId,
-        wellGroupId: annotation.wellGroupId,
-        annotationKind: 'event',
-        eventType: annotation.eventType,
-        confidenceEvent: annotation.confidenceEvent,
-        comment: annotation.comment,
-        actions: annotation.actions ?? [],
-        ...interval
-      }
-  }
-
   return {
     id: idOverride ?? annotation.id,
     wellId: annotation.wellId,
     wellGroupId: annotation.wellGroupId,
-    annotationKind: 'rootCause',
-    rootCause: annotation.rootCause,
-    confidenceCause: annotation.confidenceCause,
+    annotationKind: 'event',
+    eventType: annotation.eventType,
+    confidenceEvent: annotation.confidenceEvent,
     comment: annotation.comment,
     actions: annotation.actions ?? [],
     ...interval
@@ -2538,30 +2428,17 @@ function mergeAdjacentAnnotations(
       const preferredAnnotation =
         previous.id === preferredAnnotationId ? previous : annotation.id === preferredAnnotationId ? annotation : previous
       const mergedInterval = buildInterval(previous.startDate, annotation.endDate)
-      const mergedAnnotation =
-        preferredAnnotation.annotationKind === 'event'
-          ? {
-              id: preferredAnnotation.id,
-              wellId: preferredAnnotation.wellId,
-              wellGroupId: preferredAnnotation.wellGroupId,
-              annotationKind: 'event' as const,
-              eventType: preferredAnnotation.eventType,
-              confidenceEvent: preferredAnnotation.confidenceEvent,
-              comment: preferredAnnotation.comment,
-              actions: getAnnotationActions(preferredAnnotation),
-              ...mergedInterval
-            }
-          : {
-              id: preferredAnnotation.id,
-              wellId: preferredAnnotation.wellId,
-              wellGroupId: preferredAnnotation.wellGroupId,
-              annotationKind: 'rootCause' as const,
-              rootCause: preferredAnnotation.rootCause,
-              confidenceCause: preferredAnnotation.confidenceCause,
-              comment: preferredAnnotation.comment,
-              actions: getAnnotationActions(preferredAnnotation),
-              ...mergedInterval
-            }
+      const mergedAnnotation = {
+        id: preferredAnnotation.id,
+        wellId: preferredAnnotation.wellId,
+        wellGroupId: preferredAnnotation.wellGroupId,
+        annotationKind: 'event' as const,
+        eventType: preferredAnnotation.eventType,
+        confidenceEvent: preferredAnnotation.confidenceEvent,
+        comment: preferredAnnotation.comment,
+        actions: getAnnotationActions(preferredAnnotation),
+        ...mergedInterval
+      }
 
       mergedAnnotations[mergedAnnotations.length - 1] = mergedAnnotation
       return mergedAnnotations
@@ -2600,21 +2477,11 @@ function draftHasUnsavedChanges(): boolean {
     existingAnnotation.endDate !== selectedInterval.value?.endDate ||
     existingAnnotation.durationDays !== selectedInterval.value?.durationDays
 
-  if (existingAnnotation.annotationKind === 'event') {
-    return (
-      intervalChanged ||
-      existingAnnotation.eventType !== episodeForm.value.episodeType ||
-      existingAnnotation.confidenceEvent !== episodeForm.value.confidenceEvent ||
-      !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.eventActions) ||
-      existingAnnotation.comment !== episodeForm.value.comment
-    )
-  }
-
   return (
     intervalChanged ||
-    existingAnnotation.rootCause !== episodeForm.value.rootCause ||
-    existingAnnotation.confidenceCause !== episodeForm.value.confidenceCause ||
-    !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.rootCauseActions) ||
+    existingAnnotation.eventType !== episodeForm.value.episodeType ||
+    existingAnnotation.confidenceEvent !== episodeForm.value.confidenceEvent ||
+    !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.eventActions) ||
     existingAnnotation.comment !== episodeForm.value.comment
   )
 }
@@ -3095,7 +2962,7 @@ async function saveEvent() {
     return
   }
 
-  const eventType = resolveDraftClass('event')
+  const eventType = resolveDraftClass()
 
   if (!eventType) {
     return
@@ -3162,81 +3029,6 @@ async function saveEvent() {
   )
 }
 
-async function saveRootCause() {
-  const draftIntervals = getDraftIntervalsForNewAnnotation()
-
-  if (!selectedInterval.value && draftIntervals.length === 0) {
-    message.error('Перед сохранением режима выберите интервал.')
-    return
-  }
-
-  const rootCause = resolveDraftClass('rootCause')
-
-  if (!rootCause) {
-    return
-  }
-
-  if (editingAnnotationId.value && editingAnnotationKind.value === 'rootCause') {
-    if (!selectedInterval.value) {
-      return
-    }
-
-    const index = savedAnnotations.value.findIndex((item) => item.id === editingAnnotationId.value)
-    if (index >= 0) {
-      const existingAnnotation = savedAnnotations.value[index]
-      if (!existingAnnotation || existingAnnotation.annotationKind !== 'rootCause') {
-        return
-      }
-
-      const updatedAnnotation: SavedRootCauseAnnotation = {
-        ...existingAnnotation,
-        ...selectedInterval.value,
-        wellId: selectedWell.value,
-        wellGroupId: currentWellGroupId.value,
-        rootCause,
-        confidenceCause: episodeForm.value.confidenceCause,
-        comment: episodeForm.value.comment,
-        actions: episodeForm.value.rootCauseActions
-      }
-      normalizeAnnotationsForLayer(updatedAnnotation)
-      const saved = await persistMarkupNow()
-      message[saved ? 'success' : 'warning'](
-        saved ? 'Аннотация режима обновлена.' : 'Аннотация обновлена в интерфейсе, но не сохранена на backend.'
-      )
-      return
-    }
-  }
-
-  const newAnnotations: SavedRootCauseAnnotation[] = draftIntervals.map((interval) => ({
-    id: createAnnotationId('rootCause'),
-    wellId: selectedWell.value,
-    wellGroupId: currentWellGroupId.value,
-    ...interval,
-    annotationKind: 'rootCause',
-    rootCause,
-    confidenceCause: episodeForm.value.confidenceCause,
-    comment: episodeForm.value.comment,
-    actions: episodeForm.value.rootCauseActions
-  }))
-
-  newAnnotations.forEach((annotation) => normalizeAnnotationsForLayer(annotation))
-
-  if (newAnnotations.length === 1) {
-    editingAnnotationId.value = newAnnotations[0]?.id ?? null
-    editingAnnotationKind.value = 'rootCause'
-  } else {
-    editingAnnotationId.value = null
-    editingAnnotationKind.value = null
-  }
-
-  const saved = await persistMarkupNow()
-  const successMessage =
-    newAnnotations.length > 1 ? `Аннотации режима сохранены: ${newAnnotations.length}.` : 'Аннотация режима сохранена.'
-  message[saved ? 'success' : 'warning'](
-    saved ? successMessage : 'Аннотация создана в интерфейсе, но не сохранена на backend.'
-  )
-}
-
 async function deleteAnnotation() {
   if (!editingAnnotationId.value) {
     return
@@ -3268,14 +3060,6 @@ watch(
 
 watch(
   episodeTypeOptions,
-  () => {
-    scheduleMarkupSave()
-  },
-  { deep: true }
-)
-
-watch(
-  rootCauseOptions,
   () => {
     scheduleMarkupSave()
   },
