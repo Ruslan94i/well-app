@@ -1,5 +1,13 @@
 import axios from 'axios'
-import type { EspInstallationPeriod, MarkupState, TimeSeriesPoint, TrMonitoringPoint, VspPeriod, WellContext } from '@/types/timeseries'
+import type {
+  EspInstallationPeriod,
+  EventInterval,
+  MarkupState,
+  TimeSeriesPoint,
+  TrMonitoringPoint,
+  VspPeriod,
+  WellContext
+} from '@/types/timeseries'
 
 const backendBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -46,6 +54,11 @@ export async function fetchArtificialLiftPeriods(wellId: string): Promise<EspIns
 
 export async function fetchVspPeriods(wellId: string): Promise<VspPeriod[]> {
   const response = await api.get<VspPeriod[]>(`/wells/${wellId}/vsp-periods`)
+  return response.data
+}
+
+export async function fetchAutoEpisodeIntervals(wellId: string): Promise<EventInterval[]> {
+  const response = await api.get<EventInterval[]>(`/wells/${wellId}/auto-episodes`)
   return response.data
 }
 

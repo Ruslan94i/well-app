@@ -144,6 +144,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Plotly from 'plotly.js-dist-min'
 import type {
+  EventInterval,
   FrequencyBreakpoint,
   FrequencyBreakpointClickPayload,
   FrequencySegment,
@@ -239,7 +240,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y5' | 'y6' | 'y7' | 'y8'
+  axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
   label: string
   labelColor: string
   domain: [number, number]
@@ -1066,6 +1067,48 @@ function buildSavedAnnotationTrace() {
   ]
 }
 
+function buildAutoEpisodeTrace() {
+  const visibleIntervals = props.eventTracks.modelEventIntervals
+    .map((interval) => {
+      const bar = getVisibleIntervalBar(interval.startDate, interval.endDate)
+      return bar ? { interval, bar } : null
+    })
+    .filter((item): item is { interval: EventInterval; bar: { base: string; durationMs: number } } => Boolean(item))
+
+  if (visibleIntervals.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: visibleIntervals.map((item) => item.bar.durationMs),
+      base: visibleIntervals.map((item) => item.bar.base),
+      y: visibleIntervals.map(() => 0.5),
+      width: 0.58,
+      marker: {
+        color: visibleIntervals.map((item) => item.interval.color || getAnnotationColor(item.interval.label)),
+        line: {
+          color: visibleIntervals.map((item) => item.interval.color || getAnnotationColor(item.interval.label)),
+          width: 0.9
+        },
+        opacity: 0.78
+      },
+      yaxis: 'y9',
+      showlegend: false,
+      customdata: visibleIntervals.map((item) => ({
+        id: item.interval.id,
+        label: item.interval.label,
+        startDate: item.interval.startDate,
+        endDate: item.interval.endDate
+      })),
+      hovertemplate:
+        '<b>Автоэпизод</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<extra></extra>'
+    }
+  ]
+}
+
 function buildContextMarkerTrackTraces() {
   const opzTrace =
     props.eventTracks.opzEvents.length > 0
@@ -1315,6 +1358,7 @@ function buildTrackTraces() {
     ...buildContextMarkerTrackTraces(),
     ...buildVspTrackTrace(),
     ...espInstallationTrace,
+    ...buildAutoEpisodeTrace(),
     ...buildSavedAnnotationTrace(),
     ...buildFrequencyBreakpointTrace()
   ]
@@ -1333,6 +1377,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
+    { axis: 'y9' as const, label: 'Автоэпизоды', labelColor: '#94a3b8', heightUnits: 0.42, range: [0, 1] as [number, number] },
     { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange }
   ]
 
@@ -1787,6 +1832,23 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
         toTrackLine('Тип', period.status === 'work' ? 'В работе' : 'Простой'),
         toTrackLine('Состояние', period.wellState),
         toTrackLine('Код', period.wellStateCode)
+      ]
+    })
+  })
+
+  props.eventTracks.modelEventIntervals.forEach((interval) => {
+    const style = getTrackIntervalOverlayGeometry('y9', interval.startDate, interval.endDate, 0.5, 24)
+    if (!style) return
+
+    items.push({
+      key: `auto-episode-${interval.id}`,
+      title: 'Автоэпизод',
+      style,
+      lines: [
+        toTrackLine('Класс', interval.label),
+        toTrackLine('Начало', interval.startDate),
+        toTrackLine('Конец', interval.endDate),
+        toTrackLine('Источник', 'Claude')
       ]
     })
   })
@@ -2499,6 +2561,7 @@ function renderChart() {
   const contextRow = getTrackRowByAxis(trackLayout.rows, 'y7')
   const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
+  const autoEpisodeRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
@@ -2657,6 +2720,14 @@ function renderChart() {
     yaxis7: {
       domain: contextRow.domain,
       range: contextRow.range,
+      fixedrange: true,
+      showgrid: false,
+      showticklabels: false,
+      zeroline: false
+    },
+    yaxis9: {
+      domain: autoEpisodeRow.domain,
+      range: autoEpisodeRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,

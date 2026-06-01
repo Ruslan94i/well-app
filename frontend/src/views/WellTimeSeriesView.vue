@@ -690,6 +690,7 @@ import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadio
 import type { SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import {
+  fetchAutoEpisodeIntervals,
   fetchArtificialLiftPeriods,
   fetchGraphDataExportCsv,
   fetchMarkup,
@@ -710,6 +711,7 @@ import type {
   EpisodeFormState,
   EpisodeType,
   EspInstallationPeriod,
+  EventInterval,
   FrequencyBreakpoint,
   FrequencyBreakpointClickPayload,
   FrequencyBreakpointSuppression,
@@ -1155,6 +1157,7 @@ const chartData = ref<TimeSeriesPoint[]>([])
 const trMonitoringData = ref<TrMonitoringPoint[]>([])
 const vspPeriods = ref<VspPeriod[]>([])
 const artificialLiftPeriods = ref<EspInstallationPeriod[]>([])
+const autoEpisodeIntervals = ref<EventInterval[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
@@ -1271,7 +1274,7 @@ const eventTracks = computed(() => {
     gtmEvents: contextTracks.gtmEvents,
     gdiEvents: contextTracks.gdiEvents,
     dailyCauses: [],
-    modelEventIntervals: []
+    modelEventIntervals: autoEpisodeIntervals.value
   }
 })
 const groupMigrationOptions = computed(() => [
@@ -2556,6 +2559,7 @@ async function loadData() {
     trMonitoringData.value = []
     vspPeriods.value = []
     artificialLiftPeriods.value = []
+    autoEpisodeIntervals.value = []
     visibleDateRange.value = null
     wellContext.value = null
     return
@@ -2567,6 +2571,7 @@ async function loadData() {
   trMonitoringData.value = []
   vspPeriods.value = []
   artificialLiftPeriods.value = []
+  autoEpisodeIntervals.value = []
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
   editingAnnotationId.value = null
@@ -2593,14 +2598,15 @@ async function loadData() {
   }
 
   try {
-    const [data, context, trData, liftPeriods, vspData] = await Promise.all([
+    const [data, context, trData, liftPeriods, vspData, autoEpisodes] = await Promise.all([
       useMockTelemetry
         ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
         : fetchWellTimeseries(selectedWell.value, params),
       fetchWellContext(selectedWell.value).catch(() => null),
       fetchTrMonitoring(selectedWell.value, trParams).catch(() => []),
       fetchArtificialLiftPeriods(selectedWell.value).catch(() => []),
-      fetchVspPeriods(selectedWell.value).catch(() => [])
+      fetchVspPeriods(selectedWell.value).catch(() => []),
+      fetchAutoEpisodeIntervals(selectedWell.value).catch(() => [])
     ])
 
     chartData.value = data
@@ -2608,6 +2614,7 @@ async function loadData() {
     trMonitoringData.value = trData
     artificialLiftPeriods.value = liftPeriods
     vspPeriods.value = vspData
+    autoEpisodeIntervals.value = autoEpisodes
     visibleDateRange.value = getFullDateRange(data, trData)
     if (!context) {
       message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
@@ -2619,6 +2626,7 @@ async function loadData() {
     trMonitoringData.value = []
     vspPeriods.value = []
     artificialLiftPeriods.value = []
+    autoEpisodeIntervals.value = []
     wellContext.value = null
     visibleDateRange.value = getFullDateRange(fallbackData)
     errorMessage.value = 'Не удалось загрузить временные ряды. Убедитесь, что backend запущен на http://localhost:8000.'

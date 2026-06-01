@@ -7,6 +7,7 @@ from typing import Any
 
 from app.schemas.markup import FrequencyBreakpoint, FrequencyBreakpointSuppression, SavedAnnotation
 from app.services.artificial_lift import get_well_artificial_lift_periods
+from app.services.auto_episodes import get_well_auto_episode_intervals
 from app.services.csv_timeseries import get_available_well_ids, get_well_timeseries
 from app.services.json_markup import load_markup_state
 from app.services.tr_monitoring import get_well_tr_monitoring
@@ -78,6 +79,10 @@ EXPORT_COLUMNS = [
     "episode_end_dates",
     "episode_actions",
     "episode_comments",
+    "auto_episode_ids",
+    "auto_episode_labels",
+    "auto_episode_start_dates",
+    "auto_episode_end_dates",
     "frequency_segment_id",
     "frequency_segment_start_date",
     "frequency_segment_end_date",
@@ -456,6 +461,13 @@ def _fill_annotations(row: dict[str, object], annotations: list[SavedAnnotation]
     row["episode_comments"] = _join_field(annotations, "comment")
 
 
+def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None:
+    row["auto_episode_ids"] = _join_field(intervals, "id")
+    row["auto_episode_labels"] = _join_field(intervals, "label")
+    row["auto_episode_start_dates"] = _join_field(intervals, "startDate")
+    row["auto_episode_end_dates"] = _join_field(intervals, "endDate")
+
+
 def _fill_frequency(
     row: dict[str, object],
     point_date: str,
@@ -538,11 +550,13 @@ def _build_export_rows_for_well(
     tr_rows = sorted(get_well_tr_monitoring(well_id=well_id), key=lambda item: _date_key(item.get("date")))
     esp_periods = get_well_artificial_lift_periods(well_id)
     vsp_periods = get_well_vsp_periods(well_id)
+    auto_episode_intervals = get_well_auto_episode_intervals(well_id)
     context = get_well_context(well_id)
     well_annotations = [annotation for annotation in annotations if annotation.wellId == well_id]
     esp_interval_index = _prepare_date_intervals(esp_periods)
     vsp_interval_index = _prepare_datetime_intervals(vsp_periods)
     annotation_interval_index = _prepare_date_intervals(well_annotations)
+    auto_episode_interval_index = _prepare_date_intervals(auto_episode_intervals)
     breakpoints = _merge_frequency_breakpoints(
         _build_auto_frequency_breakpoints(telemetry_rows, well_id),
         manual_breakpoints,
@@ -582,6 +596,7 @@ def _build_export_rows_for_well(
         _fill_esp(row, _active_prepared_date_intervals(esp_interval_index, point_date))
         _fill_vsp(row, _active_prepared_datetime_intervals(vsp_interval_index, point_time))
         _fill_annotations(row, _active_prepared_date_intervals(annotation_interval_index, point_date))
+        _fill_auto_episodes(row, _active_prepared_date_intervals(auto_episode_interval_index, point_date))
         _fill_frequency(row, point_date, breakpoints_by_date, frequency_segments)
         _fill_gtm(row, gtm_by_date.get(point_date, []))
         _fill_opz(row, opz_by_date.get(point_date, []))
