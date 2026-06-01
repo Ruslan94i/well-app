@@ -123,6 +123,9 @@
       class="time-pan-slider-shell"
       :style="timePanSliderOverlayStyle"
     >
+      <div class="time-pan-track">
+        <div class="time-pan-thumb" :style="timePanSliderThumbStyle"></div>
+      </div>
       <input
         type="range"
         min="0"
@@ -302,7 +305,7 @@ interface HoverGuideOverlay {
 }
 
 const TRACK_LABEL_LEFT = 22
-const MAIN_CHART_DOMAIN_START = 0.238
+const MAIN_CHART_DOMAIN_START = 0.272
 const TRACK_PANEL_TOP = 0.21
 const TRACK_MAIN_GAP = 0.028
 const CHART_MARGIN_LEFT = 205
@@ -1628,12 +1631,18 @@ function getTrackIntervalOverlayGeometry(
 }
 
 const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() => {
-  const minLabelWidth = 58
+  const minLabelWidth = 28
+  const barTopY = getTrackYCenter('y6', ESP_TRACK_CENTER_Y + ESP_TRACK_BAR_WIDTH / 2)
+  const barBottomY = getTrackYCenter('y6', ESP_TRACK_CENTER_Y - ESP_TRACK_BAR_WIDTH / 2)
+  const labelHeight =
+    barTopY === null || barBottomY === null
+      ? ESP_LABEL_HEIGHT
+      : Math.max(ESP_LABEL_HEIGHT, Math.abs(barBottomY - barTopY))
 
   const rawItems = props.eventTracks.installedEspPeriods
     .map((period): EspSegmentLabelOverlayItem | null => {
       const endDate = getEffectiveEspEndDate(period.endDate)
-      const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, ESP_TRACK_CENTER_Y, ESP_LABEL_HEIGHT)
+      const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, ESP_TRACK_CENTER_Y, labelHeight)
       if (!style) {
         return null
       }
@@ -1644,10 +1653,10 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
         return null
       }
 
-      const maxLength = Math.max(5, Math.floor((width - 18) / 9))
+      const maxLength = Math.max(3, Math.floor((width - 10) / 9))
       const labelStyle: Record<string, string> = {
         ...style,
-        height: `${ESP_LABEL_HEIGHT}px`
+        height: `${labelHeight}px`
       }
 
       return {
@@ -1665,7 +1674,7 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
     .sort((left, right) => left.leftPx - right.leftPx)
     .reduce<EspSegmentLabelOverlayItem[]>((items, item) => {
       const previousItem = items[items.length - 1]
-      if (previousItem && item.leftPx < previousItem.rightPx + 6) {
+      if (previousItem && item.leftPx < previousItem.rightPx - 1) {
         return items
       }
 
@@ -2206,8 +2215,36 @@ const timePanSliderOverlayStyle = computed<Record<string, string>>(() => {
 
   return {
     left: `${plotBounds.left}px`,
-    top: `${mainBottomY + 6}px`,
+    top: `${mainBottomY + 30}px`,
     width: `${plotBounds.width}px`
+  }
+})
+
+const timePanSliderThumbStyle = computed<Record<string, string>>(() => {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!fullRange || !currentRange) {
+    return {
+      left: '0%',
+      width: '100%'
+    }
+  }
+
+  const fullSpan = fullRange[1] - fullRange[0]
+  if (fullSpan <= 0) {
+    return {
+      left: '0%',
+      width: '100%'
+    }
+  }
+
+  const left = ((currentRange[0] - fullRange[0]) / fullSpan) * 100
+  const width = ((currentRange[1] - currentRange[0]) / fullSpan) * 100
+
+  return {
+    left: `${Math.max(0, Math.min(100, left))}%`,
+    width: `${Math.max(2.5, Math.min(100, width))}%`
   }
 })
 
@@ -3201,14 +3238,38 @@ onBeforeUnmount(() => {
   pointer-events: auto;
 }
 
+.time-pan-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: rgba(51, 65, 85, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+
+.time-pan-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  min-width: 36px;
+  border-radius: 9999px;
+  background: rgba(226, 232, 240, 0.88);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25);
+}
+
 .time-pan-slider {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 18px;
-  accent-color: #38bdf8;
   cursor: grab;
   background: transparent;
   appearance: none;
+  opacity: 0;
 }
 
 .time-pan-slider:active {
@@ -3216,34 +3277,25 @@ onBeforeUnmount(() => {
 }
 
 .time-pan-slider::-webkit-slider-runnable-track {
-  height: 5px;
-  border-radius: 9999px;
-  background: rgba(100, 116, 139, 0.58);
+  height: 18px;
+  background: transparent;
 }
 
 .time-pan-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 56px;
-  height: 13px;
-  margin-top: -4px;
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 9999px;
-  background: #38bdf8;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
+  width: 18px;
+  height: 18px;
 }
 
 .time-pan-slider::-moz-range-track {
-  height: 5px;
-  border-radius: 9999px;
-  background: rgba(100, 116, 139, 0.58);
+  height: 18px;
+  background: transparent;
 }
 
 .time-pan-slider::-moz-range-thumb {
-  width: 56px;
-  height: 13px;
-  border: 1px solid rgba(226, 232, 240, 0.82);
-  border-radius: 9999px;
-  background: #38bdf8;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
 }
 </style>
