@@ -91,6 +91,7 @@ export interface EventInterval {
   endDate: string
   label: string
   color: string
+  confidence?: number | null
 }
 
 export interface DailyCauseBand {

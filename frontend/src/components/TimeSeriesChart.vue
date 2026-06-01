@@ -1101,10 +1101,12 @@ function buildAutoEpisodeTrace() {
         id: item.interval.id,
         label: item.interval.label,
         startDate: item.interval.startDate,
-        endDate: item.interval.endDate
+        endDate: item.interval.endDate,
+        confidence: formatMarkerNumber(item.interval.confidence, 2)
       })),
       hovertemplate:
-        '<b>Автоэпизод</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<extra></extra>'
+        '<b>Автоэпизод</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
 }
@@ -1848,6 +1850,7 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
         toTrackLine('Класс', interval.label),
         toTrackLine('Начало', interval.startDate),
         toTrackLine('Конец', interval.endDate),
+        toTrackLine('Уверенность', formatMarkerNumber(interval.confidence, 2)),
         toTrackLine('Источник', 'Claude')
       ]
     })

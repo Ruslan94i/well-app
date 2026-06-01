@@ -83,6 +83,7 @@ EXPORT_COLUMNS = [
     "auto_episode_labels",
     "auto_episode_start_dates",
     "auto_episode_end_dates",
+    "auto_episode_confidences",
     "frequency_segment_id",
     "frequency_segment_start_date",
     "frequency_segment_end_date",
@@ -466,6 +467,7 @@ def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None
     row["auto_episode_labels"] = _join_field(intervals, "label")
     row["auto_episode_start_dates"] = _join_field(intervals, "startDate")
     row["auto_episode_end_dates"] = _join_field(intervals, "endDate")
+    row["auto_episode_confidences"] = _join_field(intervals, "confidence")
 
 
 def _fill_frequency(

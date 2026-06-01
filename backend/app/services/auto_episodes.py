@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 import re
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -47,6 +48,11 @@ LABEL_COLUMNS = {
     "label",
     "episode",
     "episodetype",
+    "predepisode",
+    "predictedepisode",
+    "predlabel",
+    "predictedlabel",
+    "prediction",
     "class",
     "category",
     "reason",
@@ -59,10 +65,25 @@ LABEL_COLUMNS = {
 }
 COLOR_COLUMNS = {"color", "colour", "цвет"}
 ID_COLUMNS = {"id", "episodeid", "intervalid", "ид", "идентификатор"}
+DATE_COLUMNS = {"date", "дата", "pointdate", "датазамера"}
+CONFIDENCE_COLUMNS = {"confidence", "conf", "probability", "score", "уверенность", "вероятность"}
 
 
 def _clean_cell(value: object) -> str:
     return str(value or "").replace("\ufeff", "").replace("\xa0", " ").strip()
+
+
+def _repair_mojibake(value: object) -> str:
+    cleaned = _clean_cell(value)
+    if not cleaned or not any(marker in cleaned for marker in ("Р", "С")):
+        return cleaned
+
+    try:
+        repaired = cleaned.encode("cp1251").decode("utf-8")
+    except UnicodeError:
+        return cleaned
+
+    return repaired if repaired else cleaned
 
 
 def _normalize_key(value: object) -> str:
@@ -112,6 +133,19 @@ def _parse_date(value: object) -> date | None:
             continue
 
     return None
+
+
+def _parse_float(value: object) -> float | None:
+    cleaned = _clean_cell(value)
+    if not cleaned:
+        return None
+
+    try:
+        parsed = float(cleaned.replace(" ", "").replace(",", "."))
+    except ValueError:
+        return None
+
+    return parsed if math.isfinite(parsed) else None
 
 
 def _default_color(label: str) -> str:
@@ -164,11 +198,26 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
     logger.info("Loading auto episode intervals from %s", source_path)
 
     rows: list[dict[str, object]] = []
+    point_rows: list[dict[str, object]] = []
     for index, raw_row in enumerate(_read_csv_rows(source_path), start=1):
         well_id = _get_cell(raw_row, WELL_ID_COLUMNS)
         start_date = _parse_date(_get_cell(raw_row, START_DATE_COLUMNS))
         end_date = _parse_date(_get_cell(raw_row, END_DATE_COLUMNS))
-        label = _get_cell(raw_row, LABEL_COLUMNS) or "Автоэпизод"
+        point_date = _parse_date(_get_cell(raw_row, DATE_COLUMNS))
+        label = _repair_mojibake(_get_cell(raw_row, LABEL_COLUMNS)) or "Автоэпизод"
+        confidence = _parse_float(_get_cell(raw_row, CONFIDENCE_COLUMNS))
+
+        if well_id and point_date is not None and start_date is None and end_date is None:
+            point_rows.append(
+                {
+                    "wellId": well_id,
+                    "normalizedWellId": well_id.casefold(),
+                    "date": point_date,
+                    "label": label,
+                    "confidence": confidence,
+                }
+            )
+            continue
 
         if not well_id or start_date is None or end_date is None or end_date < start_date:
             continue
@@ -185,12 +234,95 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
                 "endDate": end_date.isoformat(),
                 "label": label,
                 "color": color,
+                "confidence": confidence,
             }
         )
 
+    rows.extend(_build_intervals_from_point_rows(point_rows))
     rows.sort(key=lambda item: (str(item["normalizedWellId"]), str(item["startDate"]), str(item["endDate"])))
     logger.info("Loaded %s auto episode intervals from %s", len(rows), source_path)
     return rows
+
+
+def _build_intervals_from_point_rows(point_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    intervals: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    interval_index = 0
+
+    for point in sorted(
+        point_rows,
+        key=lambda item: (str(item["normalizedWellId"]), item["date"] if isinstance(item["date"], date) else date.min),
+    ):
+        point_date = point["date"]
+        label = str(point["label"])
+        if not isinstance(point_date, date):
+            continue
+
+        should_start_new = True
+        if current is not None:
+            previous_end = current["endDateValue"]
+            should_start_new = not (
+                current["normalizedWellId"] == point["normalizedWellId"]
+                and current["label"] == label
+                and isinstance(previous_end, date)
+                and point_date == previous_end + timedelta(days=1)
+            )
+
+        if should_start_new:
+            if current is not None:
+                intervals.append(_finalize_point_interval(current, interval_index))
+                interval_index += 1
+
+            confidence = point["confidence"]
+            confidence_count = 1 if confidence is not None else 0
+            current = {
+                "wellId": point["wellId"],
+                "normalizedWellId": point["normalizedWellId"],
+                "startDateValue": point_date,
+                "endDateValue": point_date,
+                "label": label,
+                "confidenceSum": float(confidence) if confidence is not None else 0.0,
+                "confidenceCount": confidence_count,
+            }
+            continue
+
+        confidence = point["confidence"]
+        current["endDateValue"] = point_date
+        if confidence is not None:
+            current["confidenceSum"] = float(current["confidenceSum"]) + float(confidence)
+            current["confidenceCount"] = int(current["confidenceCount"]) + 1
+
+    if current is not None:
+        intervals.append(_finalize_point_interval(current, interval_index))
+
+    return intervals
+
+
+def _finalize_point_interval(interval: dict[str, object], index: int) -> dict[str, object]:
+    well_id = str(interval["wellId"])
+    start_date = interval["startDateValue"]
+    end_date = interval["endDateValue"]
+    label = str(interval["label"])
+    confidence_count = int(interval["confidenceCount"])
+    confidence = (
+        round(float(interval["confidenceSum"]) / confidence_count, 3)
+        if confidence_count > 0
+        else None
+    )
+
+    if not isinstance(start_date, date) or not isinstance(end_date, date):
+        raise ValueError("Auto episode interval has invalid date bounds")
+
+    return {
+        "id": f"auto-episode-{well_id}-{start_date.isoformat()}-{index}",
+        "wellId": well_id,
+        "normalizedWellId": str(interval["normalizedWellId"]),
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat(),
+        "label": label,
+        "color": _default_color(label),
+        "confidence": confidence,
+    }
 
 
 def get_well_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
