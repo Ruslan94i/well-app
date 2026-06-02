@@ -811,6 +811,7 @@ function getSelectionShapes() {
 function buildMainTraces() {
   const x = props.data.map((item) => item.date)
   const baseRange = buildStableRange(getPrimaryAxisValues())
+  const useHighDensityRendering = props.data.length > 10000
 
   const visibleSeries = props.activeSeries.map((seriesKey) => {
     const config = seriesConfig[seriesKey]
@@ -821,7 +822,7 @@ function buildMainTraces() {
       ? props.trMonitoringData.map((item) => item[seriesKey])
       : props.data.map((item) => item[seriesKey])
 
-    if (config.chartType === 'bar') {
+    if (config.chartType === 'bar' && !useHighDensityRendering) {
       return {
         x: seriesX,
         y: seriesY,
@@ -845,8 +846,8 @@ function buildMainTraces() {
     return {
       x: seriesX,
       y: seriesY,
-      type: 'scatter',
-      mode: 'lines+markers',
+      type: useHighDensityRendering ? 'scattergl' : 'scatter',
+      mode: useHighDensityRendering ? 'lines' : 'lines+markers',
       name: config.label,
       yaxis: config.axis,
       connectgaps: true,
@@ -858,7 +859,7 @@ function buildMainTraces() {
       },
       marker: {
         color: config.color,
-        size: 4,
+        size: useHighDensityRendering ? 2 : 4,
         line: {
           color: '#0f172a',
           width: 0.6

@@ -1,10 +1,8 @@
-from datetime import date
-
 from pydantic import BaseModel
 
 
 class TimeSeriesPoint(BaseModel):
-    date: date
+    date: str
     qliq: float | None = None
     buffer_pressure: float | None = None
     casing_pressure: float | None = None

@@ -4,6 +4,7 @@ import csv
 import logging
 from datetime import date, datetime
 from functools import lru_cache
+from pathlib import Path
 
 import polars as pl
 
@@ -13,6 +14,8 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 CSV_FILE_PATH = settings.csv_data_path
+MINUTE_TELEMETRY_FOLDER_PATH = settings.minute_telemetry_data_path
+MINUTE_TELEMETRY_WELL_IDS = {"Ic_367"}
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
 COLUMN_MAPPING = {
     "well_id": "Скважина",
@@ -97,6 +100,10 @@ FRAME_SCHEMA = {
     "qliq_wfm": pl.Float64,
     "qliq_vfm": pl.Float64,
 }
+MINUTE_FRAME_SCHEMA = {
+    **FRAME_SCHEMA,
+    "date": pl.Datetime,
+}
 
 
 def _clean_cell(value: str | None) -> str:
@@ -107,7 +114,10 @@ def _clean_cell(value: str | None) -> str:
 
 
 def _get_row_value(raw_row: list[str], column_indexes: dict[str, int], column_name: str) -> str | None:
-    column_index = column_indexes[column_name]
+    column_index = column_indexes.get(column_name)
+    if column_index is None:
+        return None
+
     if column_index >= len(raw_row):
         return None
 
@@ -125,6 +135,20 @@ def _parse_date(value: str | None) -> date | None:
         return None
 
 
+def _parse_datetime(value: str | None) -> datetime | None:
+    cleaned = _clean_cell(value)
+    if cleaned in NULL_TOKENS:
+        return None
+
+    for date_format in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(cleaned, date_format)
+        except ValueError:
+            continue
+
+    return None
+
+
 def _parse_float(value: str | None) -> float | None:
     cleaned = _clean_cell(value)
     if cleaned in NULL_TOKENS:
@@ -135,6 +159,45 @@ def _parse_float(value: str | None) -> float | None:
         return float(normalized)
     except ValueError:
         return None
+
+
+def _build_timeseries_row(
+    raw_row: list[str],
+    column_indexes: dict[str, int],
+    well_id: str,
+    point_date: date | datetime,
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "well_id": well_id,
+        "date": point_date,
+    }
+
+    for normalized_name in NUMERIC_COLUMNS:
+        source_name = COLUMN_MAPPING[normalized_name]
+        raw_value = _get_row_value(raw_row, column_indexes, source_name)
+        row[normalized_name] = _parse_float(raw_value)
+
+    qliq = row["qliq"]
+    qoil = row["qoil"]
+    qgas = row["qgas"]
+
+    if not isinstance(qgas, float) and isinstance(qoil, float) and isinstance(row["gas_factor"], float):
+        row["qgas"] = round(qoil * row["gas_factor"], 2)
+        qgas = row["qgas"]
+
+    if not isinstance(row["gas_factor"], float) and isinstance(qgas, float) and isinstance(qoil, float) and qoil:
+        row["gas_factor"] = round(qgas / qoil, 6)
+
+    if (
+        not isinstance(row["gas_liquid_factor"], float)
+        and isinstance(qgas, float)
+        and isinstance(qliq, float)
+        and qliq
+    ):
+        row["gas_liquid_factor"] = round(qgas / qliq, 6)
+
+    row["qliq_vfm"] = row["qliq_wfm"]
+    return row
 
 
 def _load_timeseries_frame() -> pl.DataFrame:
@@ -180,37 +243,7 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
                 skipped_rows += 1
                 continue
 
-            row: dict[str, object] = {
-                "well_id": well_id,
-                "date": point_date,
-            }
-
-            for normalized_name in NUMERIC_COLUMNS:
-                source_name = COLUMN_MAPPING[normalized_name]
-                raw_value = _get_row_value(raw_row, column_indexes, source_name)
-                row[normalized_name] = _parse_float(raw_value)
-
-            qliq = row["qliq"]
-            qoil = row["qoil"]
-            qgas = row["qgas"]
-
-            if not isinstance(qgas, float) and isinstance(qoil, float) and isinstance(row["gas_factor"], float):
-                row["qgas"] = round(qoil * row["gas_factor"], 2)
-                qgas = row["qgas"]
-
-            if not isinstance(row["gas_factor"], float) and isinstance(qgas, float) and isinstance(qoil, float) and qoil:
-                row["gas_factor"] = round(qgas / qoil, 6)
-
-            if (
-                not isinstance(row["gas_liquid_factor"], float)
-                and isinstance(qgas, float)
-                and isinstance(qliq, float)
-                and qliq
-            ):
-                row["gas_liquid_factor"] = round(qgas / qliq, 6)
-
-            row["qliq_vfm"] = row["qliq_wfm"]
-            rows.append(row)
+            rows.append(_build_timeseries_row(raw_row, column_indexes, well_id, point_date))
 
     if not rows:
         logger.warning("CSV file %s produced no valid well rows", CSV_FILE_PATH)
@@ -222,6 +255,75 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         frame.height,
         frame.select("well_id").n_unique(),
         CSV_FILE_PATH,
+        f"; skipped {skipped_rows} rows" if skipped_rows else "",
+    )
+    return frame
+
+
+def _get_minute_telemetry_path(well_id: str) -> Path:
+    return MINUTE_TELEMETRY_FOLDER_PATH / f"{well_id}.csv"
+
+
+def _load_minute_timeseries_frame(well_id: str) -> pl.DataFrame:
+    csv_path = _get_minute_telemetry_path(well_id)
+    if not csv_path.exists():
+        logger.warning("Minute telemetry file not found for well_id=%s at %s", well_id, csv_path)
+        return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
+
+    csv_stat = csv_path.stat()
+    return _load_minute_timeseries_frame_cached(well_id, str(csv_path), csv_stat.st_mtime_ns, csv_stat.st_size)
+
+
+@lru_cache(maxsize=4)
+def _load_minute_timeseries_frame_cached(
+    well_id: str,
+    csv_path_value: str,
+    csv_mtime_ns: int,
+    csv_size: int,
+) -> pl.DataFrame:
+    del csv_mtime_ns, csv_size
+    csv_path = Path(csv_path_value)
+    logger.info("Loading minute telemetry CSV for well_id=%s from %s", well_id, csv_path)
+
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.reader(csv_file, delimiter=";")
+        header = next(reader, None)
+        if header is None:
+            logger.warning("Minute telemetry CSV %s is empty", csv_path)
+            return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
+
+        column_indexes = {name: index for index, name in enumerate(header)}
+        required_columns = [COLUMN_MAPPING["well_id"], COLUMN_MAPPING["date"]]
+        missing_columns = [source_name for source_name in required_columns if source_name not in column_indexes]
+        if missing_columns:
+            missing = ", ".join(missing_columns)
+            logger.error("Minute telemetry CSV %s is missing required columns: %s", csv_path, missing)
+            raise ValueError(f"Missing required minute telemetry columns: {missing}")
+
+        rows: list[dict[str, object]] = []
+        skipped_rows = 0
+        for raw_row in reader:
+            if not raw_row:
+                continue
+
+            row_well_id = _clean_cell(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["well_id"]))
+            point_datetime = _parse_datetime(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["date"]))
+            if row_well_id != well_id or point_datetime is None:
+                skipped_rows += 1
+                continue
+
+            rows.append(_build_timeseries_row(raw_row, column_indexes, row_well_id, point_datetime))
+
+    if not rows:
+        logger.warning("Minute telemetry CSV %s produced no valid rows", csv_path)
+        return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
+
+    frame = pl.DataFrame(rows, schema=MINUTE_FRAME_SCHEMA, strict=False).sort(["well_id", "date"])
+    logger.info(
+        "Loaded %s minute telemetry rows for well_id=%s from %s%s",
+        frame.height,
+        well_id,
+        csv_path,
         f"; skipped {skipped_rows} rows" if skipped_rows else "",
     )
     return frame
@@ -251,13 +353,24 @@ def get_well_timeseries(
     date_to: date | None = None,
 ) -> list[dict[str, object]]:
     normalized_well_id = well_id.strip()
-    frame = _load_timeseries_frame().filter(pl.col("well_id") == pl.lit(normalized_well_id))
+    use_minute_telemetry = normalized_well_id in MINUTE_TELEMETRY_WELL_IDS
+    frame = (
+        _load_minute_timeseries_frame(normalized_well_id)
+        if use_minute_telemetry
+        else _load_timeseries_frame().filter(pl.col("well_id") == pl.lit(normalized_well_id))
+    )
 
     if date_from is not None:
-        frame = frame.filter(pl.col("date") >= pl.lit(date_from))
+        if use_minute_telemetry:
+            frame = frame.filter(pl.col("date").dt.date() >= pl.lit(date_from))
+        else:
+            frame = frame.filter(pl.col("date") >= pl.lit(date_from))
 
     if date_to is not None:
-        frame = frame.filter(pl.col("date") <= pl.lit(date_to))
+        if use_minute_telemetry:
+            frame = frame.filter(pl.col("date").dt.date() <= pl.lit(date_to))
+        else:
+            frame = frame.filter(pl.col("date") <= pl.lit(date_to))
 
     if frame.is_empty():
         logger.info(
@@ -277,6 +390,6 @@ def get_well_timeseries(
     )
     return (
         frame.select(RESPONSE_COLUMNS)
-        .with_columns(pl.col("date").dt.strftime("%Y-%m-%d"))
+        .with_columns(pl.col("date").dt.strftime("%Y-%m-%dT%H:%M:%S" if use_minute_telemetry else "%Y-%m-%d"))
         .to_dicts()
     )
