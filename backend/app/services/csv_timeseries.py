@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 CSV_FILE_PATH = settings.csv_data_path
 MINUTE_TELEMETRY_FOLDER_PATH = settings.minute_telemetry_data_path
-MAX_MINUTE_TELEMETRY_POINTS = 15000
+MINUTE_TELEMETRY_WELL_IDS = {"Ic_367"}
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
 COLUMN_MAPPING = {
     "well_id": "Скважина",
@@ -264,97 +264,55 @@ def _get_minute_telemetry_path(well_id: str) -> Path:
     return MINUTE_TELEMETRY_FOLDER_PATH / f"{well_id}.csv"
 
 
-def _minute_telemetry_exists(well_id: str) -> bool:
-    return _get_minute_telemetry_path(well_id).exists()
-
-
-def _get_minute_column_indexes(csv_path: Path) -> dict[str, int] | None:
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-        reader = csv.reader(csv_file, delimiter=";")
-        header = next(reader, None)
-        if header is None:
-            logger.warning("Minute telemetry CSV %s is empty", csv_path)
-            return None
-
-    column_indexes = {name: index for index, name in enumerate(header)}
-    required_columns = [COLUMN_MAPPING["well_id"], COLUMN_MAPPING["date"]]
-    missing_columns = [source_name for source_name in required_columns if source_name not in column_indexes]
-    if missing_columns:
-        missing = ", ".join(missing_columns)
-        logger.error("Minute telemetry CSV %s is missing required columns: %s", csv_path, missing)
-        raise ValueError(f"Missing required minute telemetry columns: {missing}")
-
-    return column_indexes
-
-
-def _iter_minute_timeseries_rows(
-    csv_path: Path,
-    column_indexes: dict[str, int],
-    well_id: str,
-    date_from: date | None,
-    date_to: date | None,
-):
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-        reader = csv.reader(csv_file, delimiter=";")
-        next(reader, None)
-
-        for raw_row in reader:
-            if not raw_row:
-                continue
-
-            row_well_id = _clean_cell(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["well_id"]))
-            if row_well_id != well_id:
-                continue
-
-            point_datetime = _parse_datetime(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["date"]))
-            if point_datetime is None:
-                continue
-
-            point_date = point_datetime.date()
-            if date_from is not None and point_date < date_from:
-                continue
-
-            if date_to is not None and point_date > date_to:
-                continue
-
-            yield raw_row, point_datetime
-
-
-def _load_minute_timeseries_frame(
-    well_id: str,
-    date_from: date | None = None,
-    date_to: date | None = None,
-) -> pl.DataFrame:
+def _load_minute_timeseries_frame(well_id: str) -> pl.DataFrame:
     csv_path = _get_minute_telemetry_path(well_id)
     if not csv_path.exists():
         logger.warning("Minute telemetry file not found for well_id=%s at %s", well_id, csv_path)
         return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
 
-    column_indexes = _get_minute_column_indexes(csv_path)
-    if column_indexes is None:
-        return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
+    csv_stat = csv_path.stat()
+    return _load_minute_timeseries_frame_cached(well_id, str(csv_path), csv_stat.st_mtime_ns, csv_stat.st_size)
 
-    matching_row_count = sum(
-        1
-        for _raw_row, _point_datetime in _iter_minute_timeseries_rows(
-            csv_path,
-            column_indexes,
-            well_id,
-            date_from,
-            date_to,
-        )
-    )
-    if matching_row_count == 0:
-        logger.warning("Minute telemetry CSV %s produced no valid rows", csv_path)
-        return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
 
-    step = max(1, (matching_row_count + MAX_MINUTE_TELEMETRY_POINTS - 1) // MAX_MINUTE_TELEMETRY_POINTS)
-    rows: list[dict[str, object]] = []
-    for row_index, (raw_row, point_datetime) in enumerate(
-        _iter_minute_timeseries_rows(csv_path, column_indexes, well_id, date_from, date_to)
-    ):
-        if row_index % step == 0:
-            rows.append(_build_timeseries_row(raw_row, column_indexes, well_id, point_datetime))
+@lru_cache(maxsize=4)
+def _load_minute_timeseries_frame_cached(
+    well_id: str,
+    csv_path_value: str,
+    csv_mtime_ns: int,
+    csv_size: int,
+) -> pl.DataFrame:
+    del csv_mtime_ns, csv_size
+    csv_path = Path(csv_path_value)
+    logger.info("Loading minute telemetry CSV for well_id=%s from %s", well_id, csv_path)
+
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.reader(csv_file, delimiter=";")
+        header = next(reader, None)
+        if header is None:
+            logger.warning("Minute telemetry CSV %s is empty", csv_path)
+            return pl.DataFrame(schema=MINUTE_FRAME_SCHEMA)
+
+        column_indexes = {name: index for index, name in enumerate(header)}
+        required_columns = [COLUMN_MAPPING["well_id"], COLUMN_MAPPING["date"]]
+        missing_columns = [source_name for source_name in required_columns if source_name not in column_indexes]
+        if missing_columns:
+            missing = ", ".join(missing_columns)
+            logger.error("Minute telemetry CSV %s is missing required columns: %s", csv_path, missing)
+            raise ValueError(f"Missing required minute telemetry columns: {missing}")
+
+        rows: list[dict[str, object]] = []
+        skipped_rows = 0
+        for raw_row in reader:
+            if not raw_row:
+                continue
+
+            row_well_id = _clean_cell(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["well_id"]))
+            point_datetime = _parse_datetime(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["date"]))
+            if row_well_id != well_id or point_datetime is None:
+                skipped_rows += 1
+                continue
+
+            rows.append(_build_timeseries_row(raw_row, column_indexes, row_well_id, point_datetime))
 
     if not rows:
         logger.warning("Minute telemetry CSV %s produced no valid rows", csv_path)
@@ -362,11 +320,11 @@ def _load_minute_timeseries_frame(
 
     frame = pl.DataFrame(rows, schema=MINUTE_FRAME_SCHEMA, strict=False).sort(["well_id", "date"])
     logger.info(
-        "Loaded %s of %s minute telemetry rows for well_id=%s from %s",
+        "Loaded %s minute telemetry rows for well_id=%s from %s%s",
         frame.height,
-        matching_row_count,
         well_id,
         csv_path,
+        f"; skipped {skipped_rows} rows" if skipped_rows else "",
     )
     return frame
 
@@ -395,9 +353,9 @@ def get_well_timeseries(
     date_to: date | None = None,
 ) -> list[dict[str, object]]:
     normalized_well_id = well_id.strip()
-    use_minute_telemetry = _minute_telemetry_exists(normalized_well_id)
+    use_minute_telemetry = normalized_well_id in MINUTE_TELEMETRY_WELL_IDS
     frame = (
-        _load_minute_timeseries_frame(normalized_well_id, date_from=date_from, date_to=date_to)
+        _load_minute_timeseries_frame(normalized_well_id)
         if use_minute_telemetry
         else _load_timeseries_frame().filter(pl.col("well_id") == pl.lit(normalized_well_id))
     )
