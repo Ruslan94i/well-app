@@ -61,7 +61,7 @@
     <div v-if="hoverGuideOverlay" class="pointer-events-none absolute inset-0 z-[9]">
       <div v-if="hoverGuideOverlay" class="hover-guide-line" :style="hoverGuideOverlay.lineStyle"></div>
       <div v-if="hoverGuideOverlay" class="hover-guide-tooltip" :style="hoverGuideOverlay.tooltipStyle">
-        <div class="text-xs font-semibold text-slate-100">{{ hoverGuideOverlay.date }}</div>
+        <div class="text-xs font-semibold text-slate-100">{{ hoverGuideOverlay.displayDate }}</div>
         <div
           class="mt-1 grid gap-1"
           :class="hoverGuideOverlay.metrics.length > 8 ? 'grid-cols-2' : 'grid-cols-1'"
@@ -155,6 +155,7 @@ import type {
   SavedAnnotation,
   SelectedInterval,
   SeriesKey,
+  TelemetrySeriesKey,
   TimelineAnnotationClickPayload,
   TimeSeriesPoint,
   TrMonitoringPoint,
@@ -300,6 +301,7 @@ interface HoverGuideMetric {
 
 interface HoverGuideOverlay {
   date: string
+  displayDate: string
   lineStyle: Record<string, string>
   tooltipStyle: Record<string, string>
   metrics: HoverGuideMetric[]
@@ -1484,6 +1486,14 @@ function formatIsoDateMs(value: number): string {
   return new Date(value).toISOString().slice(0, 10)
 }
 
+function formatIsoDateTimeMs(value: number): string {
+  return new Date(value).toISOString().slice(0, 19)
+}
+
+function formatHoverDateTime(value: string): string {
+  return value.replace('T', ' ')
+}
+
 function getIntervalCenterDate(startDate: string, endDate: string): string {
   const startMs = parseIsoDateMs(startDate)
   const endMs = parseIsoDateMs(endDate)
@@ -1934,7 +1944,7 @@ function getPointerDateFromEvent(event: MouseEvent, options?: { clamp?: boolean 
   }
 
   const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
-  return formatIsoDateMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
+  return formatIsoDateTimeMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
 }
 
 function getXForDate(date: string): number | null {
@@ -1989,6 +1999,37 @@ function getNearestPointByDate(date: string): TimeSeriesPoint | null {
   }, null)
 }
 
+function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): number | null {
+  const targetMs = parseIsoDateMs(date)
+
+  if (targetMs === null || props.data.length === 0) {
+    return null
+  }
+
+  let nearestValue: number | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  for (const point of props.data) {
+    const value = point[key]
+    if (!Number.isFinite(value)) {
+      continue
+    }
+
+    const pointMs = parseIsoDateMs(point.date)
+    if (pointMs === null) {
+      continue
+    }
+
+    const distance = Math.abs(pointMs - targetMs)
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestValue = Number(value)
+    }
+  }
+
+  return nearestValue
+}
+
 function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
   const targetMs = parseIsoDateMs(date)
 
@@ -2014,14 +2055,13 @@ function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
 }
 
 function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
-  const telemetryPoint = getNearestPointByDate(date)
   const trPoint = getTrStepPointByDate(date)
 
   return props.activeSeries
     .map((key): HoverGuideMetric => {
       const value = isTrSeriesKey(key)
         ? trPoint?.[key]
-        : telemetryPoint?.[key]
+        : getNearestTelemetryValueByDate(date, key)
 
       return {
         key,
@@ -2030,7 +2070,6 @@ function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
         value: formatMetricValue(value)
       }
     })
-    .filter((metric) => metric.value !== '—')
 }
 
 const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
@@ -2054,6 +2093,7 @@ const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
 
   return {
     date: hoverGuideDate.value,
+    displayDate: formatHoverDateTime(hoverGuideDate.value),
     lineStyle: {
       left: `${x}px`,
       top: `${plotBounds.top}px`,

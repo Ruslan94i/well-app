@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
     csv_data_path: Path = Path(__file__).resolve().parents[3] / "well_metrics_v9.csv"
+    aggregated_telemetry_data_path: Path = Path(r"D:\1 Ирито\5 WellInsight\telemetry\aggregated")
+    telemetry_10_data_path: Path = aggregated_telemetry_data_path / "telemetry_10.csv"
+    measurements_data_path: Path = aggregated_telemetry_data_path / "measurements.csv"
+    power_daily_data_path: Path = aggregated_telemetry_data_path / "power_daily.csv"
     markup_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "markup.json"
     reference_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "reference"
     tr_monitoring_data_path: Path = reference_data_path / "tr_monitoring.csv"

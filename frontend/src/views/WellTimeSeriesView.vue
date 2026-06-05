@@ -1690,6 +1690,10 @@ function toIsoDate(timestamp: number | null | undefined): string | undefined {
   return new Date(timestamp).toISOString().slice(0, 10)
 }
 
+function toIsoDateKey(value: string | null | undefined): string {
+  return value ? value.slice(0, 10) : ''
+}
+
 function loadEpisodeIntoDraft(episode: SavedAnnotation) {
   selectedInterval.value = {
     startDate: episode.startDate,
@@ -1710,17 +1714,17 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
 }
 
 function subtractMonthsIsoDate(date: string, months: number): string {
-  const nextDate = new Date(`${date}T00:00:00`)
+  const nextDate = new Date(`${toIsoDateKey(date)}T00:00:00`)
   nextDate.setMonth(nextDate.getMonth() - months)
 
   return nextDate.toISOString().slice(0, 10)
 }
 
 function getFullDateRange(data: TimeSeriesPoint[], trData: TrMonitoringPoint[] = []): VisibleDateRange | null {
-  const startDate = data[0]?.date
+  const startDate = toIsoDateKey(data[0]?.date)
   const endDates = [
-    data[data.length - 1]?.date,
-    trData[trData.length - 1]?.date
+    toIsoDateKey(data[data.length - 1]?.date),
+    toIsoDateKey(trData[trData.length - 1]?.date)
   ].filter((value): value is string => Boolean(value))
 
   if (!startDate || !endDates.length) {
@@ -2428,7 +2432,12 @@ function getWindowMetrics(points: TimeSeriesPoint[]): AnalysisWindowMetrics {
 }
 
 function getPointsForRange(startDate: string, endDate: string): TimeSeriesPoint[] {
-  return chartData.value.filter((point) => point.date >= startDate && point.date <= endDate)
+  const normalizedStartDate = toIsoDateKey(startDate)
+  const normalizedEndDate = toIsoDateKey(endDate)
+  return chartData.value.filter((point) => {
+    const pointDate = toIsoDateKey(point.date)
+    return pointDate >= normalizedStartDate && pointDate <= normalizedEndDate
+  })
 }
 
 function getShiftedDate(baseDate: string, dayDelta: number): string {

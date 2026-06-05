@@ -589,7 +589,7 @@ def _build_export_rows_for_well(
         if parsed_point_date is None:
             continue
 
-        point_time = datetime.combine(parsed_point_date, datetime.min.time())
+        point_time = _parse_datetime(telemetry.get("date")) or datetime.combine(parsed_point_date, datetime.min.time())
         row: dict[str, object] = {
             "well_id": well_id,
             "field_code": _well_field_code(well_id),
