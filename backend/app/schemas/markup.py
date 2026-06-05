@@ -8,6 +8,14 @@ class AnnotationClassOption(BaseModel):
     value: str
 
 
+class AnnotationClassificationLevel(BaseModel):
+    key: str
+    label: str
+    options: list[AnnotationClassOption] = Field(default_factory=list)
+    allowCustom: bool = False
+    placeholder: str | None = None
+
+
 class FrequencyBreakpoint(BaseModel):
     id: str
     wellId: str
@@ -38,6 +46,7 @@ class AnnotationBase(BaseModel):
 class SavedEventAnnotation(AnnotationBase):
     annotationKind: Literal["event"]
     eventType: str
+    classification: dict[str, str | None] = Field(default_factory=dict)
     confidenceEvent: Literal["low", "medium", "high"]
 
 
@@ -50,6 +59,7 @@ class MarkupState(BaseModel):
     annotations: list[SavedAnnotation] = Field(default_factory=list)
     episodeClasses: list[AnnotationClassOption] = Field(default_factory=list)
     actionClasses: list[AnnotationClassOption] = Field(default_factory=list)
+    classificationLevels: list[AnnotationClassificationLevel] = Field(default_factory=list)
     manualFrequencyBreakpoints: list[FrequencyBreakpoint] = Field(default_factory=list)
     suppressedFrequencyBreakpoints: list[FrequencyBreakpointSuppression] = Field(default_factory=list)
 

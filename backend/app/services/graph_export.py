@@ -74,6 +74,7 @@ EXPORT_COLUMNS = [
     "vsp_well_state_code",
     "episode_ids",
     "episode_types",
+    "episode_classifications",
     "episode_confidences",
     "episode_start_dates",
     "episode_end_dates",
@@ -455,6 +456,16 @@ def _fill_vsp(row: dict[str, object], items: list[object]) -> None:
 def _fill_annotations(row: dict[str, object], annotations: list[SavedAnnotation]) -> None:
     row["episode_ids"] = _join_field(annotations, "id")
     row["episode_types"] = _join_field(annotations, "eventType")
+    row["episode_classifications"] = _join_values(
+        [
+            "; ".join(
+                f"{key}={value}"
+                for key, value in annotation.classification.items()
+                if value is not None
+            )
+            for annotation in annotations
+        ]
+    )
     row["episode_confidences"] = _join_field(annotations, "confidenceEvent")
     row["episode_start_dates"] = _join_field(annotations, "startDate")
     row["episode_end_dates"] = _join_field(annotations, "endDate")

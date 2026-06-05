@@ -434,73 +434,46 @@
             </div>
 
             <div class="space-y-2">
-              <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Класс эпизода</label>
-              <n-select
-                v-model:value="episodeForm.episodeType"
-                size="medium"
-                :options="episodeTypeOptions"
-                clearable
-                filterable
-                placeholder="Выберите класс эпизода"
-                class="w-full"
-              />
-              <div class="flex gap-2">
-                <n-input
-                  v-model:value="newEpisodeClassName"
-                  size="medium"
-                  placeholder="Новый класс эпизода"
-                />
-                <n-button secondary size="medium" @click="addEpisodeClass">Добавить</n-button>
-              </div>
-            </div>
-
-            <div>
-              <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Уверенность эпизода</label>
-              <n-radio-group v-model:value="episodeForm.confidenceEvent" size="small">
-                <div class="flex flex-wrap gap-3">
-                  <n-radio
-                    v-for="option in confidenceOptions"
-                    :key="`event-${option.value}`"
-                    :value="option.value"
-                    :label="option.label"
-                  />
-                </div>
-              </n-radio-group>
-              <div class="mt-3 space-y-2">
-                <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Мероприятия эпизода</label>
-                <n-select
-                  v-model:value="episodeForm.eventActions"
-                  v-model:show="eventActionSelectOpen"
-                  size="medium"
-                  multiple
-                  clearable
-                  filterable
-                  :options="eventActionOptionsForDraft"
-                  placeholder="Выберите мероприятия эпизода"
-                  class="w-full"
-                  @update:value="handleEventActionsUpdated"
-                />
-                <div class="flex gap-2">
+              <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Разметка эпизода</label>
+              <div class="grid gap-2">
+                <div
+                  v-for="level in classificationLevels"
+                  :key="level.key"
+                  class="rounded-lg border border-slate-700 bg-slate-900/45 p-3"
+                >
+                  <label class="block text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                    {{ level.label }}
+                  </label>
                   <n-input
-                    v-model:value="newEventActionName"
+                    :value="episodeForm.classification[level.key] ?? ''"
+                    class="mt-2"
                     size="medium"
-                    placeholder="Новое мероприятие"
+                    clearable
+                    :placeholder="level.placeholder ?? 'Введите категорию'"
+                    @update:value="setClassificationValue(level.key, $event)"
+                    @blur="ensureClassificationOption(level.key)"
+                    @keydown.enter="ensureClassificationOption(level.key)"
                   />
-                  <n-button secondary size="medium" @click="addEventActionClass">Добавить</n-button>
+                  <div v-if="level.options.length" class="mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      v-for="option in level.options"
+                      :key="`${level.key}-${option.value}`"
+                      type="button"
+                      class="rounded-md border px-2 py-1 text-xs transition"
+                      :class="
+                        episodeForm.classification[level.key] === option.value
+                          ? 'border-sky-400 bg-sky-500/20 text-sky-100'
+                          : 'border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500 hover:bg-slate-800'
+                      "
+                      @click="setClassificationValue(level.key, option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
                 </div>
               </div>
+              <div class="text-xs text-slate-500">{{ draftEpisodeLabel }}</div>
               <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить эпизод</n-button>
-            </div>
-
-            <div>
-              <label class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Комментарий</label>
-              <n-input
-                v-model:value="episodeForm.comment"
-                type="textarea"
-                size="medium"
-                placeholder="Добавьте короткий комментарий"
-                :autosize="{ minRows: 4, maxRows: 6 }"
-              />
             </div>
 
             <div class="flex flex-col gap-2">
@@ -533,10 +506,7 @@
               >
                 <div class="text-xs font-medium text-slate-200">{{ episode.startDate }} -> {{ episode.endDate }}</div>
                 <div class="mt-1 text-xs text-slate-400">
-                  {{ `Эпизод: ${getEpisodeTypeLabel(episode.eventType)}` }}
-                </div>
-                <div v-if="episode.actions.length" class="mt-1 text-xs text-slate-500">
-                  {{ episode.actions.join(', ') }}
+                  {{ `Эпизод: ${getAnnotationClassificationLabel(episode)}` }}
                 </div>
               </button>
             </div>
@@ -706,6 +676,8 @@ import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services
 import { generateMockTimeseries } from '@/services/mockTimeseries'
 import type {
   AnnotationClassOption,
+  AnnotationClassification,
+  AnnotationClassificationLevel,
   AnnotationKind,
   ConfidenceLevel,
   EpisodeFormState,
@@ -800,9 +772,90 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'ТР: Кпр', value: 'tr_productivity' }
 ]
 
+const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
+  {
+    key: 'well_state',
+    label: 'Уровень 1. Работа / остановка',
+    options: [
+      { label: 'Работа', value: 'work' },
+      { label: 'Остановка', value: 'stop' }
+    ]
+  },
+  {
+    key: 'esp_mode',
+    label: 'Уровень 2. Режим работы ЭЦН',
+    allowCustom: true,
+    placeholder: 'Выберите или введите режим',
+    options: [
+      { label: 'Нормальная работа', value: 'normal_operation' },
+      { label: 'Нестабильная работа', value: 'unstable_operation' },
+      { label: 'После изменения частоты', value: 'after_frequency_change' }
+    ]
+  },
+  {
+    key: 'esp_degradation',
+    label: 'Уровень 3. Деградация ЭЦН',
+    allowCustom: true,
+    options: [
+      { label: 'Нет', value: 'none' },
+      { label: 'Есть', value: 'yes' }
+    ]
+  },
+  {
+    key: 'gdi',
+    label: 'Уровень 4. ГДИ',
+    allowCustom: true,
+    options: [
+      { label: 'Нет признака ГДИ', value: 'none' },
+      { label: 'ГДИ в интервале', value: 'in_interval' },
+      { label: 'После ГДИ', value: 'after_gdi' }
+    ]
+  },
+  {
+    key: 'nur',
+    label: 'Уровень 5. НУР',
+    options: [
+      { label: 'Нет', value: 'no' },
+      { label: 'Да', value: 'yes' }
+    ]
+  },
+  {
+    key: 'reservoir_pressure_trend',
+    label: 'Уровень 6. Рпл',
+    options: [
+      { label: 'Рост Рпл', value: 'growth' },
+      { label: 'Снижение Рпл', value: 'decline' },
+      { label: 'Без изменений', value: 'stable' }
+    ]
+  },
+  {
+    key: 'water_cut_trend',
+    label: 'Уровень 7. Обводненность',
+    options: [
+      { label: 'Рост обводненности', value: 'growth' },
+      { label: 'Снижение обводненности', value: 'decline' },
+      { label: 'Без изменений', value: 'stable' }
+    ]
+  },
+  {
+    key: 'productivity_trend',
+    label: 'Уровень 8. Кпрод',
+    options: [
+      { label: 'Рост Кпрод', value: 'growth' },
+      { label: 'Снижение Кпрод', value: 'decline' },
+      { label: 'Без изменений', value: 'stable' }
+    ]
+  }
+]
+
+function createDefaultClassification(levels: AnnotationClassificationLevel[] = DEFAULT_CLASSIFICATION_LEVELS): AnnotationClassification {
+  return Object.fromEntries(levels.map((level) => [level.key, null]))
+}
+
 function createDefaultEpisodeForm(): EpisodeFormState {
   return {
     episodeType: '',
+    classification: createDefaultClassification(),
     confidenceEvent: 'medium',
     eventActions: [],
     comment: ''
@@ -1036,6 +1089,83 @@ function getEpisodeTypeLabel(value: EpisodeType): string {
   return episodeTypeOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
+function getClassificationOptionLabel(level: AnnotationClassificationLevel, value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  return level.options.find((option) => option.value === value)?.label ?? value
+}
+
+function setClassificationValue(levelKey: string, value: string | null): void {
+  const normalizedValue = typeof value === 'string' && value.trim() ? value.trim() : null
+  episodeForm.value.classification = {
+    ...episodeForm.value.classification,
+    [levelKey]: normalizedValue
+  }
+}
+
+function ensureClassificationOption(levelKey: string): void {
+  const rawValue = episodeForm.value.classification[levelKey]
+  const value = typeof rawValue === 'string' ? rawValue.trim() : ''
+  if (!value) {
+    setClassificationValue(levelKey, null)
+    return
+  }
+
+  const levelIndex = classificationLevels.value.findIndex((level) => level.key === levelKey)
+  if (levelIndex < 0) {
+    return
+  }
+
+  const level = classificationLevels.value[levelIndex]
+  if (!level) {
+    return
+  }
+  const existingOption = level.options.find((option) =>
+    [option.value, option.label].some((candidate) => candidate.toLocaleLowerCase('ru') === value.toLocaleLowerCase('ru'))
+  )
+
+  if (existingOption) {
+    setClassificationValue(levelKey, existingOption.value)
+    return
+  }
+
+  const nextOption = { label: value, value }
+  const nextLevel: AnnotationClassificationLevel = {
+    ...level,
+    options: [...level.options, nextOption].sort((left, right) => left.label.localeCompare(right.label, 'ru'))
+  }
+  classificationLevels.value = classificationLevels.value.map((item, index) => (index === levelIndex ? nextLevel : item))
+  setClassificationValue(levelKey, nextOption.value)
+}
+
+function ensureDraftClassificationOptions(): void {
+  classificationLevels.value.forEach((level) => ensureClassificationOption(level.key))
+}
+
+function buildClassificationLabel(
+  classification: AnnotationClassification,
+  levels: AnnotationClassificationLevel[] = classificationLevels.value
+): string {
+  const parts = levels
+    .map((level) => {
+      const valueLabel = getClassificationOptionLabel(level, classification[level.key])
+      return valueLabel ? `${level.label}: ${valueLabel}` : null
+    })
+    .filter((value): value is string => Boolean(value))
+
+  return parts.length > 0 ? parts.join('; ') : 'Без классификации'
+}
+
+function buildDraftEpisodeLabel(): string {
+  return buildClassificationLabel(episodeForm.value.classification)
+}
+
+function getAnnotationClassificationLabel(annotation: SavedAnnotation): string {
+  return buildClassificationLabel(annotation.classification)
+}
+
 function getWellGroupLabel(value: WellGroupId | null | undefined): string {
   if (!value) {
     return 'Не назначена'
@@ -1187,6 +1317,7 @@ const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
 const episodeTypeOptions = ref<AnnotationClassOption[]>([])
 const actionOptions = ref<AnnotationClassOption[]>([])
+const classificationLevels = ref<AnnotationClassificationLevel[]>([...DEFAULT_CLASSIFICATION_LEVELS])
 const manualFrequencyBreakpoints = ref<FrequencyBreakpoint[]>([])
 const suppressedFrequencyBreakpoints = ref<FrequencyBreakpointSuppression[]>([])
 const editingAnnotationId = ref<string | null>(null)
@@ -1396,7 +1527,7 @@ function isInteractionMode(mode: InteractionMode): boolean {
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
 function getActionOptionsForDraft(): GroupedSelectOption[] {
-  const selectedCategory = episodeForm.value.episodeType.trim()
+  const selectedCategory = buildDraftEpisodeLabel()
   const usedActionValues = new Set<string>()
 
   if (selectedCategory) {
@@ -1451,6 +1582,7 @@ function getActionOptionsForDraft(): GroupedSelectOption[] {
   return groupedOptions
 }
 const eventActionOptionsForDraft = computed(() => getActionOptionsForDraft())
+const draftEpisodeLabel = computed(() => buildDraftEpisodeLabel())
 const currentManualFrequencyBreakpoints = computed(() =>
   manualFrequencyBreakpoints.value.filter((item) => item.wellId === selectedWell.value)
 )
@@ -1566,6 +1698,7 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
   }
   episodeForm.value = {
     episodeType: episode.eventType,
+    classification: { ...createDefaultClassification(classificationLevels.value), ...episode.classification },
     confidenceEvent: episode.confidenceEvent,
     eventActions: episode.actions ?? [],
     comment: episode.comment
@@ -1860,7 +1993,91 @@ function normalizeClassOptions(options: unknown): AnnotationClassOption[] {
     })
 }
 
-function normalizeSavedAnnotations(annotations: unknown): SavedAnnotation[] {
+function normalizeClassificationLevels(levels: unknown): AnnotationClassificationLevel[] {
+  if (!Array.isArray(levels)) {
+    return [...DEFAULT_CLASSIFICATION_LEVELS]
+  }
+
+  const seenKeys = new Set<string>()
+  const normalizedLevels = levels
+    .map((level): AnnotationClassificationLevel | null => {
+      const rawLevel = level as Partial<AnnotationClassificationLevel>
+      const key = String(rawLevel.key ?? '').trim()
+      const label = String(rawLevel.label ?? key).trim()
+      const options = normalizeClassOptions(rawLevel.options)
+
+      return key && label
+        ? {
+            key,
+            label,
+            options,
+            allowCustom: Boolean(rawLevel.allowCustom),
+            placeholder: typeof rawLevel.placeholder === 'string' ? rawLevel.placeholder : undefined
+          }
+        : null
+    })
+    .filter((level): level is AnnotationClassificationLevel => {
+      if (!level || seenKeys.has(level.key)) {
+        return false
+      }
+
+      seenKeys.add(level.key)
+      return true
+    })
+
+  DEFAULT_CLASSIFICATION_LEVELS.forEach((defaultLevel) => {
+    if (!seenKeys.has(defaultLevel.key)) {
+      normalizedLevels.push(defaultLevel)
+    }
+  })
+
+  return normalizedLevels.length > 0 ? normalizedLevels : [...DEFAULT_CLASSIFICATION_LEVELS]
+}
+
+function normalizeAnnotationClassification(
+  annotation: Record<string, unknown>,
+  levels: AnnotationClassificationLevel[],
+  rawEventType: string
+): AnnotationClassification {
+  const classification = createDefaultClassification(levels)
+  const rawClassification = annotation.classification
+
+  if (rawClassification && typeof rawClassification === 'object' && !Array.isArray(rawClassification)) {
+    Object.entries(rawClassification as Record<string, unknown>).forEach(([key, value]) => {
+      classification[key] = typeof value === 'string' && value.trim() ? value.trim() : null
+    })
+  }
+
+  const normalizedEventType = rawEventType.toLocaleLowerCase('ru')
+  if (!classification.well_state && typeof annotation.workState === 'string') {
+    classification.well_state = annotation.workState === 'stop' ? 'stop' : 'work'
+  }
+  if (!classification.well_state && normalizedEventType.includes('останов')) {
+    classification.well_state = 'stop'
+  }
+  if (!classification.nur && typeof annotation.hasNur === 'boolean') {
+    classification.nur = annotation.hasNur ? 'yes' : 'no'
+  }
+  if (!classification.nur && normalizedEventType.includes('нур')) {
+    classification.nur = 'yes'
+  }
+  if (!classification.reservoir_pressure_trend && typeof annotation.hasReservoirPressureDecline === 'boolean') {
+    classification.reservoir_pressure_trend = annotation.hasReservoirPressureDecline ? 'decline' : null
+  }
+  if (!classification.reservoir_pressure_trend && normalizedEventType.includes('снижение рпл')) {
+    classification.reservoir_pressure_trend = 'decline'
+  }
+  if (!classification.reservoir_pressure_trend && normalizedEventType.includes('рост рпл')) {
+    classification.reservoir_pressure_trend = 'growth'
+  }
+
+  return classification
+}
+
+function normalizeSavedAnnotations(
+  annotations: unknown,
+  levels: AnnotationClassificationLevel[] = classificationLevels.value
+): SavedAnnotation[] {
   if (!Array.isArray(annotations)) {
     return []
   }
@@ -1882,13 +2099,17 @@ function normalizeSavedAnnotations(annotations: unknown): SavedAnnotation[] {
       const interval = buildInterval(startDate, endDate)
       const confidenceEvent: ConfidenceLevel =
         annotation.confidenceEvent === 'low' || annotation.confidenceEvent === 'high' ? annotation.confidenceEvent : 'medium'
+      const rawEventType = String(annotation.eventType ?? '').trim()
+      const classification = normalizeAnnotationClassification(annotation, levels, rawEventType)
+      const eventType = rawEventType || buildClassificationLabel(classification, levels)
 
       return {
         id: String(annotation.id || createAnnotationId('event')),
         wellId: String(annotation.wellId ?? selectedWell.value),
         wellGroupId: typeof annotation.wellGroupId === 'string' ? annotation.wellGroupId : null,
         annotationKind: 'event',
-        eventType: String(annotation.eventType ?? '').trim(),
+        eventType,
+        classification,
         confidenceEvent,
         comment: String(annotation.comment ?? ''),
         actions: Array.isArray(annotation.actions)
@@ -1963,10 +2184,13 @@ function normalizeFrequencyBreakpointSuppressions(suppressions: unknown): Freque
 }
 
 function normalizeMarkupState(markup: Partial<MarkupState> | null | undefined): MarkupState {
+  const nextClassificationLevels = normalizeClassificationLevels(markup?.classificationLevels)
+
   return {
-    annotations: normalizeSavedAnnotations(markup?.annotations),
+    annotations: normalizeSavedAnnotations(markup?.annotations, nextClassificationLevels),
     episodeClasses: normalizeClassOptions(markup?.episodeClasses),
     actionClasses: normalizeClassOptions(markup?.actionClasses),
+    classificationLevels: nextClassificationLevels,
     manualFrequencyBreakpoints: normalizeFrequencyBreakpoints(markup?.manualFrequencyBreakpoints),
     suppressedFrequencyBreakpoints: normalizeFrequencyBreakpointSuppressions(markup?.suppressedFrequencyBreakpoints)
   }
@@ -1977,6 +2201,7 @@ function buildCurrentMarkupState(): MarkupState {
     annotations: savedAnnotations.value,
     episodeClasses: episodeTypeOptions.value,
     actionClasses: actionOptions.value,
+    classificationLevels: classificationLevels.value,
     manualFrequencyBreakpoints: manualFrequencyBreakpoints.value,
     suppressedFrequencyBreakpoints: suppressedFrequencyBreakpoints.value
   }
@@ -1986,6 +2211,7 @@ function applyMarkupState(markup: MarkupState): void {
   savedAnnotations.value = markup.annotations
   episodeTypeOptions.value = markup.episodeClasses
   actionOptions.value = markup.actionClasses
+  classificationLevels.value = markup.classificationLevels
   manualFrequencyBreakpoints.value = markup.manualFrequencyBreakpoints
   suppressedFrequencyBreakpoints.value = markup.suppressedFrequencyBreakpoints
 }
@@ -2170,13 +2396,9 @@ function addEventActionClass(): void {
 }
 
 function resolveDraftClass(): string | null {
-  const selectedValue = episodeForm.value.episodeType
-
-  if (selectedValue) {
-    return selectedValue
-  }
-
-  return addAnnotationClass()
+  const eventType = buildDraftEpisodeLabel()
+  episodeForm.value.episodeType = eventType
+  return eventType
 }
 
 function getAverageMetric(points: TimeSeriesPoint[], key: keyof AnalysisWindowMetrics): number | null {
@@ -2371,7 +2593,7 @@ async function downloadGraphDataExport(): Promise<void> {
 }
 
 function getAnnotationCategory(annotation: SavedAnnotation): string {
-  return annotation.eventType
+  return getAnnotationClassificationLabel(annotation)
 }
 
 function getAnnotationActions(annotation: SavedAnnotation): string[] {
@@ -2386,6 +2608,11 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
   const sortedLeft = [...left].sort()
   const sortedRight = [...right].sort()
   return sortedLeft.every((value, index) => value === sortedRight[index])
+}
+
+function areClassificationsEqual(left: AnnotationClassification, right: AnnotationClassification): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  return [...keys].every((key) => (left[key] ?? null) === (right[key] ?? null))
 }
 
 function annotationsOverlap(left: SelectedInterval, right: SelectedInterval): boolean {
@@ -2406,6 +2633,7 @@ function createSplitAnnotation(
     wellGroupId: annotation.wellGroupId,
     annotationKind: 'event',
     eventType: annotation.eventType,
+    classification: { ...annotation.classification },
     confidenceEvent: annotation.confidenceEvent,
     comment: annotation.comment,
     actions: annotation.actions ?? [],
@@ -2463,7 +2691,7 @@ function mergeAdjacentAnnotations(
     if (
       previous &&
       previous.annotationKind === annotation.annotationKind &&
-      getAnnotationCategory(previous) === getAnnotationCategory(annotation) &&
+      areClassificationsEqual(previous.classification, annotation.classification) &&
       areStringArraysEqual(getAnnotationActions(previous), getAnnotationActions(annotation)) &&
       toTimestamp(annotation.startDate) <= toTimestamp(previous.endDate) + 86400000
     ) {
@@ -2476,6 +2704,7 @@ function mergeAdjacentAnnotations(
         wellGroupId: preferredAnnotation.wellGroupId,
         annotationKind: 'event' as const,
         eventType: preferredAnnotation.eventType,
+        classification: { ...preferredAnnotation.classification },
         confidenceEvent: preferredAnnotation.confidenceEvent,
         comment: preferredAnnotation.comment,
         actions: getAnnotationActions(preferredAnnotation),
@@ -2521,7 +2750,8 @@ function draftHasUnsavedChanges(): boolean {
 
   return (
     intervalChanged ||
-    existingAnnotation.eventType !== episodeForm.value.episodeType ||
+    existingAnnotation.eventType !== buildDraftEpisodeLabel() ||
+    !areClassificationsEqual(existingAnnotation.classification, episodeForm.value.classification) ||
     existingAnnotation.confidenceEvent !== episodeForm.value.confidenceEvent ||
     !areStringArraysEqual(getAnnotationActions(existingAnnotation), episodeForm.value.eventActions) ||
     existingAnnotation.comment !== episodeForm.value.comment
@@ -3009,6 +3239,7 @@ async function saveEvent() {
     return
   }
 
+  ensureDraftClassificationOptions()
   const eventType = resolveDraftClass()
 
   if (!eventType) {
@@ -3033,6 +3264,7 @@ async function saveEvent() {
         wellId: selectedWell.value,
         wellGroupId: currentWellGroupId.value,
         eventType,
+        classification: { ...episodeForm.value.classification },
         confidenceEvent: episodeForm.value.confidenceEvent,
         comment: episodeForm.value.comment,
         actions: episodeForm.value.eventActions
@@ -3053,6 +3285,7 @@ async function saveEvent() {
     ...interval,
     annotationKind: 'event',
     eventType,
+    classification: { ...episodeForm.value.classification },
     confidenceEvent: episodeForm.value.confidenceEvent,
     comment: episodeForm.value.comment,
     actions: episodeForm.value.eventActions

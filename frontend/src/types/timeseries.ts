@@ -257,12 +257,28 @@ export interface FrequencySegment extends SelectedInterval {
 }
 
 export type EpisodeType = string
+export type AnnotationClassificationValue = string | null
+export type AnnotationClassification = Record<string, AnnotationClassificationValue>
+
+export interface AnnotationClassificationOption {
+  label: string
+  value: string
+}
+
+export interface AnnotationClassificationLevel {
+  key: string
+  label: string
+  options: AnnotationClassificationOption[]
+  allowCustom?: boolean
+  placeholder?: string
+}
 
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 export type WellGroupId = string
 
 export interface EpisodeFormState {
   episodeType: EpisodeType
+  classification: AnnotationClassification
   confidenceEvent: ConfidenceLevel
   eventActions: string[]
   comment: string
@@ -282,6 +298,7 @@ interface AnnotationBase extends SelectedInterval {
 export interface SavedEventAnnotation extends AnnotationBase {
   annotationKind: 'event'
   eventType: EpisodeType
+  classification: AnnotationClassification
   confidenceEvent: ConfidenceLevel
 }
 
@@ -291,6 +308,7 @@ export interface MarkupState {
   annotations: SavedAnnotation[]
   episodeClasses: AnnotationClassOption[]
   actionClasses: AnnotationClassOption[]
+  classificationLevels: AnnotationClassificationLevel[]
   manualFrequencyBreakpoints: FrequencyBreakpoint[]
   suppressedFrequencyBreakpoints: FrequencyBreakpointSuppression[]
 }
