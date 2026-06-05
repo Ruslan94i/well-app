@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.routes.aggregation import router as aggregation_router
 from app.api.routes.auto_episodes import router as auto_episodes_router
 from app.api.routes.artificial_lift import router as artificial_lift_router
 from app.api.routes.context import router as context_router
@@ -13,6 +14,7 @@ from app.api.routes.vsp import router as vsp_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, tags=["health"])
+api_router.include_router(aggregation_router, tags=["aggregation"])
 api_router.include_router(export_router, tags=["export"])
 api_router.include_router(timeseries_router, tags=["timeseries"])
 api_router.include_router(auto_episodes_router, tags=["auto-episodes"])

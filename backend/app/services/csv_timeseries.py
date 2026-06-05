@@ -14,7 +14,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 CSV_FILE_PATH = settings.csv_data_path
-TELEMETRY_10_FILE_PATH = settings.telemetry_10_data_path
+TELEMETRY_FILE_PATH = settings.telemetry_aggregated_data_path
 MEASUREMENTS_FILE_PATH = settings.measurements_data_path
 POWER_DAILY_FILE_PATH = settings.power_daily_data_path
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
@@ -58,7 +58,7 @@ NUMERIC_COLUMNS = [
     "gas_liquid_factor",
     "qliq_wfm",
 ]
-TELEMETRY_10_COLUMNS = [
+TELEMETRY_COLUMNS = [
     "buffer_pressure",
     "casing_pressure",
     "load",
@@ -230,12 +230,12 @@ def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
 
 
 def _load_timeseries_frame() -> pl.DataFrame:
-    if TELEMETRY_10_FILE_PATH.exists() and MEASUREMENTS_FILE_PATH.exists() and POWER_DAILY_FILE_PATH.exists():
-        telemetry_stat = TELEMETRY_10_FILE_PATH.stat()
+    if TELEMETRY_FILE_PATH.exists() and MEASUREMENTS_FILE_PATH.exists() and POWER_DAILY_FILE_PATH.exists():
+        telemetry_stat = TELEMETRY_FILE_PATH.stat()
         measurements_stat = MEASUREMENTS_FILE_PATH.stat()
         power_daily_stat = POWER_DAILY_FILE_PATH.stat()
         return _load_aggregated_timeseries_frame_cached(
-            str(TELEMETRY_10_FILE_PATH),
+            str(TELEMETRY_FILE_PATH),
             telemetry_stat.st_mtime_ns,
             telemetry_stat.st_size,
             str(MEASUREMENTS_FILE_PATH),
@@ -324,7 +324,7 @@ def _load_aggregated_timeseries_frame_cached(
         power_daily_size,
     )
     rows = [
-        *_load_aggregated_source_rows(telemetry_path, TELEMETRY_10_COLUMNS, "telemetry_10"),
+        *_load_aggregated_source_rows(telemetry_path, TELEMETRY_COLUMNS, "telemetry"),
         *_load_aggregated_source_rows(measurements_path, MEASUREMENT_COLUMNS, "measurements"),
         *_load_aggregated_source_rows(power_daily_path, POWER_DAILY_COLUMNS, "power_daily"),
     ]
@@ -417,6 +417,12 @@ def get_available_well_ids() -> list[str]:
     )
     logger.info("Returning %s unique well ids", len(well_ids))
     return well_ids
+
+
+def clear_timeseries_cache() -> None:
+    """Drop cached CSV frames after aggregated telemetry files are regenerated."""
+    _load_timeseries_frame_cached.cache_clear()
+    _load_aggregated_timeseries_frame_cached.cache_clear()
 
 
 def get_well_timeseries(
