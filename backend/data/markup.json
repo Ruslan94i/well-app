@@ -542465,6 +542465,31 @@
       "confidenceEvent": "high"
     },
     {
+      "id": "event-1780776275494-8g8hy8",
+      "wellId": "Ic_805",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-01-21T10:02:06",
+      "endDate": "2025-01-21T11:00:59",
+      "durationDays": 0.041,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 9. Кпрод: Снижение Кпрод",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_uvch": null,
+        "esp_rptch": null,
+        "esp_periodic": null,
+        "nur": null,
+        "reservoir_pressure_trend": null,
+        "water_cut_trend": null,
+        "productivity_trend": "Kprod_decline",
+        "esp_degradation": null
+      },
+      "confidenceEvent": "medium"
+    },
+    {
       "id": "auto-l1-state-ya_110-2025-01-21-094400-2025-01-21-222800-work",
       "wellId": "Ya_110",
       "wellGroupId": "field-ya",
@@ -546727,6 +546752,31 @@
         "esp_mode": null
       },
       "confidenceEvent": "high"
+    },
+    {
+      "id": "event-1780776255565-gmz7kc",
+      "wellId": "Ic_805",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-01-16T15:33:17",
+      "endDate": "2025-01-17T00:23:10",
+      "durationDays": 0.368,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 9. Кпрод: Снижение Кпрод",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_uvch": null,
+        "esp_rptch": null,
+        "esp_periodic": null,
+        "nur": null,
+        "reservoir_pressure_trend": null,
+        "water_cut_trend": null,
+        "productivity_trend": "Kprod_decline",
+        "esp_degradation": null
+      },
+      "confidenceEvent": "medium"
     },
     {
       "id": "auto-l1-state-az_476-2025-01-16-152800-2025-01-16-161300-stop",
