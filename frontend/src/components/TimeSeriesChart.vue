@@ -343,7 +343,7 @@ interface HoverGuideOverlay {
   metrics: HoverGuideMetric[]
 }
 
-type RangePresetKey = 'all' | 'telemetry' | '6m' | '3m' | '1m' | '7d' | '3d'
+type RangePresetKey = 'all' | 'telemetry' | '1y' | '6m' | '3m' | '1m' | '7d' | '3d'
 
 interface RangePreset {
   key: RangePresetKey
@@ -375,6 +375,7 @@ const ESP_LABEL_HEIGHT = 16
 const rangePresets: RangePreset[] = [
   { key: 'all', label: 'Все' },
   { key: 'telemetry', label: 'Телеметрия' },
+  { key: '1y', label: '1 год', days: 365 },
   { key: '6m', label: '6 мес', days: 183 },
   { key: '3m', label: '3 мес', days: 92 },
   { key: '1m', label: '1 мес', days: 31 },
@@ -566,14 +567,14 @@ function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null 
     'esp_mode:uvch': '#3b82f6',
     'esp_mode:rptch': '#a855f7',
     'esp_mode:periodic_operation': '#facc15',
-    'esp_degradation:yes': '#f97316',
-    'nur:yes': '#ec4899',
-    'reservoir_pressure_trend:growth': '#10b981',
-    'reservoir_pressure_trend:decline': '#f43f5e',
-    'water_cut_trend:growth': '#14b8a6',
-    'water_cut_trend:decline': '#fb7185',
-    'productivity_trend:growth': '#84cc16',
-    'productivity_trend:decline': '#f59e0b'
+    'esp_degradation:degr_yes': '#f97316',
+    'nur:nur_yes': '#ec4899',
+    'reservoir_pressure_trend:Pres_growth': '#10b981',
+    'reservoir_pressure_trend:Pres_decline': '#f43f5e',
+    'water_cut_trend:WCT_growth': '#14b8a6',
+    'water_cut_trend:WCT_decline': '#fb7185',
+    'productivity_trend:Kprod_growth': '#84cc16',
+    'productivity_trend:Kprod_decline': '#f59e0b'
   }
 
   for (const level of props.classificationLevels) {

@@ -819,38 +819,38 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     label: 'Уровень 4. Деградация ЭЦН',
     allowCustom: true,
     options: [
-      { label: 'Есть', value: 'yes' }
+      { label: 'Есть', value: 'degr_yes' }
     ]
   },
   {
     key: 'nur',
     label: 'Уровень 5. НУР',
     options: [
-      { label: 'Да', value: 'yes' }
+      { label: 'Да', value: 'nur_yes' }
     ]
   },
   {
     key: 'reservoir_pressure_trend',
     label: 'Уровень 6. Рпл',
     options: [
-      { label: 'Рост Рпл', value: 'growth' },
-      { label: 'Снижение Рпл', value: 'decline' }
+      { label: 'Рост Рпл', value: 'Pres_growth' },
+      { label: 'Снижение Рпл', value: 'Pres_decline' }
     ]
   },
   {
     key: 'water_cut_trend',
     label: 'Уровень 7. Обводненность',
     options: [
-      { label: 'Рост обводненности', value: 'growth' },
-      { label: 'Снижение обводненности', value: 'decline' }
+      { label: 'Рост обводненности', value: 'WCT_growth' },
+      { label: 'Снижение обводненности', value: 'WCT_decline' }
     ]
   },
   {
     key: 'productivity_trend',
     label: 'Уровень 8. Кпрод',
     options: [
-      { label: 'Рост Кпрод', value: 'growth' },
-      { label: 'Снижение Кпрод', value: 'decline' }
+      { label: 'Рост Кпрод', value: 'Kprod_growth' },
+      { label: 'Снижение Кпрод', value: 'Kprod_decline' }
     ]
   }
 ]
@@ -2019,6 +2019,18 @@ function normalizeClassOptions(options: unknown): AnnotationClassOption[] {
     })
 }
 
+function normalizeClassificationOptionValue(levelKey: string, value: string): string {
+  const legacyValues: Record<string, Record<string, string>> = {
+    esp_degradation: { yes: 'degr_yes' },
+    nur: { yes: 'nur_yes' },
+    reservoir_pressure_trend: { growth: 'Pres_growth', decline: 'Pres_decline' },
+    water_cut_trend: { growth: 'WCT_growth', decline: 'WCT_decline' },
+    productivity_trend: { growth: 'Kprod_growth', decline: 'Kprod_decline' }
+  }
+
+  return legacyValues[levelKey]?.[value] ?? value
+}
+
 function normalizeClassificationLevels(levels: unknown): AnnotationClassificationLevel[] {
   if (!Array.isArray(levels)) {
     return [...DEFAULT_CLASSIFICATION_LEVELS]
@@ -2030,7 +2042,20 @@ function normalizeClassificationLevels(levels: unknown): AnnotationClassificatio
       const rawLevel = level as Partial<AnnotationClassificationLevel>
       const key = String(rawLevel.key ?? '').trim()
       const label = String(rawLevel.label ?? key).trim()
+      const migratedOptionValues = new Set<string>()
       const options = normalizeClassOptions(rawLevel.options)
+        .map((option) => ({
+          ...option,
+          value: normalizeClassificationOptionValue(key, option.value)
+        }))
+        .filter((option) => {
+          const normalizedValue = option.value.toLocaleLowerCase('ru')
+          if (migratedOptionValues.has(normalizedValue)) {
+            return false
+          }
+          migratedOptionValues.add(normalizedValue)
+          return true
+        })
 
       return key && label
         ? {
@@ -2074,6 +2099,31 @@ function normalizeAnnotationClassification(
     })
   }
 
+  if (classification.esp_degradation === 'yes') {
+    classification.esp_degradation = 'degr_yes'
+  }
+  if (classification.nur === 'yes') {
+    classification.nur = 'nur_yes'
+  }
+  if (classification.reservoir_pressure_trend === 'growth') {
+    classification.reservoir_pressure_trend = 'Pres_growth'
+  }
+  if (classification.reservoir_pressure_trend === 'decline') {
+    classification.reservoir_pressure_trend = 'Pres_decline'
+  }
+  if (classification.water_cut_trend === 'growth') {
+    classification.water_cut_trend = 'WCT_growth'
+  }
+  if (classification.water_cut_trend === 'decline') {
+    classification.water_cut_trend = 'WCT_decline'
+  }
+  if (classification.productivity_trend === 'growth') {
+    classification.productivity_trend = 'Kprod_growth'
+  }
+  if (classification.productivity_trend === 'decline') {
+    classification.productivity_trend = 'Kprod_decline'
+  }
+
   const normalizedEventType = rawEventType.toLocaleLowerCase('ru')
   if (!classification.well_state && typeof annotation.workState === 'string') {
     classification.well_state = annotation.workState === 'stop' ? 'stop' : 'work'
@@ -2082,19 +2132,19 @@ function normalizeAnnotationClassification(
     classification.well_state = 'stop'
   }
   if (!classification.nur && typeof annotation.hasNur === 'boolean') {
-    classification.nur = annotation.hasNur ? 'yes' : 'no'
+    classification.nur = annotation.hasNur ? 'nur_yes' : null
   }
   if (!classification.nur && normalizedEventType.includes('нур')) {
-    classification.nur = 'yes'
+    classification.nur = 'nur_yes'
   }
   if (!classification.reservoir_pressure_trend && typeof annotation.hasReservoirPressureDecline === 'boolean') {
-    classification.reservoir_pressure_trend = annotation.hasReservoirPressureDecline ? 'decline' : null
+    classification.reservoir_pressure_trend = annotation.hasReservoirPressureDecline ? 'Pres_decline' : null
   }
   if (!classification.reservoir_pressure_trend && normalizedEventType.includes('снижение рпл')) {
-    classification.reservoir_pressure_trend = 'decline'
+    classification.reservoir_pressure_trend = 'Pres_decline'
   }
   if (!classification.reservoir_pressure_trend && normalizedEventType.includes('рост рпл')) {
-    classification.reservoir_pressure_trend = 'growth'
+    classification.reservoir_pressure_trend = 'Pres_growth'
   }
 
   return classification

@@ -47519,29 +47519,6 @@
       "confidenceEvent": "high"
     },
     {
-      "id": "event-1780763828362-vkj5vy",
-      "wellId": "Ic_367",
-      "wellGroupId": "field-ic",
-      "startDate": "2026-03-17T13:44:31",
-      "endDate": "2026-05-02T00:00:00",
-      "durationDays": 46.0,
-      "comment": "",
-      "actions": [],
-      "annotationKind": "event",
-      "eventType": "Уровень 3. Режим работы ЭЦН: РПТЧ",
-      "classification": {
-        "well_state": null,
-        "gdi": null,
-        "esp_mode": "rptch",
-        "esp_degradation": null,
-        "nur": null,
-        "reservoir_pressure_trend": null,
-        "water_cut_trend": null,
-        "productivity_trend": null
-      },
-      "confidenceEvent": "medium"
-    },
-    {
       "id": "auto-l1-state-ic_805-2026-03-17-132000-2026-03-17-141600-stop",
       "wellId": "Ic_805",
       "wellGroupId": "field-ic",
@@ -62582,29 +62559,6 @@
         "productivity_trend": null
       },
       "confidenceEvent": "high"
-    },
-    {
-      "id": "event-1780763792745-ele3v9",
-      "wellId": "Ic_367",
-      "wellGroupId": "field-ic",
-      "startDate": "2026-03-04T16:33:47",
-      "endDate": "2026-03-05T22:49:07",
-      "durationDays": 2.0,
-      "comment": "",
-      "actions": [],
-      "annotationKind": "event",
-      "eventType": "Уровень 3. Режим работы ЭЦН: РПТЧ",
-      "classification": {
-        "well_state": null,
-        "gdi": null,
-        "esp_mode": "rptch",
-        "esp_degradation": null,
-        "nur": null,
-        "reservoir_pressure_trend": null,
-        "water_cut_trend": null,
-        "productivity_trend": null
-      },
-      "confidenceEvent": "medium"
     },
     {
       "id": "auto-l1-state-ya_694-2026-03-04-152700-2026-03-04-180000-stop",
@@ -204586,6 +204540,52 @@
       "confidenceEvent": "high"
     },
     {
+      "id": "event-1780765593012-ytxdp2",
+      "wellId": "Ic_367",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-09-24T02:35:00",
+      "endDate": "2026-05-02T00:00:00",
+      "durationDays": 220.0,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 3. Режим работы ЭЦН: РПТЧ",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_mode": "rptch",
+        "esp_degradation": null,
+        "nur": null,
+        "reservoir_pressure_trend": null,
+        "water_cut_trend": null,
+        "productivity_trend": null
+      },
+      "confidenceEvent": "medium"
+    },
+    {
+      "id": "event-1780766002453-mvkvfk",
+      "wellId": "Ic_367",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-09-24T02:35:00",
+      "endDate": "2026-05-02T00:00:00",
+      "durationDays": 220.0,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 6. Рпл: Снижение Рпл",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_mode": null,
+        "esp_degradation": null,
+        "nur": null,
+        "reservoir_pressure_trend": "Pres_decline",
+        "water_cut_trend": null,
+        "productivity_trend": null
+      },
+      "confidenceEvent": "medium"
+    },
+    {
       "id": "auto-l1-state-az_338-2025-09-24-022500-2025-09-24-030300-stop",
       "wellId": "Az_338",
       "wellGroupId": "field-az",
@@ -305899,6 +305899,29 @@
         "productivity_trend": null
       },
       "confidenceEvent": "high"
+    },
+    {
+      "id": "event-1780765515897-6iso9i",
+      "wellId": "Ic_367",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-07-03T05:21:54",
+      "endDate": "2025-09-15T16:22:00",
+      "durationDays": 75.0,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 3. Режим работы ЭЦН: УВЧ",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_mode": "uvch",
+        "esp_degradation": null,
+        "nur": null,
+        "reservoir_pressure_trend": null,
+        "water_cut_trend": null,
+        "productivity_trend": null
+      },
+      "confidenceEvent": "medium"
     },
     {
       "id": "auto-l1-state-ya_694-2025-07-03-052000-2025-07-03-093200-work",
@@ -429756,6 +429779,52 @@
       "confidenceEvent": "high"
     },
     {
+      "id": "event-1780765653084-jh0qay",
+      "wellId": "Ic_367",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-03-13T22:49:00",
+      "endDate": "2025-03-30T22:32:05",
+      "durationDays": 17.0,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 5. НУР: Да",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_mode": null,
+        "esp_degradation": null,
+        "nur": "nur_yes",
+        "reservoir_pressure_trend": null,
+        "water_cut_trend": null,
+        "productivity_trend": null
+      },
+      "confidenceEvent": "medium"
+    },
+    {
+      "id": "event-1780765952558-v42pdy",
+      "wellId": "Ic_367",
+      "wellGroupId": "field-ic",
+      "startDate": "2025-03-13T22:49:00",
+      "endDate": "2025-09-15T16:22:00",
+      "durationDays": 186.0,
+      "comment": "",
+      "actions": [],
+      "annotationKind": "event",
+      "eventType": "Уровень 6. Рпл: Снижение Рпл",
+      "classification": {
+        "well_state": null,
+        "gdi": null,
+        "esp_mode": null,
+        "esp_degradation": null,
+        "nur": null,
+        "reservoir_pressure_trend": "Pres_decline",
+        "water_cut_trend": null,
+        "productivity_trend": null
+      },
+      "confidenceEvent": "medium"
+    },
+    {
       "id": "auto-l1-state-ya_110-2025-03-13-224000-2025-03-13-230500-stop",
       "wellId": "Ya_110",
       "wellGroupId": "field-ya",
@@ -495434,7 +495503,7 @@
       "options": [
         {
           "label": "Есть",
-          "value": "yes"
+          "value": "degr_yes"
         }
       ],
       "allowCustom": true,
@@ -495446,7 +495515,7 @@
       "options": [
         {
           "label": "Да",
-          "value": "yes"
+          "value": "nur_yes"
         }
       ],
       "allowCustom": false,
@@ -495458,11 +495527,11 @@
       "options": [
         {
           "label": "Рост Рпл",
-          "value": "growth"
+          "value": "Pres_growth"
         },
         {
           "label": "Снижение Рпл",
-          "value": "decline"
+          "value": "Pres_decline"
         }
       ],
       "allowCustom": false,
@@ -495474,11 +495543,11 @@
       "options": [
         {
           "label": "Рост обводненности",
-          "value": "growth"
+          "value": "WCT_growth"
         },
         {
           "label": "Снижение обводненности",
-          "value": "decline"
+          "value": "WCT_decline"
         }
       ],
       "allowCustom": false,
@@ -495490,11 +495559,11 @@
       "options": [
         {
           "label": "Рост Кпрод",
-          "value": "growth"
+          "value": "Kprod_growth"
         },
         {
           "label": "Снижение Кпрод",
-          "value": "decline"
+          "value": "Kprod_decline"
         }
       ],
       "allowCustom": false,
