@@ -21,6 +21,24 @@
       >
         {{ preset.label }}
       </button>
+      <button
+        type="button"
+        class="chart-range-button"
+        :class="{ 'is-active': zoomSelectionArmed }"
+        title="Выделите область графика для увеличения"
+        @click="armZoomSelection"
+      >
+        Выделение
+      </button>
+      <button
+        type="button"
+        class="chart-range-button"
+        :disabled="!zoomSelectionArmed && zoomHistory.length === 0"
+        title="Вернуться к предыдущему масштабу"
+        @click="undoZoom"
+      >
+        Отмена
+      </button>
     </div>
     <div class="pointer-events-none absolute inset-0 z-[12]">
       <div
@@ -378,14 +396,14 @@ const CHART_MARGIN_RIGHT = 195
 const CHART_MARGIN_TOP = 24
 const CHART_MARGIN_BOTTOM = 42
 const MS_PER_DAY = 86400000
-const MIN_VISIBLE_RANGE_MS = MS_PER_DAY * 2
+const MIN_VISIBLE_RANGE_MS = 15 * 60 * 1000
 const X_AXIS_ZOOM_FACTOR = 0.82
 const TIME_PAN_SLIDER_MAX = 1000
 const FREQUENCY_SEGMENT_HITBOX_HEIGHT = 28
 const FREQUENCY_SEGMENT_TRACK_Y = 0.18
 const ANNOTATION_LANE_BASE_Y = 1.55
 const ANNOTATION_HITBOX_HEIGHT = 30
-const ANNOTATION_BOUNDARY_SNAP_PX = 12
+const ANNOTATION_BOUNDARY_SNAP_PX = 6
 const ESP_TRACK_CENTER_Y = 0.5
 const ESP_TRACK_BAR_WIDTH = 0.64
 const ESP_LABEL_HEIGHT = 16
@@ -417,11 +435,18 @@ const clickSelectionStart = ref<string | null>(null)
 const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
+const zoomSelectionArmed = ref(false)
+const zoomHistory = ref<VisibleDateRange[]>([])
+const telemetryPointTimes = computed(() => props.data.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
+const trPointTimes = computed(() => props.trMonitoringData.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
 let suppressBackgroundClickUntil = 0
 let suppressDeselectUntil = 0
 let hoveredFrequencySegment: FrequencySegmentCustomdata | null = null
 let chartResizeObserver: ResizeObserver | null = null
 let annotationDragStart: { clientX: number; date: string } | null = null
+let zoomSelectionDragStart: { clientX: number; date: string } | null = null
+let hoverGuideAnimationFrame: number | null = null
+let pendingHoverEvent: MouseEvent | null = null
 
 function handleNativeChartClick(event: Event) {
   if (Date.now() < suppressBackgroundClickUntil) {
@@ -582,9 +607,9 @@ function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null 
     'well_state:work': '#22c55e',
     'well_state:stop': '#ef4444',
     'gdi:gdi': '#06b6d4',
-    'esp_mode:uvch': '#2563eb',
-    'esp_mode:rptch': '#a855f7',
-    'esp_mode:periodic_operation': '#facc15',
+    'esp_uvch:uvch': '#2563eb',
+    'esp_rptch:rptch': '#a855f7',
+    'esp_periodic:periodic_operation': '#facc15',
     'esp_degradation:degr_yes': '#94a3b8',
     'nur:nur_yes': '#ec4899',
     'reservoir_pressure_trend:Pres_growth': '#a3e635',
@@ -636,6 +661,23 @@ function getAnnotationCategoryLabel(annotation: SavedAnnotation): string {
 
 function getAnnotationLevelLabel(annotation: SavedAnnotation): string {
   return getAnnotationLevel(annotation)?.label ?? 'Разметка'
+}
+
+function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel): string {
+  const labels: Record<string, string> = {
+    well_state: '1. Работа',
+    gdi: '2. ГДИ',
+    esp_uvch: '3. УВЧ',
+    esp_rptch: '4. РПТЧ',
+    esp_periodic: '5. Период.',
+    nur: '6. НУР',
+    reservoir_pressure_trend: '7. Рпл',
+    water_cut_trend: '8. Вода',
+    productivity_trend: '9. Кпрод',
+    esp_degradation: '10. Дегр.'
+  }
+
+  return labels[level.key] ?? level.label.replace(/^Уровень\s+/i, '')
 }
 
 function getEventTypeLabel(label: string): string {
@@ -786,7 +828,7 @@ function getInclusiveDateAxisEnd(endDate: string): string {
 }
 
 function toTimestamp(value: string): number {
-  return new Date(value).getTime()
+  return parseIsoDateMs(value) ?? new Date(value).getTime()
 }
 
 function buildStableRange(values: Array<number | null>): [number, number] {
@@ -1247,7 +1289,7 @@ function buildSavedAnnotationTrace() {
       x: visibleAnnotations.map((item) => item.bar.durationMs),
       base: visibleAnnotations.map((item) => item.bar.base),
       y: visibleAnnotations.map((item) => getAnnotationLevelY(item.annotation)),
-      width: 0.28,
+      width: 0.58,
       marker: {
         color: visibleAnnotations.map((item) => getSavedAnnotationColor(item.annotation)),
         line: {
@@ -1256,9 +1298,9 @@ function buildSavedAnnotationTrace() {
               ? '#f8fafc'
               : getSavedAnnotationColor(item.annotation)
           ),
-          width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 2.5 : 1.1))
+          width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 3 : 1.5))
         },
-        opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.88))
+        opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
       },
       yaxis: 'y8',
       showlegend: false,
@@ -1546,7 +1588,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
-    { axis: 'y8' as const, label: 'Разметка', labelColor: '#94a3b8', heightUnits: 1.28, range: eventRange }
+    { axis: 'y8' as const, label: 'Разметка', labelColor: '#94a3b8', heightUnits: 1.72, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -1650,7 +1692,21 @@ function parseIsoDateMs(value: string | undefined): number | null {
     return null
   }
 
-  const timestamp = new Date(value).getTime()
+  const trimmedValue = value.trim()
+  const naiveIsoMatch = trimmedValue.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2})(?::(\d{2})(?::(\d{2})(?:\.\d+)?)?)?)?$/
+  )
+  const timestamp = naiveIsoMatch
+    ? Date.UTC(
+        Number(naiveIsoMatch[1]),
+        Number(naiveIsoMatch[2]) - 1,
+        Number(naiveIsoMatch[3]),
+        Number(naiveIsoMatch[4] ?? 0),
+        Number(naiveIsoMatch[5] ?? 0),
+        Number(naiveIsoMatch[6] ?? 0)
+      )
+    : new Date(trimmedValue).getTime()
+
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
@@ -1710,6 +1766,26 @@ function getCurrentDateRangeMs(): [number, number] | null {
   const endMs = parseIsoDateMs(visibleRange?.endDate)
 
   return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
+}
+
+function getXAxisTickFormat(range: VisibleDateRange | null | undefined): string {
+  const startMs = parseIsoDateMs(range?.startDate)
+  const endMs = parseIsoDateMs(range?.endDate)
+
+  if (startMs === null || endMs === null || endMs <= startMs) {
+    return '%Y-%m-%d'
+  }
+
+  const spanMs = endMs - startMs
+  if (spanMs <= MS_PER_DAY * 2) {
+    return '%H:%M\\n%d.%m'
+  }
+
+  if (spanMs <= MS_PER_DAY * 14) {
+    return '%d.%m %H:%M'
+  }
+
+  return '%Y-%m-%d'
 }
 
 function getVisibleIntervalBar(
@@ -2201,7 +2277,7 @@ function getXForDate(date: string): number | null {
   }
 
   const plotBounds = getPlotBounds()
-  const ratio = (dateMs - currentRange[0]) / Math.max(MS_PER_DAY, currentRange[1] - currentRange[0])
+  const ratio = (dateMs - currentRange[0]) / Math.max(1, currentRange[1] - currentRange[0])
 
   if (ratio < 0 || ratio > 1) {
     return null
@@ -2267,49 +2343,82 @@ function formatMarkerNumber(value: number | null | undefined, fractionDigits: nu
   return Number(value).toFixed(fractionDigits)
 }
 
+function findNearestTimeIndex(times: number[], targetMs: number): number {
+  if (times.length === 0) {
+    return -1
+  }
+
+  let left = 0
+  let right = times.length - 1
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2)
+    const midValue = times[mid] ?? Number.NaN
+    if (!Number.isFinite(midValue) || midValue < targetMs) {
+      left = mid + 1
+    } else {
+      right = mid
+    }
+  }
+
+  const previousIndex = Math.max(0, left - 1)
+  const nextDistance = Math.abs((times[left] ?? Number.POSITIVE_INFINITY) - targetMs)
+  const previousDistance = Math.abs((times[previousIndex] ?? Number.POSITIVE_INFINITY) - targetMs)
+
+  return previousDistance <= nextDistance ? previousIndex : left
+}
+
 function getNearestPointByDate(date: string): TimeSeriesPoint | null {
   const targetMs = parseIsoDateMs(date)
+  const index = targetMs === null ? -1 : findNearestTimeIndex(telemetryPointTimes.value, targetMs)
 
-  if (targetMs === null || props.data.length === 0) {
+  if (index < 0) {
     return null
   }
 
-  return props.data.reduce<TimeSeriesPoint | null>((nearestPoint, point) => {
-    if (!nearestPoint) {
-      return point
-    }
-
-    return Math.abs(parseIsoDateMs(point.date)! - targetMs) < Math.abs(parseIsoDateMs(nearestPoint.date)! - targetMs)
-      ? point
-      : nearestPoint
-  }, null)
+  return props.data[index] ?? null
 }
 
 function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): number | null {
   const targetMs = parseIsoDateMs(date)
+  const startIndex = targetMs === null ? -1 : findNearestTimeIndex(telemetryPointTimes.value, targetMs)
 
-  if (targetMs === null || props.data.length === 0) {
+  if (targetMs === null || startIndex < 0) {
     return null
   }
 
   let nearestValue: number | null = null
   let nearestDistance = Number.POSITIVE_INFINITY
 
-  for (const point of props.data) {
-    const value = point[key]
-    if (!Number.isFinite(value)) {
-      continue
+  for (let offset = 0; offset < props.data.length; offset += 1) {
+    const candidates = offset === 0 ? [startIndex] : [startIndex - offset, startIndex + offset]
+    let hasReachableCandidate = false
+
+    for (const index of candidates) {
+      if (index < 0 || index >= props.data.length) {
+        continue
+      }
+
+      const pointMs = telemetryPointTimes.value[index] ?? Number.NaN
+      if (!Number.isFinite(pointMs)) {
+        continue
+      }
+
+      const distance = Math.abs(pointMs - targetMs)
+      if (distance > nearestDistance) {
+        continue
+      }
+
+      hasReachableCandidate = true
+      const value = props.data[index]?.[key]
+      if (Number.isFinite(value)) {
+        nearestDistance = distance
+        nearestValue = Number(value)
+      }
     }
 
-    const pointMs = parseIsoDateMs(point.date)
-    if (pointMs === null) {
-      continue
-    }
-
-    const distance = Math.abs(pointMs - targetMs)
-    if (distance < nearestDistance) {
-      nearestDistance = distance
-      nearestValue = Number(value)
+    if (nearestValue !== null && !hasReachableCandidate) {
+      break
     }
   }
 
@@ -2323,21 +2432,24 @@ function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
     return null
   }
 
-  let latestPoint: TrMonitoringPoint | null = null
-  for (const point of props.trMonitoringData) {
-    const pointMs = parseIsoDateMs(point.date)
-    if (pointMs === null) {
-      continue
-    }
+  const times = trPointTimes.value
+  let left = 0
+  let right = times.length - 1
+  let latestIndex = -1
 
-    if (pointMs > targetMs) {
-      break
-    }
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2)
+    const value = times[mid] ?? Number.NaN
 
-    latestPoint = point
+    if (Number.isFinite(value) && value <= targetMs) {
+      latestIndex = mid
+      left = mid + 1
+    } else {
+      right = mid - 1
+    }
   }
 
-  return latestPoint ?? props.trMonitoringData[0] ?? null
+  return props.trMonitoringData[latestIndex] ?? props.trMonitoringData[0] ?? null
 }
 
 function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
@@ -2399,6 +2511,22 @@ const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
 })
 
 function handleChartPointerMove(event: MouseEvent) {
+  pendingHoverEvent = event
+  if (hoverGuideAnimationFrame !== null) {
+    return
+  }
+
+  hoverGuideAnimationFrame = window.requestAnimationFrame(() => {
+    hoverGuideAnimationFrame = null
+    const nextEvent = pendingHoverEvent
+    pendingHoverEvent = null
+    if (nextEvent) {
+      updateHoverGuide(nextEvent)
+    }
+  })
+}
+
+function updateHoverGuide(event: MouseEvent) {
   const target = event.target as HTMLElement | null
 
   if (target?.closest('.modebar')) {
@@ -2419,12 +2547,30 @@ function shouldIgnoreAnnotationDragTarget(target: HTMLElement | null): boolean {
 }
 
 function handleAnnotationDragStart(event: MouseEvent) {
-  if (props.interactionMode !== 'annotate' || event.button !== 0) {
+  if (event.button !== 0) {
     return
   }
 
   const target = event.target as HTMLElement | null
   if (shouldIgnoreAnnotationDragTarget(target)) {
+    return
+  }
+
+  if (zoomSelectionArmed.value) {
+    const date = getPointerDateFromEvent(event)
+    if (!date) {
+      return
+    }
+
+    zoomSelectionDragStart = {
+      clientX: event.clientX,
+      date
+    }
+    window.addEventListener('mouseup', handleZoomSelectionDragEnd, { once: true })
+    return
+  }
+
+  if (props.interactionMode !== 'annotate') {
     return
   }
 
@@ -2438,6 +2584,33 @@ function handleAnnotationDragStart(event: MouseEvent) {
     date
   }
   window.addEventListener('mouseup', handleAnnotationDragEnd, { once: true })
+}
+
+function handleZoomSelectionDragEnd(event: MouseEvent) {
+  if (!zoomSelectionDragStart) {
+    return
+  }
+
+  const dragStart = zoomSelectionDragStart
+  zoomSelectionDragStart = null
+  const endDate = getPointerDateFromEvent(event, { clamp: true })
+  const movedEnough = Math.abs(event.clientX - dragStart.clientX) >= 6
+
+  if (!endDate || !movedEnough) {
+    return
+  }
+
+  const startMs = parseIsoDateMs(dragStart.date)
+  const endMs = parseIsoDateMs(endDate)
+  const fullRange = getFullDateRangeMs()
+
+  if (startMs === null || endMs === null || !fullRange) {
+    return
+  }
+
+  pushZoomHistory()
+  zoomSelectionArmed.value = false
+  setVisibleDateRange(clampDateRangeMs(startMs, endMs, fullRange))
 }
 
 function handleAnnotationDragEnd(event: MouseEvent) {
@@ -2461,6 +2634,11 @@ function handleAnnotationDragEnd(event: MouseEvent) {
 }
 
 function clearHoverGuide() {
+  pendingHoverEvent = null
+  if (hoverGuideAnimationFrame !== null) {
+    window.cancelAnimationFrame(hoverGuideAnimationFrame)
+    hoverGuideAnimationFrame = null
+  }
   hoverGuideDate.value = null
   hoverGuideX.value = null
   clearFrequencySegmentHover()
@@ -2512,11 +2690,58 @@ function setVisibleDateRange(range: [number, number]) {
   emit('visible-range-changed', nextRange)
 }
 
+function getCurrentVisibleDateRange(): VisibleDateRange | null {
+  const range = getCurrentDateRangeMs()
+  return range ? { startDate: formatIsoDateTimeMs(range[0]), endDate: formatIsoDateTimeMs(range[1]) } : null
+}
+
+function pushZoomHistory(): void {
+  const currentRange = getCurrentVisibleDateRange()
+  if (!currentRange) {
+    return
+  }
+
+  const previousRange = zoomHistory.value[zoomHistory.value.length - 1]
+  if (previousRange?.startDate === currentRange.startDate && previousRange?.endDate === currentRange.endDate) {
+    return
+  }
+
+  zoomHistory.value = [...zoomHistory.value.slice(-9), currentRange]
+}
+
+function armZoomSelection(): void {
+  zoomSelectionArmed.value = true
+  clickSelectionStart.value = null
+  emit('interval-selected', null)
+}
+
+function undoZoom(): void {
+  if (zoomSelectionArmed.value) {
+    zoomSelectionArmed.value = false
+    return
+  }
+
+  const previousRange = zoomHistory.value[zoomHistory.value.length - 1]
+  if (!previousRange) {
+    return
+  }
+
+  zoomHistory.value = zoomHistory.value.slice(0, -1)
+  const startMs = parseIsoDateMs(previousRange.startDate)
+  const endMs = parseIsoDateMs(previousRange.endDate)
+  if (startMs !== null && endMs !== null && endMs > startMs) {
+    setVisibleDateRange([startMs, endMs])
+  }
+}
+
 function applyRangePreset(preset: RangePreset) {
   const fullRange = getFullDateRangeMs()
   if (!fullRange) {
     return
   }
+
+  pushZoomHistory()
+  zoomSelectionArmed.value = false
 
   if (preset.key === 'all') {
     setVisibleDateRange(fullRange)
@@ -2581,6 +2806,7 @@ function handleChartWheel(event: WheelEvent) {
   const nextStartMs = anchorMs - nextSpan * pointerRatio
   const nextEndMs = anchorMs + nextSpan * (1 - pointerRatio)
 
+  zoomSelectionArmed.value = false
   setVisibleDateRange(clampDateRangeMs(nextStartMs, nextEndMs, fullRange))
 }
 
@@ -2679,6 +2905,7 @@ function shiftTimeWindow(direction: -1 | 1) {
   const currentSpan = currentRange[1] - currentRange[0]
   const shiftMs = currentSpan / 4
   const nextStartMs = currentRange[0] + shiftMs * direction
+  zoomSelectionArmed.value = false
   setVisibleDateRange(clampDateRangeMs(nextStartMs, nextStartMs + currentSpan, fullRange))
 }
 
@@ -2714,26 +2941,28 @@ function clearFrequencySegmentHover() {
 }
 
 function getPointerIsoDate(event: MouseEvent, segment: FrequencySegment): string | null {
-  const currentRange = getCurrentDateRangeMs()
+  const currentRange = getActiveXAxisRangeMs()
 
   if (!chartEl.value || !currentRange) {
     return null
   }
 
-  const rect = chartEl.value.getBoundingClientRect()
-  const plotLeft = rect.left + CHART_MARGIN_LEFT
-  const plotRight = rect.right - CHART_MARGIN_RIGHT
-  const plotWidth = Math.max(1, plotRight - plotLeft)
-  const pointerRatio = Math.min(1, Math.max(0, (event.clientX - plotLeft) / plotWidth))
+  const plotBounds = getPlotBounds()
+  const localX = getPointerXFromEvent(event, { clamp: true })
+  if (localX === null) {
+    return null
+  }
+
+  const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
   const rawDateMs = currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio
   const segmentStartMs = parseIsoDateMs(segment.startDate)
   const segmentEndMs = parseIsoDateMs(segment.endDate)
 
   if (segmentStartMs === null || segmentEndMs === null) {
-    return formatIsoDateMs(rawDateMs)
+    return formatIsoDateTimeMs(rawDateMs)
   }
 
-  return formatIsoDateMs(Math.min(segmentEndMs, Math.max(segmentStartMs, rawDateMs)))
+  return formatIsoDateTimeMs(Math.min(segmentEndMs, Math.max(segmentStartMs, rawDateMs)))
 }
 
 function getFrequencySegmentPayload(segment: FrequencySegment): FrequencySegmentClickPayload {
@@ -3009,7 +3238,7 @@ function renderChart() {
       title: 'Дата',
       type: 'date',
       range: visibleRangeForLayout ? [visibleRangeForLayout.startDate, visibleRangeForLayout.endDate] : undefined,
-      tickformat: '%Y-%m-%d',
+      tickformat: getXAxisTickFormat(visibleRangeForLayout),
       showgrid: true,
       titlefont: { color: '#cbd5e1', size: 11 },
       tickfont: { color: '#cbd5e1', size: 10 },
@@ -3218,8 +3447,8 @@ function renderChart() {
         showgrid: false,
         tickmode: 'array',
         tickvals: props.classificationLevels.map((_, index) => Math.max(1, props.classificationLevels.length) - index - 0.5),
-        ticktext: props.classificationLevels.map((level) => level.label.replace(/^Уровень\s+/i, '')),
-        tickfont: { color: '#94a3b8', size: 9 },
+        ticktext: props.classificationLevels.map((level) => getCompactClassificationLevelLabel(level)),
+        tickfont: { color: '#cbd5e1', size: 10 },
         showticklabels: true,
         zeroline: false
       }
@@ -3463,9 +3692,14 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (hoverGuideAnimationFrame !== null) {
+    window.cancelAnimationFrame(hoverGuideAnimationFrame)
+    hoverGuideAnimationFrame = null
+  }
   chartResizeObserver?.disconnect()
   chartResizeObserver = null
   window.removeEventListener('mouseup', handleAnnotationDragEnd)
+  window.removeEventListener('mouseup', handleZoomSelectionDragEnd)
   chartEl.value?.removeEventListener('click', handleNativeChartClick)
   chartEl.value?.removeEventListener('dblclick', handleNativeChartDoubleClick)
   if (chartEl.value) {
@@ -3602,6 +3836,23 @@ onBeforeUnmount(() => {
   border-color: rgba(125, 211, 252, 0.76);
   background: rgba(14, 165, 233, 0.18);
   color: #f8fafc;
+}
+
+.chart-range-button.is-active {
+  border-color: rgba(56, 189, 248, 0.95);
+  background: rgba(14, 165, 233, 0.28);
+  color: #f8fafc;
+}
+
+.chart-range-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.chart-range-button:disabled:hover {
+  border-color: rgba(100, 116, 139, 0.68);
+  background: rgba(30, 41, 59, 0.9);
+  color: #cbd5e1;
 }
 
 .track-hover-hitbox {

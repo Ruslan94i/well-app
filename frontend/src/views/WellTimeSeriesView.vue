@@ -442,31 +442,21 @@
 
             <div class="space-y-2">
               <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Разметка эпизода</label>
-              <div class="grid gap-2">
+              <div class="grid gap-1.5">
                 <div
                   v-for="level in classificationLevels"
                   :key="level.key"
-                  class="rounded-lg border border-slate-700 bg-slate-900/45 p-3"
+                  class="rounded-md border border-slate-700 bg-slate-900/45 p-2"
                 >
-                  <label class="block text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                  <label class="block text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">
                     {{ level.label }}
                   </label>
-                  <n-input
-                    :value="episodeForm.classification[level.key] ?? ''"
-                    class="mt-2"
-                    size="medium"
-                    clearable
-                    :placeholder="level.placeholder ?? 'Введите категорию'"
-                    @update:value="setClassificationValue(level.key, $event)"
-                    @blur="ensureClassificationOption(level.key)"
-                    @keydown.enter="ensureClassificationOption(level.key)"
-                  />
-                  <div v-if="level.options.length" class="mt-2 flex flex-wrap gap-1.5">
+                  <div v-if="level.options.length" class="mt-1.5 flex flex-wrap gap-1">
                     <button
                       v-for="option in level.options"
                       :key="`${level.key}-${option.value}`"
                       type="button"
-                      class="rounded-md border px-2 py-1 text-xs transition"
+                      class="rounded-md border px-1.5 py-0.5 text-[11px] transition"
                       :class="
                         episodeForm.classification[level.key] === option.value
                           ? 'border-sky-400 bg-sky-500/20 text-sky-100'
@@ -477,24 +467,24 @@
                       {{ option.label }}
                     </button>
                   </div>
-                  <div class="mt-3 grid grid-cols-2 gap-2">
+                  <div class="mt-2 grid grid-cols-2 gap-1.5">
                     <n-button
-                      size="small"
+                      size="tiny"
                       type="primary"
                       secondary
                       :disabled="!episodeForm.classification[level.key]"
                       @click="saveClassificationLevel(level.key)"
                     >
-                      Сохранить уровень
+                      Сохранить
                     </n-button>
                     <n-button
-                      size="small"
+                      size="tiny"
                       type="error"
                       secondary
                       :disabled="!canDeleteClassificationLevel(level.key)"
                       @click="deleteClassificationLevel(level.key)"
                     >
-                      Удалить уровень
+                      Удалить
                     </n-button>
                   </div>
                 </div>
@@ -748,7 +738,7 @@ const MARKUP_STORAGE_KEYS = {
   suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1'
 }
 const UI_STATE_STORAGE_KEY = 'wellInsight.uiState.v1'
-const ANNOTATION_SNAP_THRESHOLD_MS = 86400000 / 2
+const ANNOTATION_SNAP_THRESHOLD_MS = 30 * 60 * 1000
 
 const defaultWellOptions: { label: string; value: string }[] = []
 const wellOptions = ref(defaultWellOptions)
@@ -814,26 +804,42 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     ]
   },
   {
-    key: 'esp_mode',
-    label: 'Уровень 3. Режим работы ЭЦН',
+    key: 'esp_uvch',
+    label: 'Уровень 3. УВЧ',
     allowCustom: true,
-    placeholder: 'Выберите или введите режим',
+    placeholder: 'Введите категорию',
     options: [
-      { label: 'УВЧ', value: 'uvch' },
-      { label: 'РПТЧ', value: 'rptch' },
+      { label: 'УВЧ', value: 'uvch' }
+    ]
+  },
+  {
+    key: 'esp_rptch',
+    label: 'Уровень 4. РПТЧ',
+    allowCustom: true,
+    placeholder: 'Введите категорию',
+    options: [
+      { label: 'РПТЧ', value: 'rptch' }
+    ]
+  },
+  {
+    key: 'esp_periodic',
+    label: 'Уровень 5. Периодическая работа',
+    allowCustom: true,
+    placeholder: 'Введите категорию',
+    options: [
       { label: 'Периодическая работа', value: 'periodic_operation' }
     ]
   },
   {
     key: 'nur',
-    label: 'Уровень 4. НУР',
+    label: 'Уровень 6. НУР',
     options: [
-      { label: 'Да', value: 'nur_yes' }
+      { label: 'НУР', value: 'nur_yes' }
     ]
   },
   {
     key: 'reservoir_pressure_trend',
-    label: 'Уровень 5. Рпл',
+    label: 'Уровень 7. Рпл',
     options: [
       { label: 'Рост Рпл', value: 'Pres_growth' },
       { label: 'Снижение Рпл', value: 'Pres_decline' }
@@ -841,7 +847,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'water_cut_trend',
-    label: 'Уровень 6. Обводненность',
+    label: 'Уровень 8. Обводненность',
     options: [
       { label: 'Рост обводненности', value: 'WCT_growth' },
       { label: 'Снижение обводненности', value: 'WCT_decline' }
@@ -849,7 +855,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'productivity_trend',
-    label: 'Уровень 7. Кпрод',
+    label: 'Уровень 9. Кпрод',
     options: [
       { label: 'Рост Кпрод', value: 'Kprod_growth' },
       { label: 'Снижение Кпрод', value: 'Kprod_decline' }
@@ -857,10 +863,10 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'esp_degradation',
-    label: 'Уровень 8. Деградация ЭЦН',
+    label: 'Уровень 10. Деградация ЭЦН',
     allowCustom: true,
     options: [
-      { label: 'Есть', value: 'degr_yes' }
+      { label: 'Деградация ЭЦН', value: 'degr_yes' }
     ]
   }
 ]
@@ -1796,11 +1802,12 @@ function shiftIsoDate(value: string, dayDelta: number): string {
 function buildInterval(startDate: string, endDate: string): SelectedInterval {
   const normalizedStart = startDate <= endDate ? startDate : endDate
   const normalizedEnd = startDate <= endDate ? endDate : startDate
+  const durationMs = Math.max(0, toTimestamp(normalizedEnd) - toTimestamp(normalizedStart))
 
   return {
     startDate: normalizedStart,
     endDate: normalizedEnd,
-    durationDays: Math.max(1, Math.floor((toTimestamp(normalizedEnd) - toTimestamp(normalizedStart)) / 86400000) + 1)
+    durationDays: Number(Math.max(durationMs / 86400000, 1 / 1440).toFixed(3))
   }
 }
 
@@ -2112,8 +2119,9 @@ function normalizeClassificationLevels(levels: unknown): AnnotationClassificatio
   })
 
   const defaultKeys = new Set(DEFAULT_CLASSIFICATION_LEVELS.map((level) => level.key))
+  const deprecatedKeys = new Set(['esp_mode'])
   normalizedLevels.forEach((level) => {
-    if (!defaultKeys.has(level.key)) {
+    if (!defaultKeys.has(level.key) && !deprecatedKeys.has(level.key)) {
       orderedLevels.push(level)
     }
   })
@@ -2138,6 +2146,16 @@ function normalizeAnnotationClassification(
   if (classification.esp_degradation === 'yes') {
     classification.esp_degradation = 'degr_yes'
   }
+  if (classification.esp_mode === 'uvch' && !classification.esp_uvch) {
+    classification.esp_uvch = 'uvch'
+  }
+  if (classification.esp_mode === 'rptch' && !classification.esp_rptch) {
+    classification.esp_rptch = 'rptch'
+  }
+  if (classification.esp_mode === 'periodic_operation' && !classification.esp_periodic) {
+    classification.esp_periodic = 'periodic_operation'
+  }
+  classification.esp_mode = null
   if (classification.nur === 'yes') {
     classification.nur = 'nur_yes'
   }
