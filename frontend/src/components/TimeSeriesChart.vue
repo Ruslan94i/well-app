@@ -194,6 +194,17 @@ const emit = defineEmits<{
 
 type PlotlyElement = HTMLDivElement & {
   on?: (eventName: string, handler: (eventData: Record<string, unknown>) => void) => void
+  _fullLayout?: PlotlyFullLayout
+}
+
+interface PlotlyAxisLayout {
+  _offset?: number
+  _length?: number
+  range?: [string | number | Date, string | number | Date]
+}
+
+interface PlotlyFullLayout {
+  xaxis?: PlotlyAxisLayout
 }
 
 interface PlotlySelectedPoint {
@@ -338,6 +349,7 @@ const chartEl = ref<HTMLDivElement | null>(null)
 const handlersAttached = ref(false)
 const hoveredFrequencySegmentId = ref<string | null>(null)
 const hoverGuideDate = ref<string | null>(null)
+const hoverGuideX = ref<number | null>(null)
 const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
@@ -380,6 +392,7 @@ const seriesConfig: Record<
     barWidthDays?: number
     barOffsetDays?: number
     markerLineColor?: string
+    markerSize?: number
     opacity?: number
   }
 > = {
@@ -395,11 +408,11 @@ const seriesConfig: Record<
   },
   buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
   casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
-  load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 1.4 },
+  load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 0.85, markerSize: 2 },
   water_cut: { label: 'Обводненность', color: '#7dd3fc', axis: 'y2', width: 2.2 },
   intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
-  esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 1.4 },
-  active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 1.3 },
+  esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 0.85, markerSize: 2 },
+  active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 0.85, markerSize: 2 },
   bdpv_volume_rate: {
     label: 'БДПВ Объем в пересчете на сутки',
     color: '#38bdf8',
@@ -421,7 +434,7 @@ const seriesConfig: Record<
     opacity: 0.86
   },
   collector_pressure: { label: 'Давление в коллекторе', color: '#facc15', axis: 'y3', width: 1.35 },
-  full_power: { label: 'Полная мощность', color: '#14b8a6', axis: 'y14', width: 1.3 },
+  full_power: { label: 'Полная мощность', color: '#14b8a6', axis: 'y14', width: 0.85, markerSize: 2 },
   qgas: { label: 'Расход газа на сутки', color: '#fdba74', axis: 'y12', width: 2.1 },
   qoil: {
     label: 'Расход нефти',
@@ -561,6 +574,38 @@ function normalizePlotlyDateValue(value: string | number | Date | undefined): st
   const numericValue = Number(trimmedValue)
   const date = new Date(Number.isFinite(numericValue) ? numericValue : trimmedValue)
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10)
+}
+
+function normalizePlotlyDateTimeValue(value: string | number | Date | undefined): string | null {
+  if (value === undefined) {
+    return null
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 19)
+  }
+
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 19)
+  }
+
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return null
+  }
+
+  const normalizedValue = trimmedValue.includes('T') ? trimmedValue : trimmedValue.replace(' ', 'T')
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalizedValue)) {
+    return normalizedValue.slice(0, 19)
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return normalizedValue
+  }
+
+  const date = new Date(normalizedValue)
+  return Number.isNaN(date.getTime()) ? trimmedValue : date.toISOString().slice(0, 19)
 }
 
 function getSelectedDatesFromPlotlyEvent(eventData: Record<string, unknown>): string[] {
@@ -860,7 +905,7 @@ function buildMainTraces() {
       },
       marker: {
         color: config.color,
-        size: 4,
+        size: config.markerSize ?? 4,
         line: {
           color: '#0f172a',
           width: 0.6
@@ -1553,15 +1598,18 @@ function getVisibleIntervalBar(
 }
 
 function getPlotBounds() {
+  const xAxisBounds = getPlotlyXAxisBounds()
   const plotWidth = Math.max(1, chartSize.value.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
   const plotHeight = Math.max(1, chartSize.value.height - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM)
+  const left = xAxisBounds?.left ?? CHART_MARGIN_LEFT
+  const width = xAxisBounds?.width ?? plotWidth
 
   return {
-    left: CHART_MARGIN_LEFT,
-    right: CHART_MARGIN_LEFT + plotWidth,
+    left,
+    right: left + width,
     top: CHART_MARGIN_TOP,
     bottom: CHART_MARGIN_TOP + plotHeight,
-    width: plotWidth,
+    width,
     height: plotHeight
   }
 }
@@ -1929,9 +1977,24 @@ function clearTrackHoverTooltip() {
 }
 
 function getPointerDateFromEvent(event: MouseEvent, options?: { clamp?: boolean }): string | null {
-  const currentRange = getCurrentDateRangeMs()
+  const currentRange = getActiveXAxisRangeMs()
 
   if (!chartEl.value || !currentRange) {
+    return null
+  }
+
+  const plotBounds = getPlotBounds()
+  const localX = getPointerXFromEvent(event, options)
+  if (localX === null) {
+    return null
+  }
+
+  const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
+  return formatIsoDateTimeMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
+}
+
+function getPointerXFromEvent(event: MouseEvent, options?: { clamp?: boolean }): number | null {
+  if (!chartEl.value) {
     return null
   }
 
@@ -1943,12 +2006,11 @@ function getPointerDateFromEvent(event: MouseEvent, options?: { clamp?: boolean 
     return null
   }
 
-  const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
-  return formatIsoDateTimeMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
+  return Math.min(plotBounds.right, Math.max(plotBounds.left, localX))
 }
 
 function getXForDate(date: string): number | null {
-  const currentRange = getCurrentDateRangeMs()
+  const currentRange = getActiveXAxisRangeMs()
   const dateMs = parseIsoDateMs(date)
 
   if (!currentRange || dateMs === null) {
@@ -1963,6 +2025,47 @@ function getXForDate(date: string): number | null {
   }
 
   return plotBounds.left + ratio * plotBounds.width
+}
+
+function getPlotlyXAxisLayout(): PlotlyAxisLayout | null {
+  return (chartEl.value as PlotlyElement | null)?._fullLayout?.xaxis ?? null
+}
+
+function getPlotlyXAxisBounds(): { left: number; right: number; width: number } | null {
+  const axis = getPlotlyXAxisLayout()
+  const left = axis?._offset
+  const width = axis?._length
+
+  if (!Number.isFinite(left) || !Number.isFinite(width) || Number(width) <= 0) {
+    return null
+  }
+
+  return {
+    left: Number(left),
+    right: Number(left) + Number(width),
+    width: Number(width)
+  }
+}
+
+function getPlotlyXAxisRangeMs(): [number, number] | null {
+  const range = getPlotlyXAxisLayout()?.range
+
+  if (!range) {
+    return null
+  }
+
+  const startMs = parseIsoDateMs(normalizePlotlyDateTimeValue(range[0]) ?? undefined)
+  const endMs = parseIsoDateMs(normalizePlotlyDateTimeValue(range[1]) ?? undefined)
+
+  if (startMs === null || endMs === null || startMs === endMs) {
+    return null
+  }
+
+  return startMs < endMs ? [startMs, endMs] : [endMs, startMs]
+}
+
+function getActiveXAxisRangeMs(): [number, number] | null {
+  return getPlotlyXAxisRangeMs() ?? getCurrentDateRangeMs()
 }
 
 function formatMetricValue(value: number | null | undefined): string {
@@ -2056,12 +2159,16 @@ function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
 
 function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
   const trPoint = getTrStepPointByDate(date)
+  const telemetryPoint = getNearestPointByDate(date)
 
   return props.activeSeries
     .map((key): HoverGuideMetric => {
+      const telemetryValue = !isTrSeriesKey(key) && telemetryPoint ? telemetryPoint[key] : null
       const value = isTrSeriesKey(key)
         ? trPoint?.[key]
-        : getNearestTelemetryValueByDate(date, key)
+        : Number.isFinite(telemetryValue)
+          ? telemetryValue
+          : getNearestTelemetryValueByDate(date, key)
 
       return {
         key,
@@ -2077,7 +2184,7 @@ const hoverGuideOverlay = computed<HoverGuideOverlay | null>(() => {
     return null
   }
 
-  const x = getXForDate(hoverGuideDate.value)
+  const x = hoverGuideX.value ?? getXForDate(hoverGuideDate.value)
   const metrics = buildHoverGuideMetrics(hoverGuideDate.value)
 
   if (x === null || metrics.length === 0) {
@@ -2115,7 +2222,9 @@ function handleChartPointerMove(event: MouseEvent) {
     return
   }
 
-  hoverGuideDate.value = getPointerDateFromEvent(event)
+  const pointerDate = getPointerDateFromEvent(event)
+  hoverGuideDate.value = pointerDate
+  hoverGuideX.value = pointerDate ? getPointerXFromEvent(event) : null
 }
 
 function shouldIgnoreAnnotationDragTarget(target: HTMLElement | null): boolean {
@@ -2169,6 +2278,7 @@ function handleAnnotationDragEnd(event: MouseEvent) {
 
 function clearHoverGuide() {
   hoverGuideDate.value = null
+  hoverGuideX.value = null
   clearFrequencySegmentHover()
   clearTrackHoverTooltip()
 }
