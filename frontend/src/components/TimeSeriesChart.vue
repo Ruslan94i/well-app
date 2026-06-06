@@ -582,17 +582,17 @@ function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null 
     'well_state:work': '#22c55e',
     'well_state:stop': '#ef4444',
     'gdi:gdi': '#06b6d4',
-    'esp_mode:uvch': '#3b82f6',
+    'esp_mode:uvch': '#2563eb',
     'esp_mode:rptch': '#a855f7',
     'esp_mode:periodic_operation': '#facc15',
-    'esp_degradation:degr_yes': '#f97316',
+    'esp_degradation:degr_yes': '#94a3b8',
     'nur:nur_yes': '#ec4899',
-    'reservoir_pressure_trend:Pres_growth': '#10b981',
-    'reservoir_pressure_trend:Pres_decline': '#f43f5e',
-    'water_cut_trend:WCT_growth': '#14b8a6',
-    'water_cut_trend:WCT_decline': '#fb7185',
-    'productivity_trend:Kprod_growth': '#84cc16',
-    'productivity_trend:Kprod_decline': '#f59e0b'
+    'reservoir_pressure_trend:Pres_growth': '#a3e635',
+    'reservoir_pressure_trend:Pres_decline': '#fb923c',
+    'water_cut_trend:WCT_growth': '#7dd3fc',
+    'water_cut_trend:WCT_decline': '#d6a46f',
+    'productivity_trend:Kprod_growth': '#38bdf8',
+    'productivity_trend:Kprod_decline': '#ff2d2d'
   }
 
   for (const level of props.classificationLevels) {

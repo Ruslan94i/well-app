@@ -477,16 +477,26 @@
                       {{ option.label }}
                     </button>
                   </div>
-                  <n-button
-                    class="mt-3 w-full"
-                    size="small"
-                    type="primary"
-                    secondary
-                    :disabled="!episodeForm.classification[level.key]"
-                    @click="saveClassificationLevel(level.key)"
-                  >
-                    Сохранить уровень
-                  </n-button>
+                  <div class="mt-3 grid grid-cols-2 gap-2">
+                    <n-button
+                      size="small"
+                      type="primary"
+                      secondary
+                      :disabled="!episodeForm.classification[level.key]"
+                      @click="saveClassificationLevel(level.key)"
+                    >
+                      Сохранить уровень
+                    </n-button>
+                    <n-button
+                      size="small"
+                      type="error"
+                      secondary
+                      :disabled="!canDeleteClassificationLevel(level.key)"
+                      @click="deleteClassificationLevel(level.key)"
+                    >
+                      Удалить уровень
+                    </n-button>
+                  </div>
                 </div>
               </div>
               <div class="text-xs text-slate-500">{{ draftEpisodeLabel }}</div>
@@ -815,23 +825,15 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     ]
   },
   {
-    key: 'esp_degradation',
-    label: 'Уровень 4. Деградация ЭЦН',
-    allowCustom: true,
-    options: [
-      { label: 'Есть', value: 'degr_yes' }
-    ]
-  },
-  {
     key: 'nur',
-    label: 'Уровень 5. НУР',
+    label: 'Уровень 4. НУР',
     options: [
       { label: 'Да', value: 'nur_yes' }
     ]
   },
   {
     key: 'reservoir_pressure_trend',
-    label: 'Уровень 6. Рпл',
+    label: 'Уровень 5. Рпл',
     options: [
       { label: 'Рост Рпл', value: 'Pres_growth' },
       { label: 'Снижение Рпл', value: 'Pres_decline' }
@@ -839,7 +841,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'water_cut_trend',
-    label: 'Уровень 7. Обводненность',
+    label: 'Уровень 6. Обводненность',
     options: [
       { label: 'Рост обводненности', value: 'WCT_growth' },
       { label: 'Снижение обводненности', value: 'WCT_decline' }
@@ -847,10 +849,18 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'productivity_trend',
-    label: 'Уровень 8. Кпрод',
+    label: 'Уровень 7. Кпрод',
     options: [
       { label: 'Рост Кпрод', value: 'Kprod_growth' },
       { label: 'Снижение Кпрод', value: 'Kprod_decline' }
+    ]
+  },
+  {
+    key: 'esp_degradation',
+    label: 'Уровень 8. Деградация ЭЦН',
+    allowCustom: true,
+    options: [
+      { label: 'Есть', value: 'degr_yes' }
     ]
   }
 ]
@@ -2082,7 +2092,33 @@ function normalizeClassificationLevels(levels: unknown): AnnotationClassificatio
     }
   })
 
-  return normalizedLevels.length > 0 ? normalizedLevels : [...DEFAULT_CLASSIFICATION_LEVELS]
+  if (normalizedLevels.length === 0) {
+    return [...DEFAULT_CLASSIFICATION_LEVELS]
+  }
+
+  const normalizedByKey = new Map(normalizedLevels.map((level) => [level.key, level]))
+  const orderedLevels = DEFAULT_CLASSIFICATION_LEVELS.map((defaultLevel) => {
+    const storedLevel = normalizedByKey.get(defaultLevel.key)
+    if (!storedLevel) {
+      return defaultLevel
+    }
+
+    return {
+      ...storedLevel,
+      label: defaultLevel.label,
+      allowCustom: defaultLevel.allowCustom,
+      placeholder: defaultLevel.placeholder
+    }
+  })
+
+  const defaultKeys = new Set(DEFAULT_CLASSIFICATION_LEVELS.map((level) => level.key))
+  normalizedLevels.forEach((level) => {
+    if (!defaultKeys.has(level.key)) {
+      orderedLevels.push(level)
+    }
+  })
+
+  return orderedLevels
 }
 
 function normalizeAnnotationClassification(
@@ -2493,6 +2529,39 @@ function resolveSingleLevelEventType(levelKey: string): string | null {
 
   const valueLabel = getClassificationOptionLabel(level, episodeForm.value.classification[levelKey])
   return valueLabel ? `${level.label}: ${valueLabel}` : null
+}
+
+function getPrimaryClassificationLevelKey(classification: AnnotationClassification): string | null {
+  return classificationLevels.value.find((level) => Boolean(classification[level.key]))?.key ?? null
+}
+
+function annotationMatchesInterval(annotation: SavedAnnotation, interval: SelectedInterval): boolean {
+  return toTimestamp(annotation.startDate) === toTimestamp(interval.startDate) && toTimestamp(annotation.endDate) === toTimestamp(interval.endDate)
+}
+
+function getSavedAnnotationsForSelectedLevel(levelKey: string): SavedAnnotation[] {
+  const annotationIds = new Set<string>()
+
+  if (editingAnnotationId.value) {
+    const editingAnnotation = savedAnnotations.value.find((annotation) => annotation.id === editingAnnotationId.value)
+    if (editingAnnotation && getPrimaryClassificationLevelKey(editingAnnotation.classification) === levelKey) {
+      annotationIds.add(editingAnnotation.id)
+    }
+  }
+
+  if (selectedInterval.value) {
+    currentWellAnnotations.value.forEach((annotation) => {
+      if (getPrimaryClassificationLevelKey(annotation.classification) === levelKey && annotationMatchesInterval(annotation, selectedInterval.value!)) {
+        annotationIds.add(annotation.id)
+      }
+    })
+  }
+
+  return savedAnnotations.value.filter((annotation) => annotationIds.has(annotation.id))
+}
+
+function canDeleteClassificationLevel(levelKey: string): boolean {
+  return getSavedAnnotationsForSelectedLevel(levelKey).length > 0
 }
 
 function getAverageMetric(points: TimeSeriesPoint[], key: keyof AnalysisWindowMetrics): number | null {
@@ -3429,7 +3498,8 @@ async function saveClassificationLevel(levelKey: string) {
     const index = savedAnnotations.value.findIndex((item) => item.id === editingAnnotationId.value)
     if (index >= 0) {
       const existingAnnotation = savedAnnotations.value[index]
-      if (existingAnnotation?.annotationKind === 'event') {
+      const existingLevelKey = existingAnnotation ? getPrimaryClassificationLevelKey(existingAnnotation.classification) : null
+      if (existingAnnotation?.annotationKind === 'event' && existingLevelKey === levelKey) {
         const updatedAnnotation: SavedEventAnnotation = {
           ...existingAnnotation,
           ...selectedInterval.value,
@@ -3476,6 +3546,33 @@ async function saveClassificationLevel(levelKey: string) {
     newAnnotations.length > 1 ? `Уровни разметки сохранены: ${newAnnotations.length}.` : 'Уровень разметки сохранён.'
   message[saved ? 'success' : 'warning'](
     saved ? successMessage : 'Уровень создан в интерфейсе, но не сохранён на backend.'
+  )
+}
+
+async function deleteClassificationLevel(levelKey: string) {
+  const annotationsToDelete = getSavedAnnotationsForSelectedLevel(levelKey)
+
+  if (annotationsToDelete.length === 0) {
+    return
+  }
+
+  const confirmed = window.confirm('Удалить сохранённый эпизод этого уровня?')
+  if (!confirmed) {
+    return
+  }
+
+  const idsToDelete = new Set(annotationsToDelete.map((annotation) => annotation.id))
+  savedAnnotations.value = savedAnnotations.value.filter((item) => !idsToDelete.has(item.id))
+
+  if (editingAnnotationId.value && idsToDelete.has(editingAnnotationId.value)) {
+    editingAnnotationId.value = null
+    editingAnnotationKind.value = null
+  }
+
+  setClassificationValue(levelKey, null)
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Уровень разметки удалён.' : 'Уровень удалён в интерфейсе, но не сохранён на backend.'
   )
 }
 
