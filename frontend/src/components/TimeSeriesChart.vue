@@ -617,7 +617,8 @@ function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null 
     'water_cut_trend:WCT_growth': '#7dd3fc',
     'water_cut_trend:WCT_decline': '#d6a46f',
     'productivity_trend:Kprod_growth': '#38bdf8',
-    'productivity_trend:Kprod_decline': '#ff2d2d'
+    'productivity_trend:Kprod_decline': '#ff2d2d',
+    'complicated_fund:slozhn_fond': '#f97316'
   }
 
   for (const level of props.classificationLevels) {
@@ -674,7 +675,8 @@ function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel
     reservoir_pressure_trend: '7. Рпл',
     water_cut_trend: '8. Вода',
     productivity_trend: '9. Кпрод',
-    esp_degradation: '10. Дегр.'
+    complicated_fund: '10. Осл.',
+    esp_degradation: '11. Дегр.'
   }
 
   return labels[level.key] ?? level.label.replace(/^Уровень\s+/i, '')

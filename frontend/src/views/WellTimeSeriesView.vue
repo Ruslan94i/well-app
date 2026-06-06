@@ -862,8 +862,15 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     ]
   },
   {
+    key: 'complicated_fund',
+    label: 'Уровень 10. Осложненный фонд',
+    options: [
+      { label: 'Осложненный фонд', value: 'slozhn_fond' }
+    ]
+  },
+  {
     key: 'esp_degradation',
-    label: 'Уровень 10. Деградация ЭЦН',
+    label: 'Уровень 11. Деградация ЭЦН',
     allowCustom: true,
     options: [
       { label: 'Деградация ЭЦН', value: 'degr_yes' }
