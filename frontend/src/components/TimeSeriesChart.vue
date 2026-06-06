@@ -87,6 +87,8 @@
         :class="{ 'is-selected': item.annotation.id === props.selectedAnnotationId }"
         :style="item.style"
         :title="item.payload.label"
+        @mouseenter="showSavedAnnotationTooltip($event, item)"
+        @mouseleave="clearTrackHoverTooltip"
         @click.stop="handleSavedAnnotationOverlayClick(item.payload)"
         @wheel.prevent="handleChartWheel"
       />
@@ -118,6 +120,16 @@
         +
       </button>
     </div>
+    <button
+      v-if="props.interactionMode === 'annotate' && (clickSelectionStart || props.selectedInterval)"
+      type="button"
+      class="annotation-selection-clear"
+      title="Сбросить выделение"
+      @click.stop="clearSelection"
+      @wheel.prevent="handleChartWheel"
+    >
+      ×
+    </button>
     <div
       v-if="canUseTimePanSlider"
       class="time-pan-slider-shell"
@@ -152,6 +164,7 @@ import type {
   FrequencySegmentDoubleClickPayload,
   HierarchicalEventTracks,
   InteractionMode,
+  AnnotationClassificationLevel,
   SavedAnnotation,
   SelectedInterval,
   SeriesKey,
@@ -173,6 +186,7 @@ const props = defineProps<{
   eventTracks: HierarchicalEventTracks
   interactionMode: InteractionMode
   savedAnnotations: SavedAnnotation[]
+  classificationLevels: AnnotationClassificationLevel[]
   selectedAnnotationId: string | null
   frequencyBreakpoints: FrequencyBreakpoint[]
   frequencySegments: FrequencySegment[]
@@ -252,7 +266,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
+  axis: 'y5' | 'y6' | 'y7' | 'y8'
   label: string
   labelColor: string
   domain: [number, number]
@@ -334,6 +348,7 @@ const FREQUENCY_SEGMENT_HITBOX_HEIGHT = 28
 const FREQUENCY_SEGMENT_TRACK_Y = 0.18
 const ANNOTATION_LANE_BASE_Y = 1.55
 const ANNOTATION_HITBOX_HEIGHT = 30
+const ANNOTATION_BOUNDARY_SNAP_PX = 12
 const ESP_TRACK_CENTER_Y = 0.5
 const ESP_TRACK_BAR_WIDTH = 0.64
 const ESP_LABEL_HEIGHT = 16
@@ -350,6 +365,7 @@ const handlersAttached = ref(false)
 const hoveredFrequencySegmentId = ref<string | null>(null)
 const hoverGuideDate = ref<string | null>(null)
 const hoverGuideX = ref<number | null>(null)
+const clickSelectionStart = ref<string | null>(null)
 const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
@@ -374,8 +390,31 @@ function handleNativeChartClick(event: Event) {
   }
 
   if (target.closest('.nsewdrag') || target.closest('.draglayer') || target.closest('.plotbg')) {
+    if (props.interactionMode === 'annotate' && event instanceof MouseEvent) {
+      handleTwoClickIntervalSelection(event)
+      return
+    }
+
     emit('background-clicked')
   }
+}
+
+function handleTwoClickIntervalSelection(event: MouseEvent) {
+  const date = getPointerDateFromEvent(event, { clamp: true })
+  if (!date) {
+    return
+  }
+
+  resetPlotlySelectionState()
+
+  if (!clickSelectionStart.value) {
+    clickSelectionStart.value = date
+    emit('interval-selected', null)
+    return
+  }
+
+  emit('interval-selected', normalizeSelectedInterval(clickSelectionStart.value, date))
+  clickSelectionStart.value = null
 }
 
 const seriesConfig: Record<
@@ -488,6 +527,67 @@ function getPaletteColor(label: string, palette: string[]): string {
 
 function getAnnotationColor(label: string): string {
   return getPaletteColor(label || 'episode', ['#38bdf8', '#f97316', '#22c55e', '#eab308', '#ec4899', '#a855f7', '#14b8a6'])
+}
+
+function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null {
+  const colorByLevelValue: Record<string, string> = {
+    'well_state:work': '#22c55e',
+    'well_state:stop': '#ef4444',
+    'gdi:gdi': '#06b6d4',
+    'esp_mode:uvch': '#3b82f6',
+    'esp_mode:rptch': '#a855f7',
+    'esp_mode:periodic_operation': '#facc15',
+    'esp_degradation:yes': '#f97316',
+    'nur:yes': '#ec4899',
+    'reservoir_pressure_trend:growth': '#10b981',
+    'reservoir_pressure_trend:decline': '#f43f5e',
+    'water_cut_trend:growth': '#14b8a6',
+    'water_cut_trend:decline': '#fb7185',
+    'productivity_trend:growth': '#84cc16',
+    'productivity_trend:decline': '#f59e0b'
+  }
+
+  for (const level of props.classificationLevels) {
+    const value = annotation.classification?.[level.key]
+    const color = value ? colorByLevelValue[`${level.key}:${value}`] : null
+    if (color) {
+      return color
+    }
+  }
+
+  return null
+}
+
+function getSavedAnnotationColor(annotation: SavedAnnotation): string {
+  return getAnnotationCategoryColor(annotation) ?? getAnnotationColor(annotation.eventType)
+}
+
+function getAnnotationLevelIndex(annotation: SavedAnnotation): number {
+  const levelIndex = props.classificationLevels.findIndex((level) => Boolean(annotation.classification?.[level.key]))
+  return levelIndex >= 0 ? levelIndex : 0
+}
+
+function getAnnotationLevel(annotation: SavedAnnotation): AnnotationClassificationLevel | null {
+  return props.classificationLevels[getAnnotationLevelIndex(annotation)] ?? null
+}
+
+function getAnnotationLevelY(annotation: SavedAnnotation): number {
+  const totalLevels = Math.max(1, props.classificationLevels.length)
+  return totalLevels - getAnnotationLevelIndex(annotation) - 0.5
+}
+
+function getAnnotationCategoryLabel(annotation: SavedAnnotation): string {
+  const level = getAnnotationLevel(annotation)
+  if (!level) {
+    return getEventTypeLabel(annotation.eventType)
+  }
+
+  const value = annotation.classification?.[level.key]
+  return level.options.find((option) => option.value === value)?.label ?? value ?? getEventTypeLabel(annotation.eventType)
+}
+
+function getAnnotationLevelLabel(annotation: SavedAnnotation): string {
+  return getAnnotationLevel(annotation)?.label ?? 'Разметка'
 }
 
 function getEventTypeLabel(label: string): string {
@@ -630,6 +730,10 @@ function getSelectedDatesFromPlotlyEvent(eventData: Record<string, unknown>): st
 }
 
 function getInclusiveDateAxisEnd(endDate: string): string {
+  if (endDate.includes('T')) {
+    return endDate
+  }
+
   return new Date(new Date(endDate).getTime() + MS_PER_DAY).toISOString().slice(0, 10)
 }
 
@@ -831,6 +935,24 @@ function getSelectionShapes() {
     }))
   ]
   const shapes: Array<Record<string, unknown>> = markerGuideShapes
+
+  if (clickSelectionStart.value) {
+    shapes.push({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: clickSelectionStart.value,
+      x1: clickSelectionStart.value,
+      y0: 0,
+      y1: 1,
+      line: {
+        color: 'rgba(248,250,252,0.86)',
+        width: 1.4,
+        dash: 'dot'
+      },
+      layer: 'above'
+    })
+  }
 
   if (!props.selectedInterval) {
     return shapes
@@ -1056,7 +1178,6 @@ function buildSavedAnnotationTrace() {
     return []
   }
 
-  const laneAssignment = buildAnnotationLaneAssignment(trackAnnotations)
   const visibleAnnotations = trackAnnotations
     .map((annotation, index) => {
       const bar = getVisibleIntervalBar(annotation.startDate, annotation.endDate)
@@ -1077,15 +1198,15 @@ function buildSavedAnnotationTrace() {
       orientation: 'h',
       x: visibleAnnotations.map((item) => item.bar.durationMs),
       base: visibleAnnotations.map((item) => item.bar.base),
-      y: visibleAnnotations.map((item) => (laneAssignment.lanes[item.index] ?? 0) + ANNOTATION_LANE_BASE_Y),
-      width: 0.58,
+      y: visibleAnnotations.map((item) => getAnnotationLevelY(item.annotation)),
+      width: 0.28,
       marker: {
-        color: visibleAnnotations.map((item) => getAnnotationColor(item.annotation.eventType)),
+        color: visibleAnnotations.map((item) => getSavedAnnotationColor(item.annotation)),
         line: {
           color: visibleAnnotations.map((item) =>
             item.annotation.id === props.selectedAnnotationId
-              ? '#0f172a'
-              : getAnnotationColor(item.annotation.eventType)
+              ? '#f8fafc'
+              : getSavedAnnotationColor(item.annotation)
           ),
           width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 2.5 : 1.1))
         },
@@ -1096,13 +1217,13 @@ function buildSavedAnnotationTrace() {
       customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
         annotationId: item.annotation.id,
-        source: 'manual' as const,
+        source: item.annotation.id.startsWith('auto-l1-state-') ? ('model' as const) : ('manual' as const),
         layer: 'event' as const,
-        annotationKind: 'Эпизод',
+        annotationKind: getAnnotationLevelLabel(item.annotation),
         startDate: item.annotation.startDate,
         endDate: item.annotation.endDate,
         durationDays: item.annotation.durationDays,
-        categoryLabel: getEventTypeLabel(item.annotation.eventType),
+        categoryLabel: getAnnotationCategoryLabel(item.annotation),
         actions: item.annotation.actions ?? [],
         actionsText: item.annotation.actions?.length ? item.annotation.actions.join(', ') : 'не назначены'
       })),
@@ -1110,50 +1231,6 @@ function buildSavedAnnotationTrace() {
         '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Мероприятия: %{customdata.actionsText}<br>' +
         'Длительность: %{customdata.durationDays} сут.<extra></extra>'
-    }
-  ]
-}
-
-function buildAutoEpisodeTrace() {
-  const visibleIntervals = props.eventTracks.modelEventIntervals
-    .map((interval) => {
-      const bar = getVisibleIntervalBar(interval.startDate, interval.endDate)
-      return bar ? { interval, bar } : null
-    })
-    .filter((item): item is { interval: EventInterval; bar: { base: string; durationMs: number } } => Boolean(item))
-
-  if (visibleIntervals.length === 0) {
-    return []
-  }
-
-  return [
-    {
-      type: 'bar',
-      orientation: 'h',
-      x: visibleIntervals.map((item) => item.bar.durationMs),
-      base: visibleIntervals.map((item) => item.bar.base),
-      y: visibleIntervals.map(() => 0.5),
-      width: 0.58,
-      marker: {
-        color: visibleIntervals.map((item) => item.interval.color || getAnnotationColor(item.interval.label)),
-        line: {
-          color: visibleIntervals.map((item) => item.interval.color || getAnnotationColor(item.interval.label)),
-          width: 0.9
-        },
-        opacity: 0.78
-      },
-      yaxis: 'y9',
-      showlegend: false,
-      customdata: visibleIntervals.map((item) => ({
-        id: item.interval.id,
-        label: item.interval.label,
-        startDate: item.interval.startDate,
-        endDate: item.interval.endDate,
-        confidence: formatMarkerNumber(item.interval.confidence, 2)
-      })),
-      hovertemplate:
-        '<b>Автоэпизод</b>: %{customdata.label}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
-        'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
 }
@@ -1403,31 +1480,25 @@ function buildTrackTraces() {
       : []
 
   return [
-    ...buildFrequencySegmentTrace(),
     ...buildContextMarkerTrackTraces(),
     ...buildVspTrackTrace(),
     ...espInstallationTrace,
-    ...buildAutoEpisodeTrace(),
-    ...buildSavedAnnotationTrace(),
-    ...buildFrequencyBreakpointTrace()
+    ...buildSavedAnnotationTrace()
   ]
 }
 
 function getSavedAnnotationTrackRange(): [number, number] {
-  const laneCount = buildAnnotationLaneAssignment(props.savedAnnotations).laneCount
-  return [0, Math.max(2.45, laneCount + ANNOTATION_LANE_BASE_Y + 0.72)]
+  return [0, Math.max(1, props.classificationLevels.length)]
 }
 
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
   const eventRange = getSavedAnnotationTrackRange()
-  const eventLaneCount = Math.max(1, Math.ceil(eventRange[1] - 1.6))
 
   const rowSpecs = [
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Автоэпизоды', labelColor: '#94a3b8', heightUnits: 0.42, range: [0, 1] as [number, number] },
-    { axis: 'y8' as const, label: 'Эпизоды', labelColor: '#94a3b8', heightUnits: Math.max(1.02, 0.68 * eventLaneCount), range: eventRange }
+    { axis: 'y8' as const, label: 'Разметка', labelColor: '#94a3b8', heightUnits: 1.28, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -1580,7 +1651,8 @@ function getVisibleIntervalBar(
     return null
   }
 
-  const inclusiveEnd = options?.inclusiveEnd ?? true
+  const isDateTimeInterval = startDate.includes('T') || endDate.includes('T')
+  const inclusiveEnd = options?.inclusiveEnd ?? !isDateTimeInterval
   const intervalEndMs = endMs + (inclusiveEnd ? MS_PER_DAY : 0)
   const visibleStartMs = currentRange[0]
   const visibleEndMs = currentRange[1] + MS_PER_DAY
@@ -1592,7 +1664,7 @@ function getVisibleIntervalBar(
   }
 
   return {
-    base: clippedStartMs === startMs ? startDate : formatIsoDateMs(clippedStartMs),
+    base: clippedStartMs === startMs ? startDate : formatIsoDateTimeMs(clippedStartMs),
     durationMs: Math.max(60000, clippedEndMs - clippedStartMs)
   }
 }
@@ -1766,11 +1838,12 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
 })
 
 function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotationClickPayload {
+  const categoryLabel = getAnnotationCategoryLabel(annotation)
   return {
     annotationId: annotation.id,
-    source: 'manual',
+    source: annotation.id.startsWith('auto-l1-state-') ? 'model' : 'manual',
     layer: 'event',
-    label: getEventTypeLabel(annotation.eventType),
+    label: categoryLabel,
     startDate: annotation.startDate,
     endDate: annotation.endDate,
     durationDays: annotation.durationDays,
@@ -1781,17 +1854,15 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
 function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
   const trackAnnotations = props.savedAnnotations
   const axis = 'y8'
-  const laneAssignment = buildAnnotationLaneAssignment(trackAnnotations)
 
   return trackAnnotations
-    .map((annotation, index) => {
-      const laneY = (laneAssignment.lanes[index] ?? 0) + ANNOTATION_LANE_BASE_Y
+    .map((annotation) => {
       const style = getTrackIntervalOverlayGeometry(
         axis,
         annotation.startDate,
         annotation.endDate,
-        laneY,
-        ANNOTATION_HITBOX_HEIGHT
+        getAnnotationLevelY(annotation),
+        18
       )
 
       return style
@@ -1806,6 +1877,20 @@ function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
 }
 
 const savedAnnotationOverlayItems = computed<SavedAnnotationOverlayItem[]>(() => buildSavedAnnotationOverlayItems())
+
+function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOverlayItem) {
+  showTrackHoverTooltip(event, {
+    key: item.annotation.id,
+    title: getAnnotationLevelLabel(item.annotation),
+    lines: [
+      toTrackLine('Категория', getAnnotationCategoryLabel(item.annotation)),
+      toTrackLine('Начало', item.annotation.startDate),
+      toTrackLine('Конец', item.annotation.endDate),
+      toTrackLine('Длительность, сут.', item.annotation.durationDays)
+    ],
+    style: item.style
+  })
+}
 
 function handleSavedAnnotationOverlayClick(payload: TimelineAnnotationClickPayload) {
   suppressBackgroundClick(300)
@@ -1896,24 +1981,6 @@ const trackHoverOverlayItems = computed<TrackHoverOverlayItem[]>(() => {
     })
   })
 
-  props.eventTracks.modelEventIntervals.forEach((interval) => {
-    const style = getTrackIntervalOverlayGeometry('y9', interval.startDate, interval.endDate, 0.5, 24)
-    if (!style) return
-
-    items.push({
-      key: `auto-episode-${interval.id}`,
-      title: 'Автоэпизод',
-      style,
-      lines: [
-        toTrackLine('Класс', interval.label),
-        toTrackLine('Начало', interval.startDate),
-        toTrackLine('Конец', interval.endDate),
-        toTrackLine('Уверенность', formatMarkerNumber(interval.confidence, 2)),
-        toTrackLine('Источник', 'Claude')
-      ]
-    })
-  })
-
   props.eventTracks.installedEspPeriods.forEach((period) => {
     const endDate = getEffectiveEspEndDate(period.endDate)
     const style = getTrackIntervalOverlayGeometry('y6', period.startDate, endDate, 0.5, 34)
@@ -1989,8 +2056,50 @@ function getPointerDateFromEvent(event: MouseEvent, options?: { clamp?: boolean 
     return null
   }
 
+  const snappedBoundary = getNearestAnnotationBoundarySnap(localX)
+  if (snappedBoundary) {
+    return snappedBoundary.date
+  }
+
   const pointerRatio = Math.min(1, Math.max(0, (localX - plotBounds.left) / plotBounds.width))
   return formatIsoDateTimeMs(currentRange[0] + (currentRange[1] - currentRange[0]) * pointerRatio)
+}
+
+function getNearestAnnotationBoundarySnap(localX: number): { date: string; x: number } | null {
+  if (props.interactionMode !== 'annotate') {
+    return null
+  }
+
+  let nearestBoundary: { date: string; x: number } | null = null
+  let nearestDistance = ANNOTATION_BOUNDARY_SNAP_PX + 1
+  const seenDates = new Set<string>()
+
+  props.savedAnnotations.forEach((annotation) => {
+    const wellState = annotation.classification?.well_state
+    if (wellState !== 'work' && wellState !== 'stop') {
+      return
+    }
+
+    ;[annotation.startDate, annotation.endDate].forEach((date) => {
+      if (!date || seenDates.has(date)) {
+        return
+      }
+
+      seenDates.add(date)
+      const x = getXForDate(date)
+      if (x === null) {
+        return
+      }
+
+      const distance = Math.abs(x - localX)
+      if (distance <= ANNOTATION_BOUNDARY_SNAP_PX && distance < nearestDistance) {
+        nearestBoundary = { date, x }
+        nearestDistance = distance
+      }
+    })
+  })
+
+  return nearestBoundary
 }
 
 function getPointerXFromEvent(event: MouseEvent, options?: { clamp?: boolean }): number | null {
@@ -2224,7 +2333,7 @@ function handleChartPointerMove(event: MouseEvent) {
 
   const pointerDate = getPointerDateFromEvent(event)
   hoverGuideDate.value = pointerDate
-  hoverGuideX.value = pointerDate ? getPointerXFromEvent(event) : null
+  hoverGuideX.value = pointerDate ? getXForDate(pointerDate) ?? getPointerXFromEvent(event) : null
 }
 
 function shouldIgnoreAnnotationDragTarget(target: HTMLElement | null): boolean {
@@ -2273,6 +2382,7 @@ function handleAnnotationDragEnd(event: MouseEvent) {
 
   suppressBackgroundClick()
   resetPlotlySelectionState()
+  clickSelectionStart.value = null
   emit('interval-selected', normalizeSelectedInterval(dragStart.date, endDate))
 }
 
@@ -2714,7 +2824,6 @@ function renderChart() {
   const contextRow = getTrackRowByAxis(trackLayout.rows, 'y7')
   const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
-  const autoEpisodeRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
   const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
@@ -2878,14 +2987,6 @@ function renderChart() {
       showticklabels: false,
       zeroline: false
     },
-    yaxis9: {
-      domain: autoEpisodeRow.domain,
-      range: autoEpisodeRow.range,
-      fixedrange: true,
-      showgrid: false,
-      showticklabels: false,
-      zeroline: false
-    },
     shapes: layoutShapes,
     annotations: buildAnnotations()
   }
@@ -3000,7 +3101,11 @@ function renderChart() {
         range: eventRow.range,
         fixedrange: true,
         showgrid: false,
-        showticklabels: false,
+        tickmode: 'array',
+        tickvals: props.classificationLevels.map((_, index) => Math.max(1, props.classificationLevels.length) - index - 0.5),
+        ticktext: props.classificationLevels.map((level) => level.label.replace(/^Уровень\s+/i, '')),
+        tickfont: { color: '#94a3b8', size: 9 },
+        showticklabels: true,
         zeroline: false
       }
     })
@@ -3038,6 +3143,7 @@ function attachEventHandlers() {
       const endDate = xValues[xValues.length - 1]
 
       if (startDate && endDate) {
+        clickSelectionStart.value = null
         emit('interval-selected', normalizeSelectedInterval(startDate, endDate))
       }
     }
@@ -3049,6 +3155,7 @@ function attachEventHandlers() {
     }
 
     if (props.interactionMode === 'annotate') {
+      clickSelectionStart.value = null
       emit('interval-selected', null)
     }
   })
@@ -3070,10 +3177,9 @@ function attachEventHandlers() {
   })
 
   plotlyElement.on?.('plotly_click', (eventData: Record<string, unknown>) => {
-    suppressBackgroundClick()
-
     const segmentCustomdata = getEventCustomdataByKind<FrequencySegmentCustomdata>(eventData, 'frequencySegment')
     if (segmentCustomdata) {
+      suppressBackgroundClick()
       emit('frequency-segment-clicked', {
         id: segmentCustomdata.id,
         wellId: segmentCustomdata.wellId,
@@ -3086,6 +3192,7 @@ function attachEventHandlers() {
 
     const breakpointCustomdata = getEventCustomdataByKind<FrequencyBreakpointCustomdata>(eventData, 'frequencyBreakpoint')
     if (breakpointCustomdata) {
+      suppressBackgroundClick()
       emit('frequency-breakpoint-clicked', {
         id: breakpointCustomdata.id,
         wellId: breakpointCustomdata.wellId,
@@ -3101,6 +3208,7 @@ function attachEventHandlers() {
     const customdata = getEventCustomdataByKind<SavedAnnotationCustomdata>(eventData, 'annotation')
 
     if (customdata) {
+      suppressBackgroundClick()
       emit('annotation-clicked', {
         annotationId: customdata.annotationId,
         source: customdata.source,
@@ -3144,6 +3252,7 @@ function attachEventHandlers() {
 }
 
 function clearSelection() {
+  clickSelectionStart.value = null
   resetPlotlySelectionState()
   emit('interval-selected', null)
 }
@@ -3204,6 +3313,15 @@ watch(
     localVisibleDateRange.value = visibleRange
   },
   { deep: true, immediate: true }
+)
+
+watch(
+  () => props.interactionMode,
+  (mode) => {
+    if (mode !== 'annotate') {
+      clickSelectionStart.value = null
+    }
+  }
 )
 
 watch(
@@ -3373,13 +3491,38 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.32);
 }
 
+.annotation-selection-clear {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  z-index: 18;
+  display: flex;
+  height: 30px;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(248, 113, 113, 0.72);
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.9);
+  color: #fee2e2;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.26);
+}
+
+.annotation-selection-clear:hover {
+  border-color: rgba(254, 202, 202, 0.92);
+  background: rgba(185, 28, 28, 0.96);
+}
+
 .frequency-segment-hitbox {
   position: absolute;
   pointer-events: auto;
   cursor: pointer;
-  border: 1px solid rgba(125, 211, 252, 0.28);
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: rgba(56, 189, 248, 0.08);
+  background: transparent;
   padding: 0;
   transition:
     background 0.12s ease,
@@ -3389,9 +3532,9 @@ onBeforeUnmount(() => {
 
 .frequency-segment-hitbox:hover,
 .frequency-segment-hitbox.is-selected {
-  border-color: rgba(248, 250, 252, 0.86);
-  background: rgba(56, 189, 248, 0.32);
-  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.35);
+  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(56, 189, 248, 0.08);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.18);
 }
 
 .frequency-segment-add-button {

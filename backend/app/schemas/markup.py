@@ -38,7 +38,7 @@ class AnnotationBase(BaseModel):
     wellGroupId: str | None = None
     startDate: str
     endDate: str
-    durationDays: int
+    durationDays: float
     comment: str = ""
     actions: list[str] = Field(default_factory=list)
 

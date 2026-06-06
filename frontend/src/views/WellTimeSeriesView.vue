@@ -129,6 +129,7 @@
               :event-tracks="eventTracks"
               :interaction-mode="interactionMode"
               :saved-annotations="currentWellAnnotations"
+              :classification-levels="classificationLevels"
               :selected-annotation-id="editingAnnotationId"
               :frequency-breakpoints="currentFrequencyBreakpoints"
               :frequency-segments="frequencySegments"
@@ -470,14 +471,23 @@
                       {{ option.label }}
                     </button>
                   </div>
+                  <n-button
+                    class="mt-3 w-full"
+                    size="small"
+                    type="primary"
+                    secondary
+                    :disabled="!episodeForm.classification[level.key]"
+                    @click="saveClassificationLevel(level.key)"
+                  >
+                    Сохранить уровень
+                  </n-button>
                 </div>
               </div>
               <div class="text-xs text-slate-500">{{ draftEpisodeLabel }}</div>
-              <n-button class="mt-2" type="primary" size="medium" @click="saveEvent">Сохранить эпизод</n-button>
             </div>
 
             <div class="flex flex-col gap-2">
-              <n-button v-if="isEditMode" type="error" secondary @click="deleteAnnotation">Удалить</n-button>
+              <n-button v-if="isEditMode" type="error" secondary @click="deleteAnnotation">Удалить выбранный эпизод</n-button>
               <n-button secondary @click="handleClearSelectionClick">Очистить выделение</n-button>
               <n-button quaternary @click="zoomToSelection">Приблизить к выделению</n-button>
               <n-button quaternary @click="resetZoom">Сбросить масштаб</n-button>
@@ -782,40 +792,36 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     ]
   },
   {
+    key: 'gdi',
+    label: 'Уровень 2. ГДИ',
+    allowCustom: true,
+    options: [
+      { label: 'ГДИ', value: 'gdi' }
+    ]
+  },
+  {
     key: 'esp_mode',
-    label: 'Уровень 2. Режим работы ЭЦН',
+    label: 'Уровень 3. Режим работы ЭЦН',
     allowCustom: true,
     placeholder: 'Выберите или введите режим',
     options: [
-      { label: 'Нормальная работа', value: 'normal_operation' },
-      { label: 'Нестабильная работа', value: 'unstable_operation' },
-      { label: 'После изменения частоты', value: 'after_frequency_change' }
+      { label: 'УВЧ', value: 'uvch' },
+      { label: 'РПТЧ', value: 'rptch' },
+      { label: 'Периодическая работа', value: 'periodic_operation' }
     ]
   },
   {
     key: 'esp_degradation',
-    label: 'Уровень 3. Деградация ЭЦН',
+    label: 'Уровень 4. Деградация ЭЦН',
     allowCustom: true,
     options: [
-      { label: 'Нет', value: 'none' },
       { label: 'Есть', value: 'yes' }
-    ]
-  },
-  {
-    key: 'gdi',
-    label: 'Уровень 4. ГДИ',
-    allowCustom: true,
-    options: [
-      { label: 'Нет признака ГДИ', value: 'none' },
-      { label: 'ГДИ в интервале', value: 'in_interval' },
-      { label: 'После ГДИ', value: 'after_gdi' }
     ]
   },
   {
     key: 'nur',
     label: 'Уровень 5. НУР',
     options: [
-      { label: 'Нет', value: 'no' },
       { label: 'Да', value: 'yes' }
     ]
   },
@@ -824,8 +830,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     label: 'Уровень 6. Рпл',
     options: [
       { label: 'Рост Рпл', value: 'growth' },
-      { label: 'Снижение Рпл', value: 'decline' },
-      { label: 'Без изменений', value: 'stable' }
+      { label: 'Снижение Рпл', value: 'decline' }
     ]
   },
   {
@@ -833,8 +838,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     label: 'Уровень 7. Обводненность',
     options: [
       { label: 'Рост обводненности', value: 'growth' },
-      { label: 'Снижение обводненности', value: 'decline' },
-      { label: 'Без изменений', value: 'stable' }
+      { label: 'Снижение обводненности', value: 'decline' }
     ]
   },
   {
@@ -842,8 +846,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     label: 'Уровень 8. Кпрод',
     options: [
       { label: 'Рост Кпрод', value: 'growth' },
-      { label: 'Снижение Кпрод', value: 'decline' },
-      { label: 'Без изменений', value: 'stable' }
+      { label: 'Снижение Кпрод', value: 'decline' }
     ]
   }
 ]
@@ -1694,6 +1697,25 @@ function toIsoDateKey(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : ''
 }
 
+function normalizeAnnotationDateTime(value: unknown): string | null {
+  const rawValue = String(value ?? '').trim()
+  if (!rawValue) {
+    return null
+  }
+
+  const normalizedValue = rawValue.includes('T') ? rawValue : rawValue.replace(' ', 'T')
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalizedValue)) {
+    return normalizedValue.slice(0, 19)
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return normalizedValue
+  }
+
+  const timestamp = new Date(normalizedValue).getTime()
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString().slice(0, 19)
+}
+
 function loadEpisodeIntoDraft(episode: SavedAnnotation) {
   selectedInterval.value = {
     startDate: episode.startDate,
@@ -1799,18 +1821,14 @@ function snapIntervalToAnnotationBoundaries(interval: SelectedInterval): Selecte
     return interval
   }
 
-  const startCandidates = annotations.flatMap((annotation) => [
+  const boundaryCandidates = annotations.flatMap((annotation) => [
     annotation.startDate,
-    shiftIsoDate(annotation.endDate, 1)
-  ])
-  const endCandidates = annotations.flatMap((annotation) => [
-    shiftIsoDate(annotation.startDate, -1),
     annotation.endDate
   ])
 
   return buildInterval(
-    snapDateToClosestBoundary(interval.startDate, startCandidates),
-    snapDateToClosestBoundary(interval.endDate, endCandidates)
+    snapDateToClosestBoundary(interval.startDate, boundaryCandidates),
+    snapDateToClosestBoundary(interval.endDate, boundaryCandidates)
   )
 }
 
@@ -2094,9 +2112,9 @@ function normalizeSavedAnnotations(
         return null
       }
 
-      const startDate = String(annotation.startDate ?? '').slice(0, 10)
-      const endDate = String(annotation.endDate ?? '').slice(0, 10)
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      const startDate = normalizeAnnotationDateTime(annotation.startDate)
+      const endDate = normalizeAnnotationDateTime(annotation.endDate)
+      if (!startDate || !endDate) {
         return null
       }
 
@@ -2403,6 +2421,24 @@ function resolveDraftClass(): string | null {
   const eventType = buildDraftEpisodeLabel()
   episodeForm.value.episodeType = eventType
   return eventType
+}
+
+function buildSingleLevelClassification(levelKey: string): AnnotationClassification {
+  return {
+    ...createDefaultClassification(classificationLevels.value),
+    [levelKey]: episodeForm.value.classification[levelKey] ?? null
+  }
+}
+
+function resolveSingleLevelEventType(levelKey: string): string | null {
+  ensureClassificationOption(levelKey)
+  const level = classificationLevels.value.find((item) => item.key === levelKey)
+  if (!level) {
+    return null
+  }
+
+  const valueLabel = getClassificationOptionLabel(level, episodeForm.value.classification[levelKey])
+  return valueLabel ? `${level.label}: ${valueLabel}` : null
 }
 
 function getAverageMetric(points: TimeSeriesPoint[], key: keyof AnalysisWindowMetrics): number | null {
@@ -3315,6 +3351,77 @@ async function saveEvent() {
     newAnnotations.length > 1 ? `Аннотации эпизода сохранены: ${newAnnotations.length}.` : 'Аннотация эпизода сохранена.'
   message[saved ? 'success' : 'warning'](
     saved ? successMessage : 'Аннотация создана в интерфейсе, но не сохранена на backend.'
+  )
+}
+
+async function saveClassificationLevel(levelKey: string) {
+  const draftIntervals = getDraftIntervalsForNewAnnotation()
+
+  if (!selectedInterval.value && draftIntervals.length === 0) {
+    message.error('Перед сохранением уровня выберите интервал.')
+    return
+  }
+
+  const eventType = resolveSingleLevelEventType(levelKey)
+
+  if (!eventType) {
+    message.error('Выберите или введите категорию уровня.')
+    return
+  }
+
+  const classification = buildSingleLevelClassification(levelKey)
+
+  if (editingAnnotationId.value && editingAnnotationKind.value === 'event' && selectedInterval.value) {
+    const index = savedAnnotations.value.findIndex((item) => item.id === editingAnnotationId.value)
+    if (index >= 0) {
+      const existingAnnotation = savedAnnotations.value[index]
+      if (existingAnnotation?.annotationKind === 'event') {
+        const updatedAnnotation: SavedEventAnnotation = {
+          ...existingAnnotation,
+          ...selectedInterval.value,
+          wellId: selectedWell.value,
+          wellGroupId: currentWellGroupId.value,
+          eventType,
+          classification,
+          confidenceEvent: episodeForm.value.confidenceEvent,
+          comment: episodeForm.value.comment,
+          actions: episodeForm.value.eventActions
+        }
+        normalizeAnnotationsForLayer(updatedAnnotation)
+        const saved = await persistMarkupNow()
+        message[saved ? 'success' : 'warning'](
+          saved ? 'Уровень разметки обновлён.' : 'Уровень обновлён в интерфейсе, но не сохранён на backend.'
+        )
+        return
+      }
+    }
+  }
+
+  const newAnnotations: SavedEventAnnotation[] = draftIntervals.map((interval) => ({
+    id: createAnnotationId('event'),
+    wellId: selectedWell.value,
+    wellGroupId: currentWellGroupId.value,
+    ...interval,
+    annotationKind: 'event',
+    eventType,
+    classification: { ...classification },
+    confidenceEvent: episodeForm.value.confidenceEvent,
+    comment: episodeForm.value.comment,
+    actions: episodeForm.value.eventActions
+  }))
+
+  newAnnotations.forEach((annotation) => normalizeAnnotationsForLayer(annotation))
+
+  if (newAnnotations.length === 1) {
+    editingAnnotationId.value = newAnnotations[0]?.id ?? null
+    editingAnnotationKind.value = 'event'
+  }
+
+  const saved = await persistMarkupNow()
+  const successMessage =
+    newAnnotations.length > 1 ? `Уровни разметки сохранены: ${newAnnotations.length}.` : 'Уровень разметки сохранён.'
+  message[saved ? 'success' : 'warning'](
+    saved ? successMessage : 'Уровень создан в интерфейсе, но не сохранён на backend.'
   )
 }
 
