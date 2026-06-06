@@ -11,6 +11,17 @@
       :class="{ 'frequency-segment-hover': hoveredFrequencySegmentId }"
       @wheel.prevent="handleChartWheel"
     ></div>
+    <div class="chart-range-toolbar" @wheel.prevent="handleChartWheel">
+      <button
+        v-for="preset in rangePresets"
+        :key="preset.key"
+        type="button"
+        class="chart-range-button"
+        @click="applyRangePreset(preset)"
+      >
+        {{ preset.label }}
+      </button>
+    </div>
     <div class="pointer-events-none absolute inset-0 z-[12]">
       <div
         v-for="item in trackLabelOverlayItems"
@@ -332,6 +343,14 @@ interface HoverGuideOverlay {
   metrics: HoverGuideMetric[]
 }
 
+type RangePresetKey = 'all' | 'telemetry' | '6m' | '3m' | '1m' | '7d' | '3d'
+
+interface RangePreset {
+  key: RangePresetKey
+  label: string
+  days?: number
+}
+
 const TRACK_LABEL_LEFT = 22
 const MAIN_CHART_DOMAIN_START = 0.272
 const TRACK_PANEL_TOP = 0.21
@@ -352,6 +371,16 @@ const ANNOTATION_BOUNDARY_SNAP_PX = 12
 const ESP_TRACK_CENTER_Y = 0.5
 const ESP_TRACK_BAR_WIDTH = 0.64
 const ESP_LABEL_HEIGHT = 16
+
+const rangePresets: RangePreset[] = [
+  { key: 'all', label: 'Все' },
+  { key: 'telemetry', label: 'Телеметрия' },
+  { key: '6m', label: '6 мес', days: 183 },
+  { key: '3m', label: '3 мес', days: 92 },
+  { key: '1m', label: '1 мес', days: 31 },
+  { key: '7d', label: '7 сут', days: 7 },
+  { key: '3d', label: '3 сут', days: 3 }
+]
 
 interface PlotlyRelayoutEvent {
   'xaxis.range[0]'?: string
@@ -1576,7 +1605,15 @@ function getFullVisibleDateRange(): VisibleDateRange | null {
     props.trMonitoringData[0]?.date,
     props.trMonitoringData[props.trMonitoringData.length - 1]?.date,
     props.vspPeriods[0]?.startDate,
-    props.vspPeriods[props.vspPeriods.length - 1]?.endDate
+    props.vspPeriods[props.vspPeriods.length - 1]?.endDate,
+    ...props.vspPeriods.flatMap((period) => [period.startDate, period.endDate]),
+    ...props.eventTracks.installedEspPeriods.flatMap((period) => [period.startDate, period.endDate, period.failureDate]),
+    ...props.eventTracks.opzEvents.map((event) => event.date),
+    ...props.eventTracks.espWashEvents.map((event) => event.date),
+    ...props.eventTracks.gtmEvents.flatMap((event) => [event.date, event.startDate, event.endDate]),
+    ...props.eventTracks.gdiEvents.flatMap((event) => [event.date, event.startDate, event.endDate]),
+    ...props.eventTracks.modelEventIntervals.flatMap((event) => [event.startDate, event.endDate]),
+    ...props.savedAnnotations.flatMap((annotation) => [annotation.startDate, annotation.endDate])
   ].filter((value): value is string => Boolean(value))
 
   if (!dates.length) {
@@ -1600,6 +1637,24 @@ function parseIsoDateMs(value: string | undefined): number | null {
 
 function formatIsoDateMs(value: number): string {
   return new Date(value).toISOString().slice(0, 10)
+}
+
+function getTelemetryDateRangeMs(): [number, number] | null {
+  const dates = [
+    props.data[0]?.date,
+    props.data[props.data.length - 1]?.date,
+    props.trMonitoringData[0]?.date,
+    props.trMonitoringData[props.trMonitoringData.length - 1]?.date
+  ].filter((value): value is string => Boolean(value))
+
+  if (!dates.length) {
+    return null
+  }
+
+  const startMs = parseIsoDateMs(dates.reduce((minDate, value) => (value < minDate ? value : minDate)))
+  const endMs = parseIsoDateMs(dates.reduce((maxDate, value) => (value > maxDate ? value : maxDate)))
+
+  return startMs !== null && endMs !== null && endMs > startMs ? [startMs, endMs] : null
 }
 
 function formatIsoDateTimeMs(value: number): string {
@@ -2438,6 +2493,33 @@ function setVisibleDateRange(range: [number, number]) {
   emit('visible-range-changed', nextRange)
 }
 
+function applyRangePreset(preset: RangePreset) {
+  const fullRange = getFullDateRangeMs()
+  if (!fullRange) {
+    return
+  }
+
+  if (preset.key === 'all') {
+    setVisibleDateRange(fullRange)
+    return
+  }
+
+  if (preset.key === 'telemetry') {
+    const telemetryRange = getTelemetryDateRangeMs()
+    setVisibleDateRange(telemetryRange ?? fullRange)
+    return
+  }
+
+  if (!preset.days) {
+    return
+  }
+
+  const currentRange = getCurrentDateRangeMs()
+  const endMs = Math.min(currentRange?.[1] ?? fullRange[1], fullRange[1])
+  const span = preset.days * MS_PER_DAY
+  setVisibleDateRange(clampDateRangeMs(endMs - span, endMs, fullRange))
+}
+
 function resetPlotlySelectionState() {
   if (!chartEl.value) {
     return
@@ -2472,9 +2554,9 @@ function handleChartWheel(event: WheelEvent) {
   }
 
   const rect = chartEl.value.getBoundingClientRect()
-  const plotLeft = rect.left + CHART_MARGIN_LEFT
-  const plotRight = rect.right - CHART_MARGIN_RIGHT
-  const plotWidth = Math.max(1, plotRight - plotLeft)
+  const axisBounds = getPlotlyXAxisBounds()
+  const plotLeft = rect.left + (axisBounds?.left ?? CHART_MARGIN_LEFT)
+  const plotWidth = Math.max(1, axisBounds?.width ?? rect.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
   const pointerRatio = Math.min(1, Math.max(0, (event.clientX - plotLeft) / plotWidth))
   const anchorMs = currentStartMs + currentSpan * pointerRatio
   const nextStartMs = anchorMs - nextSpan * pointerRatio
@@ -3113,7 +3195,7 @@ function renderChart() {
 
   const config = {
     responsive: true,
-    displayModeBar: true,
+    displayModeBar: false,
     displaylogo: false,
     doubleClick: props.interactionMode === 'navigate' ? 'reset+autosize' : false,
     modeBarButtonsToRemove: ['lasso2d']
@@ -3449,6 +3531,44 @@ onBeforeUnmount(() => {
   padding: 8px 10px;
   font-size: 11px;
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.32);
+}
+
+.chart-range-toolbar {
+  position: absolute;
+  right: 58px;
+  top: 14px;
+  z-index: 16;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 520px;
+  gap: 6px;
+  border: 1px solid rgba(71, 85, 105, 0.86);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.9);
+  padding: 6px;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+}
+
+.chart-range-button {
+  border: 1px solid rgba(100, 116, 139, 0.68);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 8px;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.chart-range-button:hover {
+  border-color: rgba(125, 211, 252, 0.76);
+  background: rgba(14, 165, 233, 0.18);
+  color: #f8fafc;
 }
 
 .track-hover-hitbox {

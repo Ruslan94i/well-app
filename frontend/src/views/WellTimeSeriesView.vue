@@ -409,6 +409,12 @@
           </div>
 
           <div v-if="selectedInterval" class="mt-3 space-y-4 rounded-xl border border-slate-700 bg-slate-800/90 p-4">
+            <div v-if="isEditMode" class="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border border-rose-500/25 bg-slate-900/95 p-2 shadow-lg shadow-slate-950/20">
+              <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">{{ draftEpisodeLabel }}</div>
+              <n-button type="error" secondary @click="deleteAnnotation">Удалить выбранный эпизод</n-button>
+              <n-button secondary @click="handleClearSelectionClick">Очистить выделение</n-button>
+            </div>
+
             <div v-if="isEditMode && boundarySliderMax > 0" class="space-y-3 rounded-lg border border-slate-700 bg-slate-900/45 px-3 py-3">
               <div class="flex items-center justify-between gap-3">
                 <label class="block text-xs uppercase tracking-[0.2em] text-slate-400">Границы интервала</label>
@@ -487,8 +493,6 @@
             </div>
 
             <div class="flex flex-col gap-2">
-              <n-button v-if="isEditMode" type="error" secondary @click="deleteAnnotation">Удалить выбранный эпизод</n-button>
-              <n-button secondary @click="handleClearSelectionClick">Очистить выделение</n-button>
               <n-button quaternary @click="zoomToSelection">Приблизить к выделению</n-button>
               <n-button quaternary @click="resetZoom">Сбросить масштаб</n-button>
             </div>
