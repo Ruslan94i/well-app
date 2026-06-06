@@ -146,6 +146,15 @@
       class="time-pan-slider-shell"
       :style="timePanSliderOverlayStyle"
     >
+      <button
+        type="button"
+        class="time-pan-step-button time-pan-step-button-left"
+        title="Сдвинуть график влево на четверть окна"
+        @click.stop="shiftTimeWindow(-1)"
+        @wheel.prevent="handleChartWheel"
+      >
+        ‹
+      </button>
       <div class="time-pan-track">
         <div class="time-pan-thumb" :style="timePanSliderThumbStyle"></div>
       </div>
@@ -159,6 +168,15 @@
         title="Прокрутить график по времени"
         @input="handleTimePanSliderInput"
       />
+      <button
+        type="button"
+        class="time-pan-step-button time-pan-step-button-right"
+        title="Сдвинуть график вправо на четверть окна"
+        @click.stop="shiftTimeWindow(1)"
+        @wheel.prevent="handleChartWheel"
+      >
+        ›
+      </button>
     </div>
   </div>
 </template>
@@ -2650,6 +2668,20 @@ function handleTimePanSliderInput(event: Event) {
   setVisibleDateRange(clampDateRangeMs(nextStartMs, nextStartMs + currentSpan, fullRange))
 }
 
+function shiftTimeWindow(direction: -1 | 1) {
+  const fullRange = getFullDateRangeMs()
+  const currentRange = getCurrentDateRangeMs()
+
+  if (!fullRange || !currentRange) {
+    return
+  }
+
+  const currentSpan = currentRange[1] - currentRange[0]
+  const shiftMs = currentSpan / 4
+  const nextStartMs = currentRange[0] + shiftMs * direction
+  setVisibleDateRange(clampDateRangeMs(nextStartMs, nextStartMs + currentSpan, fullRange))
+}
+
 function getPrimaryCustomdata(
   eventData: Record<string, unknown>
 ):
@@ -3682,15 +3714,15 @@ onBeforeUnmount(() => {
 .time-pan-slider-shell {
   position: absolute;
   z-index: 16;
-  height: 18px;
+  height: 24px;
   pointer-events: auto;
 }
 
 .time-pan-track {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 6px;
+  left: 34px;
+  right: 34px;
+  top: 9px;
   height: 6px;
   overflow: hidden;
   border-radius: 9999px;
@@ -3710,14 +3742,51 @@ onBeforeUnmount(() => {
 
 .time-pan-slider {
   position: absolute;
-  inset: 0;
+  left: 34px;
+  right: 34px;
+  top: 3px;
   display: block;
-  width: 100%;
+  width: calc(100% - 68px);
   height: 18px;
   cursor: grab;
   background: transparent;
   appearance: none;
   opacity: 0;
+}
+
+.time-pan-step-button {
+  position: absolute;
+  top: 0;
+  display: flex;
+  height: 24px;
+  width: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(100, 116, 139, 0.72);
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.time-pan-step-button:hover {
+  border-color: rgba(125, 211, 252, 0.82);
+  background: rgba(14, 165, 233, 0.2);
+  color: #f8fafc;
+}
+
+.time-pan-step-button-left {
+  left: 0;
+}
+
+.time-pan-step-button-right {
+  right: 0;
 }
 
 .time-pan-slider:active {
