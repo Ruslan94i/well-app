@@ -1,7 +1,7 @@
 ﻿<template>
-  <main class="flex min-h-screen w-full flex-col px-3 py-2 md:px-4 md:py-3 lg:px-4 lg:py-3">
-    <section class="grid min-h-0 flex-1 gap-3 xl:grid-cols-[248px_minmax(0,1fr)]">
-      <aside class="panel rounded-2xl p-4">
+  <main class="flex min-h-screen w-full flex-col px-2 py-2 md:px-3 md:py-2 lg:px-3 lg:py-2">
+    <section class="grid min-h-0 flex-1 gap-2 xl:grid-cols-[226px_minmax(0,1fr)]">
+      <aside class="panel rounded-2xl p-3">
         <div class="space-y-4">
           <div>
             <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Параметры</h2>
@@ -53,7 +53,7 @@
       </aside>
 
       <div class="space-y-3">
-        <div class="panel rounded-2xl px-4 py-3">
+        <div class="panel rounded-2xl px-3 py-2">
           <div class="space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-2">
@@ -93,8 +93,8 @@
           </div>
         </div>
 
-      <section v-if="interactionMode !== 'modelTuning'" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_344px]">
-        <div class="panel rounded-2xl p-4">
+      <section v-if="interactionMode !== 'modelTuning'" class="grid gap-2 xl:grid-cols-[minmax(0,1fr)_304px]">
+        <div class="panel rounded-2xl p-2">
           <div
             v-if="errorMessage"
             class="mb-3 rounded-xl border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-300"
@@ -154,7 +154,7 @@
           </div>
         </div>
 
-        <aside class="panel rounded-2xl p-4">
+        <aside class="panel rounded-2xl p-3">
           <template v-if="interactionMode === 'navigate'">
             <div class="flex items-start justify-between gap-2">
               <div>

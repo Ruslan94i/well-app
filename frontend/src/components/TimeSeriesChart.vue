@@ -65,6 +65,16 @@
     </div>
     <div class="pointer-events-none absolute inset-0 z-[12]">
       <div
+        v-for="item in annotationLevelLabelOverlayItems"
+        :key="item.key"
+        class="annotation-level-label-overlay"
+        :style="item.style"
+      >
+        {{ item.label }}
+      </div>
+    </div>
+    <div class="pointer-events-none absolute inset-0 z-[12]">
+      <div
         v-for="item in espSegmentLabelOverlayItems"
         :key="item.key"
         class="esp-segment-label-overlay"
@@ -326,7 +336,7 @@ interface AnnotationLaneAssignment {
 }
 
 interface TrackLayoutRow {
-  axis: 'y5' | 'y6' | 'y7' | 'y8'
+  axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
   label: string
   labelColor: string
   domain: [number, number]
@@ -335,6 +345,12 @@ interface TrackLayoutRow {
 
 interface TrackLabelOverlayItem {
   key: TrackLayoutRow['axis']
+  label: string
+  style: Record<string, string>
+}
+
+interface AnnotationLevelLabelOverlayItem {
+  key: string
   label: string
   style: Record<string, string>
 }
@@ -401,12 +417,12 @@ interface RangePreset {
 }
 
 const TRACK_LABEL_LEFT = 22
-const MAIN_CHART_DOMAIN_START = 0.272
-const TRACK_PANEL_TOP = 0.21
-const TRACK_MAIN_GAP = 0.028
-const CHART_MARGIN_LEFT = 205
-const CHART_MARGIN_RIGHT = 195
-const CHART_MARGIN_TOP = 24
+const MAIN_CHART_DOMAIN_START = 0.31
+const TRACK_PANEL_TOP = 0.282
+const TRACK_MAIN_GAP = 0.022
+const CHART_MARGIN_LEFT = 132
+const CHART_MARGIN_RIGHT = 104
+const CHART_MARGIN_TOP = 10
 const CHART_MARGIN_BOTTOM = 42
 const MS_PER_DAY = 86400000
 const MIN_VISIBLE_RANGE_MS = 15 * 60 * 1000
@@ -418,8 +434,8 @@ const ANNOTATION_LANE_BASE_Y = 1.55
 const ANNOTATION_HITBOX_HEIGHT = 30
 const ANNOTATION_BOUNDARY_SNAP_PX = 6
 const ESP_TRACK_CENTER_Y = 0.5
-const ESP_TRACK_BAR_WIDTH = 0.64
-const ESP_LABEL_HEIGHT = 16
+const ESP_TRACK_BAR_WIDTH = 0.72
+const ESP_LABEL_HEIGHT = 20
 
 const rangePresets: RangePreset[] = [
   { key: 'all', label: 'Все' },
@@ -652,7 +668,7 @@ function getSavedAnnotationColor(annotation: SavedAnnotation): string {
 }
 
 function isModelAnnotation(annotation: SavedAnnotation): boolean {
-  return annotation.id.startsWith('auto-l1-state-') || annotation.id.startsWith('auto-inference-')
+  return annotation.id.startsWith('auto-inference-')
 }
 
 function getAnnotationLevelIndex(annotation: SavedAnnotation): number {
@@ -1283,8 +1299,14 @@ function buildFrequencyBreakpointTrace() {
   ]
 }
 
-function buildSavedAnnotationTrace() {
-  const trackAnnotations = props.savedAnnotations
+function getAnnotationTrackAxis(annotation: SavedAnnotation): 'y8' | 'y9' {
+  return isModelAnnotation(annotation) ? 'y9' : 'y8'
+}
+
+function buildSavedAnnotationTrace(source: 'manual' | 'model') {
+  const trackAnnotations = props.savedAnnotations.filter((annotation) =>
+    source === 'model' ? isModelAnnotation(annotation) : !isModelAnnotation(annotation)
+  )
 
   if (trackAnnotations.length === 0) {
     return []
@@ -1311,32 +1333,30 @@ function buildSavedAnnotationTrace() {
       x: visibleAnnotations.map((item) => item.bar.durationMs),
       base: visibleAnnotations.map((item) => item.bar.base),
       y: visibleAnnotations.map((item) => getAnnotationLevelY(item.annotation)),
-      width: 0.58,
+      width: 0.78,
       marker: {
         color: visibleAnnotations.map((item) => getSavedAnnotationColor(item.annotation)),
         line: {
           color: visibleAnnotations.map((item) =>
             item.annotation.id === props.selectedAnnotationId
               ? '#f8fafc'
-              : isModelAnnotation(item.annotation)
-                ? 'rgba(226, 232, 240, 0.92)'
               : getSavedAnnotationColor(item.annotation)
           ),
           width: visibleAnnotations.map((item) =>
-            item.annotation.id === props.selectedAnnotationId ? 3 : isModelAnnotation(item.annotation) ? 2.2 : 1.5
+            item.annotation.id === props.selectedAnnotationId ? 3 : isModelAnnotation(item.annotation) ? 0.4 : 1.5
           )
         },
         opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
       },
-      yaxis: 'y8',
+      yaxis: source === 'model' ? 'y9' : 'y8',
       showlegend: false,
       customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
         annotationId: item.annotation.id,
-        source: isModelAnnotation(item.annotation) ? ('model' as const) : ('manual' as const),
+        source,
         layer: 'event' as const,
         annotationKind: getAnnotationLevelLabel(item.annotation),
-        sourceLabel: isModelAnnotation(item.annotation) ? 'Авторазметка' : 'Ручная разметка',
+        sourceLabel: source === 'model' ? 'Авторазметка' : 'Ручная разметка',
         startDate: item.annotation.startDate,
         endDate: item.annotation.endDate,
         durationDays: item.annotation.durationDays,
@@ -1600,7 +1620,8 @@ function buildTrackTraces() {
     ...buildContextMarkerTrackTraces(),
     ...buildVspTrackTrace(),
     ...espInstallationTrace,
-    ...buildSavedAnnotationTrace()
+    ...buildSavedAnnotationTrace('manual'),
+    ...buildSavedAnnotationTrace('model')
   ]
 }
 
@@ -1612,10 +1633,11 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const eventRange = getSavedAnnotationTrackRange()
 
   const rowSpecs = [
-    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
-    { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.34, range: [0, 1] as [number, number] },
-    { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.74, range: [0, 1] as [number, number] },
-    { axis: 'y8' as const, label: 'Разметка', labelColor: '#94a3b8', heightUnits: 1.72, range: eventRange }
+    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
+    { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
+    { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
+    { axis: 'y9' as const, label: 'Авторазметка', labelColor: '#94a3b8', heightUnits: 1.14, range: eventRange },
+    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.14, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -1887,6 +1909,39 @@ const trackLabelOverlayItems = computed<TrackLabelOverlayItem[]>(() => {
   })
 })
 
+const annotationLevelLabelOverlayItems = computed<AnnotationLevelLabelOverlayItem[]>(() => {
+  if (chartSize.value.width <= 0 || chartSize.value.height <= 0 || props.classificationLevels.length === 0) {
+    return []
+  }
+
+  const plotBounds = getPlotBounds()
+  const left = Math.max(TRACK_LABEL_LEFT + 76, plotBounds.left - 72)
+  const width = Math.max(52, plotBounds.left - left - 8)
+
+  const items: AnnotationLevelLabelOverlayItem[] = []
+
+  ;(['y9', 'y8'] as const).forEach((axis) => {
+    props.classificationLevels.forEach((level, index) => {
+      const centerY = getTrackYCenter(axis, props.classificationLevels.length - index - 0.5)
+      if (centerY === null) {
+        return
+      }
+
+      items.push({
+        key: `${axis}-${level.key}`,
+        label: getCompactClassificationLevelLabel(level).replace(/^\d+\.\s*/, ''),
+        style: {
+          left: `${left}px`,
+          top: `${centerY}px`,
+          width: `${width}px`
+        }
+      })
+    })
+  })
+
+  return items
+})
+
 function getTrackYCenter(axis: TrackLayoutRow['axis'], value: number): number | null {
   if (chartSize.value.width <= 0 || chartSize.value.height <= 0) {
     return null
@@ -1987,7 +2042,8 @@ const espSegmentLabelOverlayItems = computed<EspSegmentLabelOverlayItem[]>(() =>
       const maxLength = Math.max(3, Math.floor((width - 10) / 9))
       const labelStyle: Record<string, string> = {
         ...style,
-        height: `${labelHeight}px`
+        height: `${labelHeight}px`,
+        lineHeight: `${labelHeight}px`
       }
 
       return {
@@ -2030,12 +2086,11 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
 
 function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
   const trackAnnotations = props.savedAnnotations
-  const axis = 'y8'
 
   return trackAnnotations
     .map((annotation) => {
       const style = getTrackIntervalOverlayGeometry(
-        axis,
+        getAnnotationTrackAxis(annotation),
         annotation.startDate,
         annotation.endDate,
         getAnnotationLevelY(annotation),
@@ -3199,7 +3254,8 @@ function renderChart() {
   const contextRow = getTrackRowByAxis(trackLayout.rows, 'y7')
   const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
-  const eventRow = getTrackRowByAxis(trackLayout.rows, 'y8')
+  const manualAnnotationRow = getTrackRowByAxis(trackLayout.rows, 'y8')
+  const modelAnnotationRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
     ...getSelectionShapes(),
@@ -3237,7 +3293,7 @@ function renderChart() {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: '#0f172a',
     font: { color: '#e5e7eb', family: 'Segoe UI, sans-serif' },
-    margin: { l: CHART_MARGIN_LEFT, r: CHART_MARGIN_RIGHT, t: 24, b: 42 },
+    margin: { l: CHART_MARGIN_LEFT, r: CHART_MARGIN_RIGHT, t: CHART_MARGIN_TOP, b: CHART_MARGIN_BOTTOM },
     dragmode: props.interactionMode === 'annotate' ? 'select' : 'zoom',
     selectdirection: props.interactionMode === 'annotate' ? 'h' : undefined,
     hovermode: false,
@@ -3245,10 +3301,10 @@ function renderChart() {
     uirevision: firstDate && lastDate ? `${firstDate}-${lastDate}` : 'empty',
     legend: {
       orientation: 'h',
-      yanchor: 'bottom',
-      y: 1.02,
+      yanchor: 'top',
+      y: 0.995,
       xanchor: 'left',
-      x: 0,
+      x: 0.005,
       bgcolor: 'rgba(15,23,42,0.82)',
       bordercolor: 'rgba(55,65,81,0.85)',
       borderwidth: 1,
@@ -3297,7 +3353,7 @@ function renderChart() {
       title: 'Обводненность / загрузка',
       overlaying: 'y',
       side: 'right',
-      position: 0.885,
+      position: 0.91,
       range: percentAxisConfig.range,
       autorange: false,
       fixedrange: true,
@@ -3312,7 +3368,7 @@ function renderChart() {
       title: 'Давления',
       overlaying: 'y',
       side: 'right',
-      position: 0.92,
+      position: 0.94,
       range: pressureAxisConfig.range,
       autorange: false,
       fixedrange: true,
@@ -3327,7 +3383,7 @@ function renderChart() {
       title: 'Частота ЭЦН',
       overlaying: 'y',
       side: 'right',
-      position: 0.955,
+      position: 0.97,
       range: frequencyAxisConfig.range,
       autorange: false,
       fixedrange: true,
@@ -3357,6 +3413,22 @@ function renderChart() {
     yaxis7: {
       domain: contextRow.domain,
       range: contextRow.range,
+      fixedrange: true,
+      showgrid: false,
+      showticklabels: false,
+      zeroline: false
+    },
+    yaxis8: {
+      domain: manualAnnotationRow.domain,
+      range: manualAnnotationRow.range,
+      fixedrange: true,
+      showgrid: false,
+      showticklabels: false,
+      zeroline: false
+    },
+    yaxis9: {
+      domain: modelAnnotationRow.domain,
+      range: modelAnnotationRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
@@ -3469,22 +3541,37 @@ function renderChart() {
     })
   }
 
-  if (eventRow) {
-    Object.assign(layout, {
-      yaxis8: {
-        domain: eventRow.domain,
-        range: eventRow.range,
-        fixedrange: true,
-        showgrid: false,
-        tickmode: 'array',
-        tickvals: props.classificationLevels.map((_, index) => Math.max(1, props.classificationLevels.length) - index - 0.5),
-        ticktext: props.classificationLevels.map((level) => getCompactClassificationLevelLabel(level)),
-        tickfont: { color: '#cbd5e1', size: 10 },
-        showticklabels: true,
-        zeroline: false
-      }
-    })
-  }
+  const annotationTickValues = props.classificationLevels.map((_, index) =>
+    Math.max(1, props.classificationLevels.length) - index - 0.5
+  )
+  const annotationTickText = props.classificationLevels.map((level) => getCompactClassificationLevelLabel(level))
+
+  Object.assign(layout, {
+    yaxis8: {
+      domain: manualAnnotationRow.domain,
+      range: manualAnnotationRow.range,
+      fixedrange: true,
+      showgrid: false,
+      tickmode: 'array',
+      tickvals: annotationTickValues,
+      ticktext: annotationTickText,
+      tickfont: { color: '#cbd5e1', size: 9 },
+      showticklabels: false,
+      zeroline: false
+    },
+    yaxis9: {
+      domain: modelAnnotationRow.domain,
+      range: modelAnnotationRow.range,
+      fixedrange: true,
+      showgrid: false,
+      tickmode: 'array',
+      tickvals: annotationTickValues,
+      ticktext: annotationTickText,
+      tickfont: { color: '#cbd5e1', size: 9 },
+      showticklabels: false,
+      zeroline: false
+    }
+  })
 
   const config = {
     responsive: true,
@@ -3788,23 +3875,33 @@ onBeforeUnmount(() => {
   position: absolute;
   transform: translateY(-50%);
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(2, 6, 23, 0.88);
 }
 
+.annotation-level-label-overlay {
+  position: absolute;
+  overflow: hidden;
+  transform: translateY(-50%);
+  color: #cbd5e1;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(2, 6, 23, 0.92);
+  white-space: nowrap;
+}
+
 .esp-segment-label-overlay {
   position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
   padding: 0 8px;
   color: #f8fafc;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1;
   text-align: center;
   text-overflow: ellipsis;
   text-shadow: 0 1px 3px rgba(2, 6, 23, 0.85);
