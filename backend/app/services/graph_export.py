@@ -15,7 +15,37 @@ from app.services.vsp import get_well_vsp_periods
 from app.services.xlsx_reference import get_well_context
 
 
+SCHEMA_VERSION = "2"
 FREQUENCY_CHANGE_THRESHOLD = 0.1
+CLASSIFICATION_TO_TARGET = {
+    "well_state=work": ("target_well_state", "Работа"),
+    "well_state=stop": ("target_well_state", "Остановка"),
+    "reservoir_pressure_trend=Pres_growth": ("target_rpl_trend", "rising"),
+    "reservoir_pressure_trend=Pres_decline": ("target_rpl_trend", "falling"),
+    "water_cut_trend=WCT_growth": ("target_wct_trend", "growing"),
+    "productivity_trend=Kprod_decline": ("target_kprod_trend", "declining"),
+    "esp_periodic=periodic_operation": ("target_periodic", "1"),
+    "esp_uvch=uvch": ("target_uvch", "1"),
+    "esp_rptch=rptch": ("target_rptch", "1"),
+    "nur=nur_yes": ("target_nur", "1"),
+    "gdi=gdi": ("target_gdi", "1"),
+    "complicated_fund=slozhn_fond": ("target_complicated_fund", "1"),
+    "sppv=sppv": ("target_sppv", "1"),
+}
+TARGET_COLUMNS = [
+    "target_well_state",
+    "target_gdi",
+    "target_uvch",
+    "target_rptch",
+    "target_periodic",
+    "target_nur",
+    "target_rpl_trend",
+    "target_esp_degradation",
+    "target_wct_trend",
+    "target_kprod_trend",
+    "target_complicated_fund",
+    "target_sppv",
+]
 TELEMETRY_COLUMNS = [
     "qliq",
     "buffer_pressure",
@@ -52,6 +82,7 @@ EXPORT_COLUMNS = [
     "well_id",
     "field_code",
     "telemetry_time",
+    "seconds_since_prev",
     "telemetry_date",
     *[f"telemetry_{column}" for column in TELEMETRY_COLUMNS],
     *[f"tr_{column}" for column in TR_COLUMNS],
@@ -72,14 +103,7 @@ EXPORT_COLUMNS = [
     "vsp_end_time",
     "vsp_well_state",
     "vsp_well_state_code",
-    "episode_ids",
-    "episode_types",
-    "episode_classifications",
-    "episode_confidences",
-    "episode_start_dates",
-    "episode_end_dates",
-    "episode_actions",
-    "episode_comments",
+    *TARGET_COLUMNS,
     "auto_episode_ids",
     "auto_episode_labels",
     "auto_episode_start_dates",
@@ -125,6 +149,12 @@ EXPORT_COLUMNS = [
     "gdi_executor",
     "gdi_duration_hours",
     "gdi_comment",
+    "event_gtm",
+    "event_opz",
+    "event_gdi",
+    "days_since_gtm",
+    "days_since_opz",
+    "days_since_gdi",
 ]
 
 
@@ -214,7 +244,7 @@ def _format_frequency(value: float | None) -> str:
 
 
 def _create_frequency_breakpoint_id(source: str, well_id: str, point_date: str) -> str:
-    return f"frequency-{source}-{well_id}-{point_date.replace('-', '')}"
+    return f"frequency-{source}-{well_id}-{point_date.replace('-', '').replace(':', '').replace('T', '')}"
 
 
 def _upsert_auto_breakpoint(
@@ -252,7 +282,7 @@ def _build_auto_frequency_breakpoints(
         if previous_point is not None:
             previous_frequency = _frequency_value(previous_point.get("frequency"))
             previous_date = _format_cell(previous_point.get("date"))
-            point_date = _date_key(point.get("date"))
+            point_date = _format_cell(point.get("date"))
             previous_is_positive = _is_positive_frequency(previous_frequency)
             current_is_positive = _is_positive_frequency(frequency)
             breakpoint_date = ""
@@ -291,7 +321,7 @@ def _build_auto_frequency_breakpoints(
                 )
 
         previous_point = {
-            "date": _date_key(point.get("date")),
+            "date": _format_cell(point.get("date")),
             "frequency": frequency,
         }
 
@@ -340,28 +370,30 @@ def _build_frequency_segments(
     if not telemetry_rows:
         return []
 
-    start_date = _date_key(telemetry_rows[0].get("date"))
-    end_date = _date_key(telemetry_rows[-1].get("date"))
+    start_date = _format_cell(telemetry_rows[0].get("date"))
+    end_date = _format_cell(telemetry_rows[-1].get("date"))
     boundary_dates = [start_date]
     boundary_dates.extend(
         _format_cell(breakpoint.get("date"))
         for breakpoint in breakpoints
         if start_date < _format_cell(breakpoint.get("date")) <= end_date
     )
-    unique_boundary_dates = sorted(set(boundary_dates))
+    unique_boundary_dates = sorted(set(boundary_dates), key=lambda value: _parse_datetime(value) or datetime.max)
     segments: list[dict[str, object]] = []
 
     for index, segment_start in enumerate(unique_boundary_dates):
         next_start = unique_boundary_dates[index + 1] if index + 1 < len(unique_boundary_dates) else ""
         if next_start:
-            parsed_next = _parse_date(next_start)
+            parsed_next = _parse_datetime(next_start)
             if parsed_next is None:
                 continue
-            segment_end = (parsed_next - timedelta(days=1)).isoformat()
+            segment_end = (parsed_next - timedelta(seconds=1)).isoformat()
         else:
             segment_end = end_date
 
-        if segment_end < segment_start:
+        segment_start_time = _parse_datetime(segment_start)
+        segment_end_time = _parse_datetime(segment_end)
+        if segment_start_time is None or segment_end_time is None or segment_end_time < segment_start_time:
             continue
 
         segments.append(
@@ -375,29 +407,12 @@ def _build_frequency_segments(
     return segments
 
 
-def _prepare_date_intervals(items: list[object]) -> list[tuple[object, str, str]]:
-    intervals: list[tuple[object, str, str]] = []
-    for item in items:
-        start_date = _date_key(_get_value(item, "startDate"))
-        end_date = _date_key(_get_value(item, "endDate")) or "9999-12-31"
-        if start_date:
-            intervals.append((item, start_date, end_date))
-    return intervals
-
-
-def _active_prepared_date_intervals(
-    intervals: list[tuple[object, str, str]],
-    point_date: str,
-) -> list[object]:
-    return [item for item, start_date, end_date in intervals if start_date <= point_date <= end_date]
-
-
 def _prepare_datetime_intervals(items: list[object]) -> list[tuple[object, datetime, datetime]]:
     intervals: list[tuple[object, datetime, datetime]] = []
     for item in items:
         start_time = _parse_datetime(_get_value(item, "startDate"))
-        end_time = _parse_datetime(_get_value(item, "endDate"))
-        if start_time is not None and end_time is not None:
+        end_time = _parse_datetime(_get_value(item, "endDate")) or datetime.max.replace(microsecond=0)
+        if start_time is not None:
             intervals.append((item, start_time, end_time))
     return intervals
 
@@ -431,6 +446,43 @@ def _events_by_date(items: list[object], date_field: str) -> dict[str, list[obje
     return events
 
 
+def _event_datetimes(items: list[object], date_field: str) -> list[datetime]:
+    event_times: list[datetime] = []
+    for item in items:
+        event_date = _parse_date(_get_value(item, date_field))
+        if event_date is not None:
+            event_times.append(datetime.combine(event_date, datetime.min.time()))
+    return sorted(set(event_times))
+
+
+def _is_first_telemetry_after_event(
+    event_times: list[datetime],
+    point_time: datetime,
+    previous_point_time: datetime | None,
+) -> bool:
+    return any(
+        event_time <= point_time
+        and (
+            previous_point_time < event_time
+            if previous_point_time is not None
+            else event_time.date() == point_time.date()
+        )
+        for event_time in event_times
+    )
+
+
+def _days_since_event(event_times: list[datetime], point_time: datetime) -> float | None:
+    latest_event_time = next((event_time for event_time in reversed(event_times) if event_time <= point_time), None)
+    if latest_event_time is None:
+        return None
+
+    return round((point_time - latest_event_time).total_seconds() / 86400, 6)
+
+
+def _nan_if_none(value: object) -> object:
+    return "NaN" if value is None else value
+
+
 def _fill_esp(row: dict[str, object], items: list[object]) -> None:
     row["esp_id"] = _join_field(items, "espId")
     row["esp_start_date"] = _join_field(items, "startDate")
@@ -453,24 +505,35 @@ def _fill_vsp(row: dict[str, object], items: list[object]) -> None:
     row["vsp_well_state_code"] = _join_field(items, "wellStateCode")
 
 
-def _fill_annotations(row: dict[str, object], annotations: list[SavedAnnotation]) -> None:
-    row["episode_ids"] = _join_field(annotations, "id")
-    row["episode_types"] = _join_field(annotations, "eventType")
-    row["episode_classifications"] = _join_values(
-        [
-            "; ".join(
-                f"{key}={value}"
-                for key, value in annotation.classification.items()
-                if value is not None
-            )
-            for annotation in annotations
-        ]
-    )
-    row["episode_confidences"] = _join_field(annotations, "confidenceEvent")
-    row["episode_start_dates"] = _join_field(annotations, "startDate")
-    row["episode_end_dates"] = _join_field(annotations, "endDate")
-    row["episode_actions"] = _join_values(["; ".join(annotation.actions) for annotation in annotations])
-    row["episode_comments"] = _join_field(annotations, "comment")
+def _fill_annotation_targets(row: dict[str, object], annotations: list[SavedAnnotation]) -> None:
+    targets: dict[str, tuple[datetime, str]] = {}
+
+    for annotation in annotations:
+        start_time = _parse_datetime(annotation.startDate) or datetime.min
+        classification = annotation.classification
+        for key, value in classification.items():
+            if value is None:
+                continue
+
+            target = CLASSIFICATION_TO_TARGET.get(f"{key}={value}")
+            if not target:
+                if key == "esp_degradation" and value == "degr_yes":
+                    target = ("target_esp_degradation", "1")
+                elif key == "productivity_trend" and value == "Kprod_growth":
+                    target = ("target_kprod_trend", "rising")
+                elif key == "water_cut_trend" and value == "WCT_decline":
+                    target = ("target_wct_trend", "falling")
+
+            if not target:
+                continue
+
+            target_column, target_value = target
+            previous_target = targets.get(target_column)
+            if previous_target is None or start_time >= previous_target[0]:
+                targets[target_column] = (start_time, target_value)
+
+    for column in TARGET_COLUMNS:
+        row[column] = targets.get(column, (datetime.min, ""))[1]
 
 
 def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None:
@@ -483,15 +546,17 @@ def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None
 
 def _fill_frequency(
     row: dict[str, object],
-    point_date: str,
-    breakpoints_by_date: dict[str, dict[str, object]],
+    point_time: datetime,
+    breakpoints_by_time: dict[datetime, dict[str, object]],
     segments: list[dict[str, object]],
 ) -> None:
     segment = next(
         (
             item
             for item in segments
-            if _format_cell(item.get("startDate")) <= point_date <= _format_cell(item.get("endDate"))
+            if (_parse_datetime(item.get("startDate")) or datetime.max)
+            <= point_time
+            <= (_parse_datetime(item.get("endDate")) or datetime.min)
         ),
         None,
     )
@@ -500,7 +565,7 @@ def _fill_frequency(
         row["frequency_segment_start_date"] = segment.get("startDate")
         row["frequency_segment_end_date"] = segment.get("endDate")
 
-    breakpoint = breakpoints_by_date.get(point_date)
+    breakpoint = breakpoints_by_time.get(point_time)
     if breakpoint:
         row["frequency_breakpoint_id"] = breakpoint.get("id")
         row["frequency_breakpoint_source"] = breakpoint.get("source")
@@ -556,7 +621,10 @@ def _build_export_rows_for_well(
     manual_breakpoints: list[FrequencyBreakpoint],
     suppressed_breakpoints: list[FrequencyBreakpointSuppression],
 ) -> list[dict[str, object]]:
-    telemetry_rows = get_well_timeseries(well_id=well_id)
+    telemetry_rows = sorted(
+        get_well_timeseries(well_id=well_id),
+        key=lambda item: _parse_datetime(item.get("date")) or datetime.max,
+    )
     if not telemetry_rows:
         return []
 
@@ -566,22 +634,33 @@ def _build_export_rows_for_well(
     auto_episode_intervals = get_well_auto_episode_intervals(well_id)
     context = get_well_context(well_id)
     well_annotations = [annotation for annotation in annotations if annotation.wellId == well_id]
-    esp_interval_index = _prepare_date_intervals(esp_periods)
+    esp_interval_index = _prepare_datetime_intervals(esp_periods)
     vsp_interval_index = _prepare_datetime_intervals(vsp_periods)
-    annotation_interval_index = _prepare_date_intervals(well_annotations)
-    auto_episode_interval_index = _prepare_date_intervals(auto_episode_intervals)
+    annotation_interval_index = _prepare_datetime_intervals(well_annotations)
+    auto_episode_interval_index = _prepare_datetime_intervals(auto_episode_intervals)
     breakpoints = _merge_frequency_breakpoints(
         _build_auto_frequency_breakpoints(telemetry_rows, well_id),
         manual_breakpoints,
         suppressed_breakpoints,
         well_id,
     )
-    breakpoints_by_date = {_format_cell(breakpoint.get("date")): breakpoint for breakpoint in breakpoints}
+    breakpoints_by_time = {
+        parsed_time: breakpoint
+        for breakpoint in breakpoints
+        if (parsed_time := _parse_datetime(breakpoint.get("date"))) is not None
+    }
     frequency_segments = _build_frequency_segments(telemetry_rows, well_id, breakpoints)
-    gtm_by_date = _events_by_date(list(context.gtm), "startDate")
-    opz_by_date = _events_by_date(list(context.opz), "date")
-    gdi_by_date = _events_by_date(list(context.gdi), "endDate")
+    gtm_items = list(context.gtm)
+    opz_items = list(context.opz)
+    gdi_items = list(context.gdi)
+    gtm_by_date = _events_by_date(gtm_items, "startDate")
+    opz_by_date = _events_by_date(opz_items, "date")
+    gdi_by_date = _events_by_date(gdi_items, "endDate")
+    gtm_event_times = _event_datetimes(gtm_items, "startDate")
+    opz_event_times = _event_datetimes(opz_items, "date")
+    gdi_event_times = _event_datetimes(gdi_items, "endDate")
     rows: list[dict[str, object]] = []
+    previous_point_time: datetime | None = None
 
     for telemetry in telemetry_rows:
         point_date = _date_key(telemetry.get("date"))
@@ -594,6 +673,9 @@ def _build_export_rows_for_well(
             "well_id": well_id,
             "field_code": _well_field_code(well_id),
             "telemetry_time": point_time,
+            "seconds_since_prev": "NaN"
+            if previous_point_time is None
+            else round((point_time - previous_point_time).total_seconds(), 6),
             "telemetry_date": point_date,
         }
 
@@ -606,26 +688,44 @@ def _build_export_rows_for_well(
                 row[f"tr_{column}"] = active_tr_row.get(column)
             row["tr_source_date"] = _date_key(active_tr_row.get("date"))
 
-        _fill_esp(row, _active_prepared_date_intervals(esp_interval_index, point_date))
+        _fill_esp(row, _active_prepared_datetime_intervals(esp_interval_index, point_time))
         _fill_vsp(row, _active_prepared_datetime_intervals(vsp_interval_index, point_time))
-        _fill_annotations(row, _active_prepared_date_intervals(annotation_interval_index, point_date))
-        _fill_auto_episodes(row, _active_prepared_date_intervals(auto_episode_interval_index, point_date))
-        _fill_frequency(row, point_date, breakpoints_by_date, frequency_segments)
+        _fill_annotation_targets(row, _active_prepared_datetime_intervals(annotation_interval_index, point_time))
+        _fill_auto_episodes(row, _active_prepared_datetime_intervals(auto_episode_interval_index, point_time))
+        _fill_frequency(row, point_time, breakpoints_by_time, frequency_segments)
         _fill_gtm(row, gtm_by_date.get(point_date, []))
         _fill_opz(row, opz_by_date.get(point_date, []))
         _fill_gdi(row, gdi_by_date.get(point_date, []))
+        row["event_gtm"] = 1 if _is_first_telemetry_after_event(gtm_event_times, point_time, previous_point_time) else ""
+        row["event_opz"] = 1 if _is_first_telemetry_after_event(opz_event_times, point_time, previous_point_time) else ""
+        row["event_gdi"] = 1 if _is_first_telemetry_after_event(gdi_event_times, point_time, previous_point_time) else ""
+        row["days_since_gtm"] = _nan_if_none(_days_since_event(gtm_event_times, point_time))
+        row["days_since_opz"] = _nan_if_none(_days_since_event(opz_event_times, point_time))
+        row["days_since_gdi"] = _nan_if_none(_days_since_event(gdi_event_times, point_time))
         rows.append(row)
+        previous_point_time = point_time
 
     return rows
 
 
-def build_graph_data_export_csv() -> str:
+def _normalize_field_codes(field_code: str | None) -> set[str]:
+    if not field_code:
+        return set()
+
+    return {item.strip() for item in field_code.split(",") if item.strip()}
+
+
+def build_graph_data_export_csv(field_code: str | None = None) -> str:
     markup = load_markup_state()
+    field_codes = _normalize_field_codes(field_code)
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
     writer.writeheader()
 
-    for well_id in get_available_well_ids():
+    for well_id in sorted(get_available_well_ids()):
+        if field_codes and _well_field_code(well_id) not in field_codes:
+            continue
+
         for row in _build_export_rows_for_well(
             well_id=well_id,
             annotations=markup.annotations,

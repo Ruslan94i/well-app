@@ -430,12 +430,24 @@
               />
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div class="rounded-md bg-slate-950/40 px-2 py-1.5">
-                  <div class="uppercase tracking-[0.14em] text-slate-500">Начало</div>
-                  <div class="mt-1 font-semibold text-slate-100">{{ selectedInterval.startDate }}</div>
+                  <label class="block uppercase tracking-[0.14em] text-slate-500" for="interval-start-input">Начало</label>
+                  <input
+                    id="interval-start-input"
+                    v-model="selectedIntervalStartInput"
+                    type="datetime-local"
+                    step="60"
+                    class="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-semibold text-slate-100 outline-none transition focus:border-sky-400"
+                  />
                 </div>
-                <div class="rounded-md bg-slate-950/40 px-2 py-1.5 text-right">
-                  <div class="uppercase tracking-[0.14em] text-slate-500">Конец</div>
-                  <div class="mt-1 font-semibold text-slate-100">{{ selectedInterval.endDate }}</div>
+                <div class="rounded-md bg-slate-950/40 px-2 py-1.5">
+                  <label class="block uppercase tracking-[0.14em] text-slate-500" for="interval-end-input">Конец</label>
+                  <input
+                    id="interval-end-input"
+                    v-model="selectedIntervalEndInput"
+                    type="datetime-local"
+                    step="60"
+                    class="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-semibold text-slate-100 outline-none transition focus:border-sky-400"
+                  />
                 </div>
               </div>
             </div>
@@ -751,6 +763,18 @@ const getWellFieldCodeFromId = (wellId: string): string => {
   const [fieldCode] = wellId.split('_')
   return fieldCode?.trim() || 'other'
 }
+const getFieldCodeFromGroupId = (groupId: WellGroupId | null): string | undefined => {
+  if (!groupId?.startsWith('field-')) {
+    return undefined
+  }
+
+  const fieldCode = groupId.slice('field-'.length)
+  if (!fieldCode || fieldCode === 'other') {
+    return undefined
+  }
+
+  return fieldCode.charAt(0).toUpperCase() + fieldCode.slice(1)
+}
 const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownFieldCodes.map((fieldCode) => ({
   label: formatFieldGroupLabel(fieldCode),
   value: getFieldGroupId(fieldCode)
@@ -869,8 +893,15 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     ]
   },
   {
+    key: 'sppv',
+    label: 'Уровень 11. СППВ',
+    options: [
+      { label: 'СППВ', value: 'sppv' }
+    ]
+  },
+  {
     key: 'esp_degradation',
-    label: 'Уровень 11. Деградация ЭЦН',
+    label: 'Уровень 12. Деградация ЭЦН',
     allowCustom: true,
     options: [
       { label: 'Деградация ЭЦН', value: 'degr_yes' }
@@ -1712,6 +1743,53 @@ const annotationBoundarySliderValue = computed<number[]>({
   }
 })
 
+function toDateTimeLocalValue(value: string | null | undefined): string {
+  const normalizedValue = normalizeAnnotationDateTime(value)
+  if (!normalizedValue) {
+    return ''
+  }
+
+  return normalizedValue.slice(0, 16)
+}
+
+const selectedIntervalStartInput = computed<string>({
+  get() {
+    return toDateTimeLocalValue(selectedInterval.value?.startDate)
+  },
+  set(value) {
+    if (!selectedInterval.value) {
+      return
+    }
+
+    const nextStart = normalizeAnnotationDateTime(value)
+    if (!nextStart) {
+      return
+    }
+
+    selectedInterval.value = buildInterval(nextStart, selectedInterval.value.endDate)
+    clearFrequencySegmentSelection()
+  }
+})
+
+const selectedIntervalEndInput = computed<string>({
+  get() {
+    return toDateTimeLocalValue(selectedInterval.value?.endDate)
+  },
+  set(value) {
+    if (!selectedInterval.value) {
+      return
+    }
+
+    const nextEnd = normalizeAnnotationDateTime(value)
+    if (!nextEnd) {
+      return
+    }
+
+    selectedInterval.value = buildInterval(selectedInterval.value.startDate, nextEnd)
+    clearFrequencySegmentSelection()
+  }
+})
+
 function toIsoDate(timestamp: number | null | undefined): string | undefined {
   if (!timestamp) {
     return undefined
@@ -1797,6 +1875,22 @@ function createFrequencyBreakpointId(source: FrequencyBreakpoint['source'], well
 }
 
 function toTimestamp(value: string): number {
+  const normalizedValue = normalizeAnnotationDateTime(value)
+  const match = normalizedValue?.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2})(?::(\d{2})(?::(\d{2}))?)?)?$/
+  )
+
+  if (match) {
+    return Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4] ?? 0),
+      Number(match[5] ?? 0),
+      Number(match[6] ?? 0)
+    )
+  }
+
   return new Date(value).getTime()
 }
 
@@ -2771,11 +2865,13 @@ async function downloadGraphDataExport(): Promise<void> {
   graphDataExporting.value = true
 
   try {
-    const blob = await fetchGraphDataExportCsv()
+    const fieldCode = getFieldCodeFromGroupId(navigationGroupId.value)
+    const blob = await fetchGraphDataExportCsv(fieldCode ? { field_code: fieldCode } : undefined)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
+    const fieldSuffix = fieldCode ? `_${fieldCode}` : ''
     link.href = url
-    link.download = `well_graph_data_${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `well_graph_data${fieldSuffix}_${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
   } catch {

@@ -11,34 +11,47 @@
       :class="{ 'frequency-segment-hover': hoveredFrequencySegmentId }"
       @wheel.prevent="handleChartWheel"
     ></div>
-    <div class="chart-range-toolbar" @wheel.prevent="handleChartWheel">
-      <button
-        v-for="preset in rangePresets"
-        :key="preset.key"
-        type="button"
-        class="chart-range-button"
-        @click="applyRangePreset(preset)"
-      >
-        {{ preset.label }}
-      </button>
-      <button
-        type="button"
-        class="chart-range-button"
-        :class="{ 'is-active': zoomSelectionArmed }"
-        title="Выделите область графика для увеличения"
-        @click="armZoomSelection"
-      >
-        Выделение
-      </button>
-      <button
-        type="button"
-        class="chart-range-button"
-        :disabled="!zoomSelectionArmed && zoomHistory.length === 0"
-        title="Вернуться к предыдущему масштабу"
-        @click="undoZoom"
-      >
-        Отмена
-      </button>
+    <div class="chart-range-toolbar" :class="{ 'is-open': rangeToolbarOpen }" @wheel.prevent="handleChartWheel">
+      <div class="chart-range-toolbar-header">
+        <button
+          type="button"
+          class="chart-range-toggle"
+          :aria-expanded="rangeToolbarOpen"
+          @click="rangeToolbarOpen = !rangeToolbarOpen"
+        >
+          Масштаб
+        </button>
+        <span v-if="rangeToolbarOpen">колесо - zoom, ползунок - сдвиг</span>
+      </div>
+      <div v-if="rangeToolbarOpen" class="chart-range-toolbar-actions">
+        <button
+          v-for="preset in rangePresets"
+          :key="preset.key"
+          type="button"
+          class="chart-range-button"
+          @click="applyRangePreset(preset)"
+        >
+          {{ preset.label }}
+        </button>
+        <button
+          type="button"
+          class="chart-range-button"
+          :class="{ 'is-active': zoomSelectionArmed }"
+          title="Выделите область графика для увеличения"
+          @click="armZoomSelection"
+        >
+          Выделение
+        </button>
+        <button
+          type="button"
+          class="chart-range-button"
+          :disabled="!zoomSelectionArmed && zoomHistory.length === 0"
+          title="Вернуться к предыдущему масштабу"
+          @click="undoZoom"
+        >
+          Отмена
+        </button>
+      </div>
     </div>
     <div class="pointer-events-none absolute inset-0 z-[12]">
       <div
@@ -437,6 +450,7 @@ const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
 const zoomSelectionArmed = ref(false)
 const zoomHistory = ref<VisibleDateRange[]>([])
+const rangeToolbarOpen = ref(false)
 const telemetryPointTimes = computed(() => props.data.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
 const trPointTimes = computed(() => props.trMonitoringData.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
 let suppressBackgroundClickUntil = 0
@@ -618,7 +632,8 @@ function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null 
     'water_cut_trend:WCT_decline': '#d6a46f',
     'productivity_trend:Kprod_growth': '#38bdf8',
     'productivity_trend:Kprod_decline': '#ff2d2d',
-    'complicated_fund:slozhn_fond': '#f97316'
+    'complicated_fund:slozhn_fond': '#f97316',
+    'sppv:sppv': '#2dd4bf'
   }
 
   for (const level of props.classificationLevels) {
@@ -676,7 +691,8 @@ function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel
     water_cut_trend: '8. Вода',
     productivity_trend: '9. Кпрод',
     complicated_fund: '10. Осл.',
-    esp_degradation: '11. Дегр.'
+    sppv: '11. СППВ',
+    esp_degradation: '12. Дегр.'
   }
 
   return labels[level.key] ?? level.label.replace(/^Уровень\s+/i, '')
@@ -2713,6 +2729,7 @@ function pushZoomHistory(): void {
 
 function armZoomSelection(): void {
   zoomSelectionArmed.value = true
+  rangeToolbarOpen.value = false
   clickSelectionStart.value = null
   emit('interval-selected', null)
 }
@@ -2720,6 +2737,7 @@ function armZoomSelection(): void {
 function undoZoom(): void {
   if (zoomSelectionArmed.value) {
     zoomSelectionArmed.value = false
+    rangeToolbarOpen.value = false
     return
   }
 
@@ -2734,6 +2752,7 @@ function undoZoom(): void {
   if (startMs !== null && endMs !== null && endMs > startMs) {
     setVisibleDateRange([startMs, endMs])
   }
+  rangeToolbarOpen.value = false
 }
 
 function applyRangePreset(preset: RangePreset) {
@@ -2744,6 +2763,7 @@ function applyRangePreset(preset: RangePreset) {
 
   pushZoomHistory()
   zoomSelectionArmed.value = false
+  rangeToolbarOpen.value = false
 
   if (preset.key === 'all') {
     setVisibleDateRange(fullRange)
@@ -3804,19 +3824,76 @@ onBeforeUnmount(() => {
 
 .chart-range-toolbar {
   position: absolute;
-  right: 58px;
+  right: 14px;
   top: 14px;
   z-index: 16;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: 520px;
-  gap: 6px;
+  flex-direction: column;
+  width: auto;
+  gap: 7px;
   border: 1px solid rgba(71, 85, 105, 0.86);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.9);
-  padding: 6px;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 5px;
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+}
+
+.chart-range-toolbar.is-open {
+  width: min(500px, calc(100% - 260px));
+  background: rgba(15, 23, 42, 0.9);
+  padding: 8px;
+}
+
+.chart-range-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.chart-range-toggle {
+  border: 1px solid rgba(100, 116, 139, 0.68);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.86);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  padding: 7px 9px;
+  text-transform: uppercase;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.chart-range-toggle:hover {
+  border-color: rgba(125, 211, 252, 0.76);
+  background: rgba(14, 165, 233, 0.18);
+  color: #f8fafc;
+}
+
+.chart-range-toolbar-header span:last-child {
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.chart-range-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .chart-range-button {
