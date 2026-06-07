@@ -651,6 +651,10 @@ function getSavedAnnotationColor(annotation: SavedAnnotation): string {
   return getAnnotationCategoryColor(annotation) ?? getAnnotationColor(annotation.eventType)
 }
 
+function isModelAnnotation(annotation: SavedAnnotation): boolean {
+  return annotation.id.startsWith('auto-l1-state-') || annotation.id.startsWith('auto-inference-')
+}
+
 function getAnnotationLevelIndex(annotation: SavedAnnotation): number {
   const levelIndex = props.classificationLevels.findIndex((level) => Boolean(annotation.classification?.[level.key]))
   return levelIndex >= 0 ? levelIndex : 0
@@ -1314,9 +1318,13 @@ function buildSavedAnnotationTrace() {
           color: visibleAnnotations.map((item) =>
             item.annotation.id === props.selectedAnnotationId
               ? '#f8fafc'
+              : isModelAnnotation(item.annotation)
+                ? 'rgba(226, 232, 240, 0.92)'
               : getSavedAnnotationColor(item.annotation)
           ),
-          width: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 3 : 1.5))
+          width: visibleAnnotations.map((item) =>
+            item.annotation.id === props.selectedAnnotationId ? 3 : isModelAnnotation(item.annotation) ? 2.2 : 1.5
+          )
         },
         opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
       },
@@ -1325,9 +1333,10 @@ function buildSavedAnnotationTrace() {
       customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
         annotationId: item.annotation.id,
-        source: item.annotation.id.startsWith('auto-l1-state-') ? ('model' as const) : ('manual' as const),
+        source: isModelAnnotation(item.annotation) ? ('model' as const) : ('manual' as const),
         layer: 'event' as const,
         annotationKind: getAnnotationLevelLabel(item.annotation),
+        sourceLabel: isModelAnnotation(item.annotation) ? 'Авторазметка' : 'Ручная разметка',
         startDate: item.annotation.startDate,
         endDate: item.annotation.endDate,
         durationDays: item.annotation.durationDays,
@@ -1336,7 +1345,7 @@ function buildSavedAnnotationTrace() {
         actionsText: item.annotation.actions?.length ? item.annotation.actions.join(', ') : 'не назначены'
       })),
       hovertemplate:
-        '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.sourceLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Мероприятия: %{customdata.actionsText}<br>' +
         'Длительность: %{customdata.durationDays} сут.<extra></extra>'
     }
@@ -2009,7 +2018,7 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
   const categoryLabel = getAnnotationCategoryLabel(annotation)
   return {
     annotationId: annotation.id,
-    source: annotation.id.startsWith('auto-l1-state-') ? 'model' : 'manual',
+    source: isModelAnnotation(annotation) ? 'model' : 'manual',
     layer: 'event',
     label: categoryLabel,
     startDate: annotation.startDate,

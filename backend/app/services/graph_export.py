@@ -31,6 +31,7 @@ CLASSIFICATION_TO_TARGET = {
     "gdi=gdi": ("target_gdi", "1"),
     "complicated_fund=slozhn_fond": ("target_complicated_fund", "1"),
     "sppv=sppv": ("target_sppv", "1"),
+    "esp_degradation=degr_yes": ("target_esp_degradation", "1"),
 }
 TARGET_COLUMNS = [
     "target_well_state",

@@ -763,18 +763,6 @@ const getWellFieldCodeFromId = (wellId: string): string => {
   const [fieldCode] = wellId.split('_')
   return fieldCode?.trim() || 'other'
 }
-const getFieldCodeFromGroupId = (groupId: WellGroupId | null): string | undefined => {
-  if (!groupId?.startsWith('field-')) {
-    return undefined
-  }
-
-  const fieldCode = groupId.slice('field-'.length)
-  if (!fieldCode || fieldCode === 'other') {
-    return undefined
-  }
-
-  return fieldCode.charAt(0).toUpperCase() + fieldCode.slice(1)
-}
 const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownFieldCodes.map((fieldCode) => ({
   label: formatFieldGroupLabel(fieldCode),
   value: getFieldGroupId(fieldCode)
@@ -2865,13 +2853,11 @@ async function downloadGraphDataExport(): Promise<void> {
   graphDataExporting.value = true
 
   try {
-    const fieldCode = getFieldCodeFromGroupId(navigationGroupId.value)
-    const blob = await fetchGraphDataExportCsv(fieldCode ? { field_code: fieldCode } : undefined)
+    const blob = await fetchGraphDataExportCsv()
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    const fieldSuffix = fieldCode ? `_${fieldCode}` : ''
     link.href = url
-    link.download = `well_graph_data${fieldSuffix}_${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `well_graph_data_${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
   } catch {
