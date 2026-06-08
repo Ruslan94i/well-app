@@ -1,85 +1,101 @@
 # Well App
 
-Прототип интерфейса для анализа временных рядов, событий и мок-данных по скважинам.
+Well App - прототип приложения для инженерного анализа скважинной динамики, просмотра телеметрии и многоуровневой разметки эпизодов. Проект помогает сравнивать временные ряды, контекстные события, установленное ЭЦН-оборудование, ручную разметку и авторазметку на едином графике.
 
-## Быстрый запуск
+## Возможности
 
-Открой Git Bash в корне проекта и выполни:
+- Просмотр телеметрии скважин с масштабированием по времени, быстрыми пресетами зума и прокруткой окна.
+- Отображение контекстных треков: ГТМ / ОПЗ / ГДИ, ВСП, установленный ЭЦН, ручная разметка и авторазметка.
+- Многоуровневая ручная разметка эпизодов: работа/остановка, ГДИ, УВЧ, РПТЧ, периодическая работа, НУР, тренды Рпл, обводненность, Кпрод, СППВ, осложненный фонд, деградация ЭЦН.
+- Импорт результатов rule-based / ML-инференса авторазметки в слой `auto-inference`.
+- Экспорт графовых данных в CSV для подготовки ML-датасета.
+- Вкладка настройки модели авторазметки с параметрами правил по группам месторождений и сохранением настроек в `localStorage`.
 
-```bash
-./run-dev.sh
-```
+## Стек
 
-Если не запускается:
+- Backend: FastAPI, Uvicorn, Pydantic Settings, Polars, NumPy.
+- Frontend: Vue 3, Vite, TypeScript, Tailwind CSS, Naive UI, Plotly.
+- Запуск: локально через Python/Node.js или через Docker Compose.
+
+## Быстрый запуск локально
+
+Из корня проекта:
 
 ```bash
 bash run-dev.sh
 ```
 
+Обычно сервисы будут доступны здесь:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+
+Если нужно запустить вручную:
+
+```bash
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+```bash
+cd frontend
+npm run dev
+```
+
 ## Запуск через Docker Compose
 
-1. Создай корневой `.env` из шаблона:
+Создайте `.env` из шаблона:
 
 ```bash
 cp .env.example .env
 ```
 
-2. При необходимости измени порты в `.env`:
+Проверьте порты:
 
 ```env
 BACKEND_PORT=8000
 FRONTEND_PORT=5173
 ```
 
-3. Запусти сервисы:
+Запустите:
 
 ```bash
 docker compose up --build
 ```
 
-После запуска будут доступны:
+## Данные и разметка
 
-* Backend: `http://localhost:<BACKEND_PORT из .env>`
-* Frontend: `http://localhost:<FRONTEND_PORT из .env>`
+- `backend/data/` - локальные данные приложения и сохраненная разметка.
+- `backend/data/markup.json` - основное хранилище ручной и автоматической разметки.
+- `backend/scripts/import_rule_based_inference.py` - импорт multilabel CSV-инференса в слой авторазметки.
 
-## Что поднимется
+Важно: файлы данных и разметки не удаляются без явного решения пользователя.
 
-* Backend: `http://127.0.0.1:8000`
-* Frontend: обычно `http://localhost:5173`
-  если порт занят, Vite выберет следующий: `5174`, `5175` и т.д.
+## Проверки
 
-## Настройки frontend
-
-Создай файл `frontend/.env`:
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
-VITE_USE_MOCK_TELEMETRY=true
-VITE_USE_MOCK_EVENTS=true
-```
-
-## Ручной запуск
-
-### Backend
+Backend:
 
 ```bash
-cd backend
-py -m venv .venv
-./.venv/Scripts/python.exe -m pip install -r requirements.txt
-./.venv/Scripts/python.exe -m uvicorn app.main:app --reload
+backend\.venv\Scripts\python.exe -m compileall backend\app backend\scripts
 ```
 
-### Frontend
+Frontend:
 
 ```bash
 cd frontend
-npm install
-npm run dev
+npm run build
 ```
 
-## Что уже настроено
+Проверка доступности frontend:
 
-* включён mock-режим telemetry
-* есть fallback на mock data при ошибке API
-* восстановлены mock time series
-* восстановлены mock event tracks
+```powershell
+Invoke-WebRequest -UseBasicParsing http://localhost:5173/ | Select-Object -ExpandProperty StatusCode
+```
+
+## GitHub Description
+
+Рекомендуемое описание репозитория:
+
+```text
+Well App: анализ скважинной телеметрии, ЭЦН-контекста, ручной и автоматической разметки эпизодов для ML-датасетов.
+```
