@@ -78,7 +78,7 @@
                     :class="isInteractionMode('modelTuning') ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
                     @click="interactionMode = 'modelTuning'"
                   >
-                    Подбор модели
+                    Настройка модели
                   </button>
                 </div>
               </div>
@@ -546,132 +546,158 @@
 
       <section v-else>
         <div class="panel rounded-2xl p-5">
-          <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div class="space-y-4">
-              <div class="rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-4">
-                <div class="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label class="mb-2 block text-sm font-medium text-slate-300">Группа</label>
-                    <n-select
-                      v-model:value="modelSelectedGroupId"
-                      :options="wellGroupOptions"
-                      placeholder="Выберите группу"
-                    />
-                  </div>
-
-                  <div>
-                    <label class="mb-2 block text-sm font-medium text-slate-300">Использовать настройки из группы</label>
-                    <div class="flex gap-2">
-                      <n-select
-                        v-model:value="copySettingsFromGroupId"
-                        :options="copySourceGroupOptions"
-                        clearable
-                        placeholder="Выберите группу"
-                        class="flex-1"
-                      />
-                      <n-button secondary @click="copyModelSettingsFromGroup">Копировать</n-button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="rounded-xl border border-slate-700 bg-slate-800/90 px-4 py-4">
-                <div class="text-sm font-semibold text-slate-100">Влияние параметров</div>
-                <div class="mt-1 text-xs text-slate-400">
-                  Оценивайте относительную важность инженерных признаков поведения скважины и реакции на воздействия.
-                </div>
-
-                <div class="mt-3 space-y-3">
-                  <div
-                    v-for="group in modelInfluenceParameterGroups"
-                    :key="group.key"
-                    class="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-3"
-                  >
-                    <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{{ group.label }}</div>
-                    <div class="mt-3 grid gap-3 md:grid-cols-2">
-                      <div
-                        v-for="parameter in group.features"
-                        :key="parameter.key"
-                        class="rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-2.5"
-                      >
-                        <label class="mb-2 block text-sm text-slate-300">{{ parameter.label }}</label>
-                        <n-select
-                          v-model:value="currentModelSettings.parameterImportances[parameter.key]"
-                          :options="importanceLevelOptions"
-                          size="small"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-4">
-                <div class="text-sm font-semibold text-slate-100">Расширенные настройки</div>
-
-                <div class="mt-3 rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-3">
-                  <div class="text-sm font-semibold text-slate-100">Алгоритм модели</div>
-                  <div class="mt-3 grid gap-2 md:grid-cols-2">
-                    <button
-                      v-for="option in modelAlgorithmOptions"
-                      :key="option.value"
-                      class="rounded-xl border px-3 py-3 text-left transition"
-                      :class="
-                        currentModelSettings.algorithm === option.value
-                          ? 'border-sky-400 bg-sky-950/30'
-                          : 'border-slate-700 bg-slate-900/50 hover:bg-slate-800'
-                      "
-                      @click="currentModelSettings.algorithm = option.value"
-                    >
-                      <div class="text-sm font-semibold text-slate-100">{{ option.label }}</div>
-                      <div class="mt-1 text-xs leading-5 text-slate-300">{{ option.help }}</div>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="mt-3 rounded-lg border border-slate-700 bg-slate-800/90 px-3 py-3">
-                  <div class="text-sm font-semibold text-slate-100">Разделение данных</div>
-                  <div class="mt-1 text-xs text-slate-400">Обучение / проверка модели</div>
-                  <n-radio-group v-model:value="currentModelSettings.split" class="mt-3 block">
-                    <div class="flex flex-wrap gap-4">
-                      <n-radio
-                        v-for="option in modelSplitOptions"
-                        :key="option.value"
-                        :value="option.value"
-                        :label="option.label"
-                      />
-                    </div>
-                  </n-radio-group>
-                </div>
-              </div>
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-100">Настройка модели авторазметки</h2>
+              <p class="mt-1 max-w-xl text-sm leading-6 text-slate-400">
+                Правила и пороги настраиваются отдельно для каждого месторождения.
+              </p>
             </div>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+              <n-button class="min-w-40" secondary size="large" @click="resetCurrentModelGroup">
+                Сбросить<br />группу
+              </n-button>
+              <n-button class="min-w-52" type="primary" size="large" @click="applyCurrentModelParams">
+                Запустить инференс ↗
+              </n-button>
+            </div>
+          </div>
 
-            <aside class="space-y-4">
-              <div class="rounded-xl border border-slate-700 bg-slate-800/90 px-4 py-4">
-                <div class="text-sm font-semibold text-slate-100">R² для выбранной группы</div>
-                <div class="mt-3 text-4xl font-semibold text-slate-100">
-                  {{ currentGroupR2 !== null ? currentGroupR2.toFixed(2) : '—' }}
-                </div>
-                <div class="mt-2 text-xs leading-5 text-slate-400">
-                  Качество рассчитывается mock-логикой и зависит от алгоритма, разбиения и важности выбранных признаков.
-                </div>
-                <n-button class="mt-4" type="primary" block @click="recalculateModelQuality">Пересчитать</n-button>
-              </div>
+          <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3">
+            <div class="mr-2 text-sm text-slate-300">Группа:</div>
+            <button
+              v-for="group in modelFieldGroups"
+              :key="group.value"
+              class="relative rounded-lg border px-4 py-2 text-sm font-medium transition"
+              :class="
+                modelSelectedGroupId === group.value
+                  ? 'border-sky-400 bg-slate-700 text-slate-100'
+                  : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'
+              "
+              @click="modelSelectedGroupId = group.value"
+            >
+              {{ group.label }}
+              <span
+                v-if="hasModelGroupOverrides(group.value)"
+                class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-orange-400 shadow shadow-orange-950"
+              />
+            </button>
+          </div>
 
-              <div class="rounded-xl border border-slate-700 bg-slate-800/90 px-4 py-4">
-                <div class="text-sm font-semibold text-slate-100">Качество по группам</div>
-                <div class="mt-3 space-y-2">
-                  <div
-                    v-for="row in modelQualityRows"
-                    :key="row.groupId"
-                    class="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2"
-                  >
-                    <div class="text-sm text-slate-300">{{ row.label }}</div>
-                    <div class="text-sm font-semibold text-slate-100">{{ row.r2 !== null ? row.r2.toFixed(2) : '—' }}</div>
-                  </div>
-                </div>
+          <div class="mt-4 inline-flex rounded-xl border border-slate-700 bg-slate-950/50 p-0.5">
+            <button
+              class="rounded-lg px-4 py-2 text-sm font-medium transition"
+              :class="modelPanelTab === 'rules' ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
+              @click="modelPanelTab = 'rules'"
+            >
+              Правила и параметры
+            </button>
+            <button
+              class="rounded-lg px-4 py-2 text-sm font-medium transition"
+              :class="modelPanelTab === 'quality' ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
+              @click="modelPanelTab = 'quality'"
+            >
+              Качество разметки
+            </button>
+          </div>
+
+          <div class="mt-4 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+            <aside class="space-y-3">
+              <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Категории</div>
+              <div class="space-y-2">
+                <button
+                  v-for="category in modelRuleCategories"
+                  :key="category.key"
+                  class="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm transition"
+                  :class="
+                    modelSelectedCategoryKey === category.key && modelPanelTab === 'rules'
+                      ? 'border-sky-400 bg-slate-700/80 text-slate-100'
+                      : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800'
+                  "
+                  @click="selectModelRuleCategory(category.key)"
+                >
+                  <span class="h-3 w-3 rounded-sm" :style="{ backgroundColor: category.color }" />
+                  <span>{{ category.label }}</span>
+                </button>
               </div>
             </aside>
+
+            <section class="rounded-xl border border-slate-700 bg-slate-800/90 p-5">
+              <template v-if="modelPanelTab === 'rules'">
+                <div>
+                  <h3 class="text-base font-semibold text-slate-100">{{ activeModelRuleCategory.label }}</h3>
+                  <p class="mt-2 text-sm leading-6 text-slate-400">{{ activeModelRuleCategory.description }}</p>
+                </div>
+
+                <pre class="mt-4 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950/80 px-4 py-3 text-xs leading-6 text-slate-300">{{ activeModelRuleCategory.pseudocode }}</pre>
+
+                <div class="mt-5 border-t border-slate-700 pt-4">
+                  <div
+                    v-for="parameter in activeModelRuleParameters"
+                    :key="parameter.key"
+                    class="grid gap-3 border-b border-slate-800 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_220px_90px] md:items-center"
+                  >
+                    <div>
+                      <div class="text-sm font-medium text-slate-200">{{ parameter.label }}</div>
+                      <div class="mt-1 text-xs text-slate-500">{{ parameter.key }}</div>
+                    </div>
+                    <n-slider
+                      :value="getModelParamValue(parameter.key)"
+                      :min="parameter.min"
+                      :max="parameter.max"
+                      :step="parameter.step"
+                      @update:value="setModelParamValue(parameter.key, Number($event))"
+                    />
+                    <div class="text-right text-sm font-semibold text-slate-100">
+                      {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <template v-else>
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 class="text-base font-semibold text-slate-100">Качество разметки</h3>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                      Сводка по месторождениям для контроля обучающей выборки.
+                    </p>
+                  </div>
+                  <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
+                    Ic + Vt: 44% на 57K строк
+                  </div>
+                </div>
+
+                <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div
+                    v-for="row in modelQualityRows"
+                    :key="row.field"
+                    class="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-3"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="text-sm font-semibold text-slate-100">{{ row.field }}</div>
+                      <div class="text-xs text-slate-400">{{ row.rows }} строк</div>
+                    </div>
+                    <div class="mt-3 h-2 rounded-full bg-slate-950">
+                      <div class="h-2 rounded-full bg-sky-400" :style="{ width: `${row.pct}%` }" />
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-xs text-slate-400">
+                      <span>{{ row.wells }} скв.</span>
+                      <span class="font-semibold text-slate-200">{{ row.pct }}%</span>
+                    </div>
+                    <div class="mt-2 text-xs leading-5 text-slate-500">{{ row.note }}</div>
+                  </div>
+                </div>
+              </template>
+            </section>
+          </div>
+
+          <div class="mt-5 flex flex-col gap-3 border-t border-slate-700 pt-4 lg:flex-row lg:items-center lg:justify-between">
+            <div class="text-sm text-slate-400">Группа: {{ getModelGroupLabel(modelSelectedGroupId) }}</div>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+              <n-button secondary @click="showModelChanges">Что изменилось ↗</n-button>
+              <n-button type="primary" @click="applyCurrentModelParams">Применить и пересчитать ↗</n-button>
+            </div>
           </div>
         </div>
       </section>
@@ -969,34 +995,64 @@ const modelFeatureGroups = [
   }
 ] as const
 
-type ModelAlgorithm = 'catboost' | 'gradient_boosting'
-type ModelSplit = '70_30' | '80_20' | '90_10'
-type ImportanceLevel = 'none' | 'medium' | 'high'
+interface ModelParams {
+  stop_freq_hz: number
+  stop_min_dur_min: number
+  gdi_rise_bar: number
+  gdi_rise_bar_first: number
+  gdi_min_work_before_d: number
+  uvch_freq_rise_hz: number
+  uvch_confirm_days: number
+  rptch_freq_std_hz: number
+  rptch_density_pct: number
+  rptch_fill_gap_days: number
+  nur_var_thr: number
+  nur_max_days: number
+  nur_stable_days: number
+  per_min_period_d: number
+  per_max_period_d: number
+  per_min_stops: number
+  per_min_ratio_pct: number
+  snizh_rpl_bar: number
+  rost_rpl_bar: number
+  rost_rpl_max_stops: number
+  rpl_fallback_bar: number
+  wcut_rise_pct: number
+  kprod_drop_bar: number
+  kprod_drop_bar_nur: number
+  kprod_max_freq_hz: number
+  kprod_qliq_drop: number
+  sppv_bdpv_min: number
+}
 
-type ModelInfluenceKey =
-  | 'qliq'
-  | 'qoil'
-  | 'water_cut'
-  | 'intake_pressure'
-  | 'esp_frequency'
-  | 'load'
-  | 'rate_change_speed'
-  | 'water_cut_change_speed'
-  | 'pressure_change_speed'
-  | 'frequency_change_speed'
-  | 'sharp_change'
-  | 'instability'
-  | 'oscillation'
-  | 'deviation_from_mean'
-  | 'deviation_from_trend'
-  | 'reaction_to_frequency_change'
-  | 'opz'
-  | 'esp_change'
+type ModelParamKey = keyof ModelParams
+type ModelPanelTab = 'rules' | 'quality'
 
-interface ModelGroupSettings {
-  algorithm: ModelAlgorithm
-  split: ModelSplit
-  parameterImportances: Record<ModelInfluenceKey, ImportanceLevel>
+interface ModelParamDefinition {
+  key: ModelParamKey
+  label: string
+  min: number
+  max: number
+  step: number
+  unit: string
+  defaultValue: number
+}
+
+interface ModelRuleCategory {
+  key: string
+  label: string
+  color: string
+  description: string
+  pseudocode: string
+  paramKeys: ModelParamKey[]
+}
+
+interface ModelQualityRow {
+  field: string
+  wells: number
+  rows: string
+  pct: number
+  note: string
 }
 
 interface PersistedUiState {
@@ -1035,104 +1091,174 @@ interface AnalysisDrillDown {
   confidenceExplanation: string
 }
 
-const modelAlgorithmOptions = [
-  { value: 'catboost' as const, label: 'CatBoost', help: 'CatBoost — устойчив к шуму' },
-  { value: 'gradient_boosting' as const, label: 'Gradient Boosting', help: 'Gradient Boosting — быстрее, но менее устойчив' }
-]
+const MODEL_PARAMS_STORAGE_PREFIX = 'model-params-'
 
-const modelSplitOptions = [
-  { value: '70_30' as const, label: '70 / 30' },
-  { value: '80_20' as const, label: '80 / 20' },
-  { value: '90_10' as const, label: '90 / 10' }
-]
-
-const importanceLevelOptions = [
-  { value: 'none' as const, label: 'Нет' },
-  { value: 'medium' as const, label: 'Средняя' },
-  { value: 'high' as const, label: 'Высокая' }
-]
-
-const modelInfluenceParameterGroups: {
-  key: string
-  label: string
-  features: { key: ModelInfluenceKey; label: string }[]
-}[] = [
-  {
-    key: 'base-parameters',
-    label: 'Базовые параметры',
-    features: [
-      { key: 'qliq', label: 'Дебит жидкости' },
-      { key: 'qoil', label: 'Дебит нефти' },
-      { key: 'water_cut', label: 'Обводненность' },
-      { key: 'intake_pressure', label: 'Давление на приеме' },
-      { key: 'esp_frequency', label: 'Частота ЭЦН' },
-      { key: 'load', label: 'Загрузка' }
-    ]
-  },
-  {
-    key: 'change-dynamics',
-    label: 'Динамика изменений',
-    features: [
-      { key: 'rate_change_speed', label: 'Скорость изменения дебита' },
-      { key: 'water_cut_change_speed', label: 'Скорость изменения обводненности' },
-      { key: 'pressure_change_speed', label: 'Скорость изменения давления' },
-      { key: 'frequency_change_speed', label: 'Скорость изменения частоты' },
-      { key: 'sharp_change', label: 'Резкие изменения' }
-    ]
-  },
-  {
-    key: 'stability',
-    label: 'Устойчивость',
-    features: [
-      { key: 'instability', label: 'Нестабильность параметров' },
-      { key: 'oscillation', label: 'Колебания' }
-    ]
-  },
-  {
-    key: 'deviations',
-    label: 'Отклонения',
-    features: [
-      { key: 'deviation_from_mean', label: 'Отклонение от среднего' },
-      { key: 'deviation_from_trend', label: 'Отклонение от тренда' }
-    ]
-  },
-  {
-    key: 'control-actions',
-    label: 'Управляющие воздействия',
-    features: [
-      { key: 'reaction_to_frequency_change', label: 'Реакция на изменение частоты ЭЦН' },
-      { key: 'esp_change', label: 'Смена ЭЦН' },
-      { key: 'opz', label: 'ОПЗ' }
-    ]
-  }
-]
-
-function createDefaultModelSettings(): ModelGroupSettings {
-  return {
-    algorithm: 'catboost',
-    split: '80_20',
-    parameterImportances: {
-      qliq: 'medium',
-      qoil: 'medium',
-      water_cut: 'medium',
-      intake_pressure: 'medium',
-      esp_frequency: 'medium',
-      load: 'medium',
-      rate_change_speed: 'medium',
-      water_cut_change_speed: 'medium',
-      pressure_change_speed: 'medium',
-      frequency_change_speed: 'medium',
-      sharp_change: 'medium',
-      instability: 'medium',
-      oscillation: 'medium',
-      deviation_from_mean: 'medium',
-      deviation_from_trend: 'medium',
-      reaction_to_frequency_change: 'medium',
-      opz: 'medium',
-      esp_change: 'medium'
-    }
-  }
+const DEFAULT_MODEL_PARAMS: ModelParams = {
+  stop_freq_hz: 5,
+  stop_min_dur_min: 30,
+  gdi_rise_bar: 3,
+  gdi_rise_bar_first: 10,
+  gdi_min_work_before_d: 1,
+  uvch_freq_rise_hz: 1,
+  uvch_confirm_days: 3,
+  rptch_freq_std_hz: 5,
+  rptch_density_pct: 30,
+  rptch_fill_gap_days: 5,
+  nur_var_thr: 0.3,
+  nur_max_days: 14,
+  nur_stable_days: 3,
+  per_min_period_d: 1,
+  per_max_period_d: 5,
+  per_min_stops: 3,
+  per_min_ratio_pct: 30,
+  snizh_rpl_bar: 3,
+  rost_rpl_bar: 3,
+  rost_rpl_max_stops: 5,
+  rpl_fallback_bar: 3,
+  wcut_rise_pct: 3,
+  kprod_drop_bar: 5,
+  kprod_drop_bar_nur: 8,
+  kprod_max_freq_hz: 0.5,
+  kprod_qliq_drop: 3,
+  sppv_bdpv_min: 20
 }
+
+const modelFieldGroups: { label: string; value: string }[] = [
+  { label: 'Все скважины', value: 'all' },
+  { label: 'Ic', value: 'Ic' },
+  { label: 'Vt', value: 'Vt' },
+  { label: 'Ya', value: 'Ya' },
+  { label: 'Au', value: 'Au' },
+  { label: 'Mc', value: 'Mc' },
+  { label: 'Az', value: 'Az' }
+]
+
+const modelParamDefinitions: ModelParamDefinition[] = [
+  { key: 'stop_freq_hz', label: 'Порог остановки по частоте', min: 1, max: 10, step: 0.5, unit: 'Гц', defaultValue: 5 },
+  { key: 'stop_min_dur_min', label: 'Минимальная длительность остановки', min: 15, max: 240, step: 15, unit: 'мин', defaultValue: 30 },
+  { key: 'gdi_rise_bar', label: 'Рост давления для ГДИ', min: 1, max: 20, step: 1, unit: 'бар', defaultValue: 3 },
+  { key: 'gdi_rise_bar_first', label: 'Первый скачок давления для ГДИ', min: 5, max: 30, step: 1, unit: 'бар', defaultValue: 10 },
+  { key: 'gdi_min_work_before_d', label: 'Работа перед ГДИ', min: 0, max: 7, step: 1, unit: 'сут', defaultValue: 1 },
+  { key: 'uvch_freq_rise_hz', label: 'Прирост частоты для УВЧ', min: 1, max: 10, step: 1, unit: 'Гц', defaultValue: 1 },
+  { key: 'uvch_confirm_days', label: 'Подтверждение УВЧ', min: 1, max: 7, step: 1, unit: 'сут', defaultValue: 3 },
+  { key: 'rptch_freq_std_hz', label: 'Размах/STD частоты для РПТЧ', min: 2, max: 20, step: 1, unit: 'Гц', defaultValue: 5 },
+  { key: 'rptch_density_pct', label: 'Плотность РПТЧ', min: 10, max: 60, step: 5, unit: '%', defaultValue: 30 },
+  { key: 'rptch_fill_gap_days', label: 'Заполнение зазоров РПТЧ', min: 1, max: 14, step: 1, unit: 'сут', defaultValue: 5 },
+  { key: 'nur_var_thr', label: 'Порог вариативности НУР', min: 0.1, max: 1, step: 0.1, unit: '', defaultValue: 0.3 },
+  { key: 'nur_max_days', label: 'Максимальная длительность НУР', min: 3, max: 21, step: 1, unit: 'сут', defaultValue: 14 },
+  { key: 'nur_stable_days', label: 'Дни стабилизации после НУР', min: 1, max: 5, step: 1, unit: 'сут', defaultValue: 3 },
+  { key: 'per_min_period_d', label: 'Минимальный период', min: 1, max: 4, step: 1, unit: 'сут', defaultValue: 1 },
+  { key: 'per_max_period_d', label: 'Максимальный период', min: 2, max: 10, step: 1, unit: 'сут', defaultValue: 5 },
+  { key: 'per_min_stops', label: 'Минимум остановок', min: 2, max: 10, step: 1, unit: '', defaultValue: 3 },
+  { key: 'per_min_ratio_pct', label: 'Минимальная доля остановок', min: 10, max: 60, step: 5, unit: '%', defaultValue: 30 },
+  { key: 'snizh_rpl_bar', label: 'Порог снижения Рпл', min: 1, max: 15, step: 1, unit: 'бар', defaultValue: 3 },
+  { key: 'rost_rpl_bar', label: 'Порог роста Рпл', min: 1, max: 15, step: 1, unit: 'бар', defaultValue: 3 },
+  { key: 'rost_rpl_max_stops', label: 'Максимум остановок при росте Рпл', min: 0, max: 10, step: 1, unit: '', defaultValue: 5 },
+  { key: 'rpl_fallback_bar', label: 'Fallback-порог Рпл', min: 1, max: 10, step: 1, unit: 'бар', defaultValue: 3 },
+  { key: 'wcut_rise_pct', label: 'Порог роста обводненности', min: 1, max: 20, step: 1, unit: '%', defaultValue: 3 },
+  { key: 'kprod_drop_bar', label: 'Снижение Кпрод', min: 2, max: 15, step: 1, unit: 'бар', defaultValue: 5 },
+  { key: 'kprod_drop_bar_nur', label: 'Снижение Кпрод при НУР', min: 4, max: 20, step: 1, unit: 'бар', defaultValue: 8 },
+  { key: 'kprod_max_freq_hz', label: 'Макс. изменение частоты для Кпрод', min: 0.1, max: 2, step: 0.1, unit: 'Гц', defaultValue: 0.5 },
+  { key: 'kprod_qliq_drop', label: 'Падение Qж для Кпрод', min: 1, max: 20, step: 1, unit: 'м3/сут', defaultValue: 3 },
+  { key: 'sppv_bdpv_min', label: 'Минимальный БДПВ для СППВ', min: 5, max: 150, step: 5, unit: 'м3/сут', defaultValue: 20 }
+]
+
+const modelParamDefinitionByKey = Object.fromEntries(modelParamDefinitions.map((item) => [item.key, item])) as Record<
+  ModelParamKey,
+  ModelParamDefinition
+>
+
+const modelRuleCategories: ModelRuleCategory[] = [
+  {
+    key: 'stop',
+    label: 'Работа / Остановка',
+    color: '#E24B4A',
+    description: 'Базовое разделение временного ряда на работу и остановку по частоте ЭЦН.',
+    pseudocode: 'Остановка = esp_freq < stop_freq_hz\nесли длительность >= stop_min_dur_min',
+    paramKeys: ['stop_freq_hz', 'stop_min_dur_min']
+  },
+  {
+    key: 'gdi',
+    label: 'ГДИ',
+    color: '#AFA9EC',
+    description: 'Поиск ГДИ в остановках через рост давления на приеме после периода работы.',
+    pseudocode: 'is_stop AND Рпр[конец] - Рпр[начало] > порог\nAND работа_до >= gdi_min_work_before_d',
+    paramKeys: ['gdi_rise_bar', 'gdi_rise_bar_first', 'gdi_min_work_before_d']
+  },
+  {
+    key: 'uvch',
+    label: 'УВЧ',
+    color: '#7F77DD',
+    description: 'Фиксация устойчивого повышения частоты без признаков РПТЧ.',
+    pseudocode: 'd_freq = rolling_mean(freq, 7d) - shift(7d)\nУВЧ = d_freq >= uvch_freq_rise_hz N дней AND NOT РПТЧ',
+    paramKeys: ['uvch_freq_rise_hz', 'uvch_confirm_days']
+  },
+  {
+    key: 'rptch',
+    label: 'РПТЧ',
+    color: '#D85A30',
+    description: 'Выделение частотного регулирования по плотности и вариативности изменения частоты.',
+    pseudocode: 'если rptch_raw / work_days >= rptch_density_pct\nто весь сегмент; иначе заполнить зазоры <= rptch_fill_gap_days',
+    paramKeys: ['rptch_freq_std_hz', 'rptch_density_pct', 'rptch_fill_gap_days']
+  },
+  {
+    key: 'nur',
+    label: 'НУР',
+    color: '#639922',
+    description: 'Нестабильный установившийся режим по вариативности скорости давления.',
+    pseudocode: 'd3_var = rolling_std(speed(Рпр))\nНУР пока d3_var > nur_var_thr в окне nur_max_days',
+    paramKeys: ['nur_var_thr', 'nur_max_days', 'nur_stable_days']
+  },
+  {
+    key: 'periodic',
+    label: 'Периодическая работа',
+    color: '#378ADD',
+    description: 'Повторяющиеся остановки и пуски в заданном диапазоне периодов.',
+    pseudocode: 'count(интервалов в [min,max]) >= per_min_stops\nAND доля >= per_min_ratio_pct',
+    paramKeys: ['per_min_period_d', 'per_max_period_d', 'per_min_stops', 'per_min_ratio_pct']
+  },
+  {
+    key: 'rpl',
+    label: 'Снижение / Рост Рпл',
+    color: '#185FA5',
+    description: 'Тренды пластового давления на сглаженном месячном окне.',
+    pseudocode: 'd30 = rolling_mean(wi_smooth, 30d) - shift(30d)\nснижение = d30 < -snizh_rpl_bar\nрост = d30 > rost_rpl_bar',
+    paramKeys: ['snizh_rpl_bar', 'rost_rpl_bar', 'rost_rpl_max_stops', 'rpl_fallback_bar']
+  },
+  {
+    key: 'obv',
+    label: 'Рост обводненности',
+    color: '#D4537E',
+    description: 'Рост обводненности на двухнедельном сглаженном окне.',
+    pseudocode: 'd_wcut = rolling_mean(wcut, 14d) - shift(14d)\nрост = d_wcut > wcut_rise_pct',
+    paramKeys: ['wcut_rise_pct']
+  },
+  {
+    key: 'kprod',
+    label: 'Снижение Кпрод',
+    color: '#F09595',
+    description: 'Снижение продуктивности при ограниченном изменении частоты и падении дебита.',
+    pseudocode: 'd14 < -kprod_drop_bar\nAND abs(d_freq) <= kprod_max_freq_hz\nAND d_qliq < -kprod_qliq_drop',
+    paramKeys: ['kprod_drop_bar', 'kprod_drop_bar_nur', 'kprod_max_freq_hz', 'kprod_qliq_drop']
+  },
+  {
+    key: 'sppv',
+    label: 'СППВ',
+    color: '#888780',
+    description: 'Выделение СППВ по БДПВ при работающей скважине.',
+    pseudocode: 'СППВ = bdpv_volume_rate > sppv_bdpv_min AND is_work',
+    paramKeys: ['sppv_bdpv_min']
+  }
+]
+
+const modelQualityRows: ModelQualityRow[] = [
+  { field: 'Ic', wells: 8, rows: '29.8K', pct: 51, note: 'иерархическая разметка' },
+  { field: 'Vt', wells: 7, rows: '27.7K', pct: 32, note: 'иерархическая разметка' },
+  { field: 'Ya', wells: 19, rows: '103.7K', pct: 100, note: 'только Работа/Остановка' },
+  { field: 'Au', wells: 5, rows: '29.9K', pct: 100, note: 'только Работа/Остановка' },
+  { field: 'Mc', wells: 6, rows: '29.5K', pct: 100, note: 'только Работа/Остановка' },
+  { field: 'Az', wells: 7, rows: '28.0K', pct: 100, note: 'только Работа/Остановка' }
+]
 
 function getEpisodeTypeLabel(value: EpisodeType): string {
   return episodeTypeOptions.value.find((option) => option.value === value)?.label ?? value
@@ -1223,72 +1349,119 @@ function getWellGroupLabel(value: WellGroupId | null | undefined): string {
   return wellGroupOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
-function cloneModelSettings(settings: ModelGroupSettings): ModelGroupSettings {
-  return {
-    algorithm: settings.algorithm,
-    split: settings.split,
-    parameterImportances: { ...settings.parameterImportances }
-  }
+function getModelStorageKey(groupId: string): string {
+  return `${MODEL_PARAMS_STORAGE_PREFIX}${groupId}`
 }
 
-function ensureModelSettings(groupId: WellGroupId | null | undefined): ModelGroupSettings {
-  const resolvedGroupId = groupId ?? wellGroupOptions.value[0]?.value ?? 'field-au'
+function normalizeModelParams(value: unknown): Partial<ModelParams> {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
 
-  if (!modelSettingsByGroup.value[resolvedGroupId]) {
-    modelSettingsByGroup.value = {
-      ...modelSettingsByGroup.value,
-      [resolvedGroupId]: createDefaultModelSettings()
+  const source = value as Record<string, unknown>
+  const normalized: Partial<ModelParams> = {}
+  modelParamDefinitions.forEach((definition) => {
+    const rawValue = source[definition.key]
+    if (typeof rawValue !== 'number' || Number.isNaN(rawValue)) {
+      return
     }
-  }
 
-  return modelSettingsByGroup.value[resolvedGroupId]!
+    normalized[definition.key] = Math.min(definition.max, Math.max(definition.min, rawValue)) as never
+  })
+
+  return normalized
 }
 
-function simulateModelQuality(groupId: WellGroupId, settings: ModelGroupSettings): number {
-  const groupHash = groupId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
-  const algorithmBonus = settings.algorithm === 'catboost' ? 0.045 : 0.022
-  const splitBonusMap: Record<ModelSplit, number> = {
-    '70_30': 0.012,
-    '80_20': 0.028,
-    '90_10': 0.018
+function loadModelParamsFromStorage(): Record<string, Partial<ModelParams>> {
+  const result: Record<string, Partial<ModelParams>> = {}
+
+  modelFieldGroups.forEach((group) => {
+    try {
+      const rawValue = localStorage.getItem(getModelStorageKey(group.value))
+      if (!rawValue) {
+        return
+      }
+
+      result[group.value] = normalizeModelParams(JSON.parse(rawValue))
+    } catch {
+      result[group.value] = {}
+    }
+  })
+
+  return result
+}
+
+function persistModelGroupParams(groupId: string): void {
+  try {
+    const overrides = modelParamsByGroup.value[groupId] ?? {}
+    if (Object.keys(overrides).length === 0) {
+      localStorage.removeItem(getModelStorageKey(groupId))
+      return
+    }
+
+    localStorage.setItem(getModelStorageKey(groupId), JSON.stringify(overrides))
+  } catch {
+    message.warning('Не удалось сохранить настройки модели в localStorage.')
   }
-  const importanceWeightMap: Record<ImportanceLevel, number> = {
-    none: 0,
-    medium: 0.55,
-    high: 1
+}
+
+function getResolvedModelParams(groupId: string): ModelParams {
+  const allOverrides = modelParamsByGroup.value.all ?? {}
+  const groupOverrides = groupId === 'all' ? {} : (modelParamsByGroup.value[groupId] ?? {})
+  return {
+    ...DEFAULT_MODEL_PARAMS,
+    ...allOverrides,
+    ...groupOverrides
   }
-  const parameterWeights: Record<ModelInfluenceKey, number> = {
-    qliq: 0.08,
-    qoil: 0.08,
-    water_cut: 0.1,
-    intake_pressure: 0.07,
-    esp_frequency: 0.06,
-    load: 0.06,
-    rate_change_speed: 0.12,
-    water_cut_change_speed: 0.11,
-    pressure_change_speed: 0.1,
-    frequency_change_speed: 0.08,
-    sharp_change: 0.09,
-    instability: 0.1,
-    oscillation: 0.07,
-    deviation_from_mean: 0.08,
-    deviation_from_trend: 0.09,
-    reaction_to_frequency_change: 0.09,
-    opz: 0.08,
-    esp_change: 0.07
+}
+
+function getModelParamValue(key: ModelParamKey): number {
+  return currentModelParams.value[key]
+}
+
+function setModelParamValue(key: ModelParamKey, value: number): void {
+  const definition = modelParamDefinitionByKey[key]
+  const roundedValue = Number(value.toFixed(definition.step < 1 ? 2 : 0))
+  const nextValue = Math.min(definition.max, Math.max(definition.min, roundedValue))
+  const groupId = modelSelectedGroupId.value
+  const currentOverrides = modelParamsByGroup.value[groupId] ?? {}
+  const inheritedValue = groupId === 'all' ? DEFAULT_MODEL_PARAMS[key] : getResolvedModelParams('all')[key]
+  const nextOverrides = { ...currentOverrides }
+
+  if (nextValue === inheritedValue) {
+    delete nextOverrides[key]
+  } else {
+    nextOverrides[key] = nextValue as never
   }
 
-  const allModelInfluenceParameters = modelInfluenceParameterGroups.flatMap((group) => group.features)
-  const weightedImportance = allModelInfluenceParameters.reduce((sum, parameter) => {
-    const level = settings.parameterImportances[parameter.key]
-    return sum + parameterWeights[parameter.key] * importanceWeightMap[level]
-  }, 0)
+  modelParamsByGroup.value = {
+    ...modelParamsByGroup.value,
+    [groupId]: nextOverrides
+  }
+  persistModelGroupParams(groupId)
+}
 
-  const normalizedImportance = weightedImportance / 1
-  const groupAdjustment = ((groupHash % 11) - 5) * 0.004
-  const rawScore = 0.48 + algorithmBonus + splitBonusMap[settings.split] + normalizedImportance * 0.22 + groupAdjustment
+function formatModelParamValue(parameter: ModelParamDefinition, value: number): string {
+  const formattedValue = parameter.step < 1 ? value.toFixed(1) : String(value)
+  return parameter.unit ? `${formattedValue} ${parameter.unit}` : formattedValue
+}
 
-  return Math.max(0.5, Math.min(0.94, Number(rawScore.toFixed(2))))
+function getModelGroupLabel(groupId: string): string {
+  return modelFieldGroups.find((group) => group.value === groupId)?.label ?? groupId
+}
+
+function hasModelGroupOverrides(groupId: string): boolean {
+  return Object.keys(modelParamsByGroup.value[groupId] ?? {}).length > 0
+}
+
+function selectModelRuleCategory(categoryKey: string): void {
+  modelSelectedCategoryKey.value = categoryKey
+  modelPanelTab.value = 'rules'
+}
+
+function showModelChanges(): void {
+  const count = modelChangedRows.value.length
+  message.info(count > 0 ? `Изменённых параметров: ${count}. Список показан справа.` : 'Изменений относительно базовых значений нет.')
 }
 
 function isInteractionModeValue(value: unknown): value is InteractionMode {
@@ -1342,7 +1515,9 @@ const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null
 const visibleDateRange = ref<VisibleDateRange | null>(null)
 const interactionMode = ref<InteractionMode>(persistedUiState.interactionMode ?? 'navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
-const modelSelectedGroupId = ref<WellGroupId>(getFieldGroupId(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE)))
+const modelSelectedGroupId = ref<string>(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE))
+const modelSelectedCategoryKey = ref('stop')
+const modelPanelTab = ref<ModelPanelTab>('rules')
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -1359,7 +1534,7 @@ const selectedModelFeatures = ref<string[]>([
   'combo_pressure_growth_rate_drop',
   'combo_rate_growth_after_opz'
 ])
-const modelSettingsByGroup = ref<Record<string, ModelGroupSettings>>({})
+const modelParamsByGroup = ref<Record<string, Partial<ModelParams>>>(loadModelParamsFromStorage())
 const modelQualityByGroup = ref<Record<string, number>>({})
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
@@ -1470,20 +1645,22 @@ const filteredWellOptions = computed(() => {
 })
 const currentWellGroupId = computed<WellGroupId | null>(() => wellGroupAssignments.value[selectedWell.value] ?? null)
 const currentWellGroupLabel = computed(() => getWellGroupLabel(currentWellGroupId.value))
-const currentModelSettings = computed(() => ensureModelSettings(modelSelectedGroupId.value))
-const copySourceGroupOptions = computed(() =>
-  wellGroupOptions.value.filter((option) => option.value !== modelSelectedGroupId.value)
+const currentModelParams = computed(() => getResolvedModelParams(modelSelectedGroupId.value))
+const activeModelRuleCategory = computed<ModelRuleCategory>(
+  () => modelRuleCategories.find((category) => category.key === modelSelectedCategoryKey.value) ?? modelRuleCategories[0]!
 )
-const currentGroupR2 = computed(() => {
-  const groupId = modelSelectedGroupId.value
-  return groupId ? (modelQualityByGroup.value[groupId] ?? null) : null
-})
-const modelQualityRows = computed(() =>
-  wellGroupOptions.value.map((option) => ({
-    groupId: option.value,
-    label: option.label,
-    r2: modelQualityByGroup.value[option.value] ?? null
-  }))
+const activeModelRuleParameters = computed(() =>
+  activeModelRuleCategory.value.paramKeys.map((key) => modelParamDefinitionByKey[key])
+)
+const modelChangedRows = computed(() =>
+  modelParamDefinitions
+    .filter((parameter) => currentModelParams.value[parameter.key] !== DEFAULT_MODEL_PARAMS[parameter.key])
+    .map((parameter) => ({
+      key: parameter.key,
+      label: parameter.label,
+      defaultValue: formatModelParamValue(parameter, DEFAULT_MODEL_PARAMS[parameter.key]),
+      currentValue: formatModelParamValue(parameter, currentModelParams.value[parameter.key])
+    }))
 )
 const interactionModeHint = computed(() => {
   if (interactionMode.value === 'navigate') {
@@ -1494,7 +1671,7 @@ const interactionModeHint = computed(() => {
     return 'Протяните мышью для выбора интервала'
   }
 
-  return 'Настройка алгоритма и оценка качества по группе'
+  return 'Настройка правил авторазметки по группе'
 })
 const currentTabTitle = computed(() => {
   if (interactionMode.value === 'navigate') {
@@ -1505,7 +1682,7 @@ const currentTabTitle = computed(() => {
     return 'Разметка'
   }
 
-  return 'Подбор модели'
+  return 'Настройка модели'
 })
 const currentTabDescription = computed(() => {
   if (interactionMode.value === 'navigate') {
@@ -1516,7 +1693,7 @@ const currentTabDescription = computed(() => {
     return 'Разметка интервалов: выделяйте начало и конец, затем сохраняйте пользовательский эпизод'
   }
 
-  return 'Подбор параметров модели: настройте влияние факторов и оцените качество (R²) для выбранной группы скважин'
+  return 'Настройка правил авторазметки: параметры наследуются из группы «Все» и могут переопределяться по месторождению'
 })
 const analysisDrillDown = computed<AnalysisDrillDown | null>(() => {
   if (interactionMode.value !== 'navigate' || !selectedAnalysisInterval.value) {
@@ -3157,11 +3334,6 @@ async function initializeWellOptions() {
     wellOptions.value = wellIds.map((wellId) => ({ label: wellId, value: wellId }))
     wellGroupOptions.value = buildWellGroupOptions(wellIds)
     wellGroupAssignments.value = createWellGroupAssignments(wellIds)
-    wellGroupOptions.value.forEach((group) => {
-      const settings = ensureModelSettings(group.value)
-      modelQualityByGroup.value[group.value] = simulateModelQuality(group.value, settings)
-    })
-
     if (!wellIds.includes(selectedWell.value)) {
       selectedWell.value = wellIds.includes(DEFAULT_WELL_ID) ? DEFAULT_WELL_ID : wellIds[0] ?? ''
     }
@@ -3225,38 +3397,19 @@ function moveWellToGroup() {
   saveGroupForWell()
 }
 
-function copyModelSettingsFromGroup() {
-  if (!modelSelectedGroupId.value) {
-    message.error('Выберите группу, для которой нужно настроить модель.')
-    return
+function resetCurrentModelGroup() {
+  const groupId = modelSelectedGroupId.value
+  modelParamsByGroup.value = {
+    ...modelParamsByGroup.value,
+    [groupId]: {}
   }
-
-  if (!copySettingsFromGroupId.value) {
-    message.error('Выберите группу-источник.')
-    return
-  }
-
-  const sourceSettings = ensureModelSettings(copySettingsFromGroupId.value)
-  modelSettingsByGroup.value = {
-    ...modelSettingsByGroup.value,
-    [modelSelectedGroupId.value]: cloneModelSettings(sourceSettings)
-  }
-  message.success('Настройки модели скопированы в текущую группу.')
+  persistModelGroupParams(groupId)
+  message.success(`Настройки ${getModelGroupLabel(groupId)} сброшены.`)
 }
 
-function recalculateModelQuality() {
-  const groupId = modelSelectedGroupId.value
-  if (!groupId) {
-    message.error('Выберите группу для расчёта качества.')
-    return
-  }
-
-  const nextScore = simulateModelQuality(groupId, currentModelSettings.value)
-  modelQualityByGroup.value = {
-    ...modelQualityByGroup.value,
-    [groupId]: nextScore
-  }
-  message.success(`Качество для ${getWellGroupLabel(groupId)} пересчитано.`)
+function applyCurrentModelParams() {
+  persistModelGroupParams(modelSelectedGroupId.value)
+  message.success(`Параметры ${getModelGroupLabel(modelSelectedGroupId.value)} сохранены.`)
 }
 
 function getFrequencyBreakpointSourceLabel(source: FrequencyBreakpoint['source']): string {
@@ -3768,7 +3921,12 @@ watch([selectedWell, interactionMode], persistUiState, { immediate: true })
 watch(
   modelSelectedGroupId,
   (groupId) => {
-    ensureModelSettings(groupId)
+    if (!modelParamsByGroup.value[groupId]) {
+      modelParamsByGroup.value = {
+        ...modelParamsByGroup.value,
+        [groupId]: {}
+      }
+    }
   },
   { immediate: true }
 )
@@ -3796,11 +3954,6 @@ watch(navigationGroupId, (groupId) => {
 
 onMounted(async () => {
   await restorePersistentMarkup()
-
-  wellGroupOptions.value.forEach((group) => {
-    const settings = ensureModelSettings(group.value)
-    modelQualityByGroup.value[group.value] = simulateModelQuality(group.value, settings)
-  })
 
   await initializeWellOptions()
   await loadData()
