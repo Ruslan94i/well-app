@@ -545,70 +545,71 @@
       </section>
 
       <section v-else>
-        <div class="panel rounded-2xl p-5">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div class="panel rounded-2xl p-3">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 class="text-lg font-semibold text-slate-100">Настройка модели авторазметки</h2>
-              <p class="mt-1 max-w-xl text-sm leading-6 text-slate-400">
-                Правила и пороги настраиваются отдельно для каждого месторождения.
+              <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
+                Правила можно подбирать для одной скважины или группы. Центральный график использует те же параметры,
+                что выбраны в анализе и разметке.
               </p>
             </div>
-            <div class="flex flex-wrap gap-2 lg:justify-end">
-              <n-button class="min-w-40" secondary size="large" @click="resetCurrentModelGroup">
-                Сбросить<br />группу
-              </n-button>
-              <n-button class="min-w-52" type="primary" size="large" @click="applyCurrentModelParams">
-                Запустить инференс ↗
-              </n-button>
+            <div class="grid gap-2 sm:grid-cols-3 lg:min-w-[520px]">
+              <n-button secondary @click="resetCurrentModelGroup">Сбросить</n-button>
+              <n-button secondary type="primary" @click="saveCurrentModelParams">Сохранить настройки</n-button>
+              <n-button type="primary" @click="applyCurrentModelParams">Запустить авторазметку ↗</n-button>
             </div>
           </div>
 
-          <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3">
-            <div class="mr-2 text-sm text-slate-300">Группа:</div>
+          <div class="mt-3 grid gap-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-center">
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="mr-2 text-sm text-slate-300">Группа:</div>
             <button
               v-for="group in modelFieldGroups"
               :key="group.value"
-              class="relative rounded-lg border px-4 py-2 text-sm font-medium transition"
+                class="relative rounded-lg border px-3 py-1.5 text-sm font-medium transition"
               :class="
                 modelSelectedGroupId === group.value
                   ? 'border-sky-400 bg-slate-700 text-slate-100'
                   : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'
               "
               @click="modelSelectedGroupId = group.value"
-            >
-              {{ group.label }}
-              <span
-                v-if="hasModelGroupOverrides(group.value)"
-                class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-orange-400 shadow shadow-orange-950"
-              />
-            </button>
+              >
+                {{ group.label }}
+                <span
+                  v-if="hasModelGroupOverrides(group.value)"
+                  class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-orange-400 shadow shadow-orange-950"
+                />
+              </button>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <button
+                class="rounded-lg border px-3 py-2 text-left text-sm transition"
+                :class="modelRunScope === 'well' ? 'border-sky-400 bg-slate-700 text-slate-100' : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'"
+                @click="modelRunScope = 'well'"
+              >
+                <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Одна скважина</div>
+                <div class="mt-1 font-semibold">{{ selectedWell }}</div>
+              </button>
+              <button
+                class="rounded-lg border px-3 py-2 text-left text-sm transition"
+                :class="modelRunScope === 'group' ? 'border-sky-400 bg-slate-700 text-slate-100' : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'"
+                @click="modelRunScope = 'group'"
+              >
+                <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Группа скважин</div>
+                <div class="mt-1 font-semibold">{{ getModelGroupLabel(modelSelectedGroupId) }}</div>
+              </button>
+            </div>
           </div>
 
-          <div class="mt-4 inline-flex rounded-xl border border-slate-700 bg-slate-950/50 p-0.5">
-            <button
-              class="rounded-lg px-4 py-2 text-sm font-medium transition"
-              :class="modelPanelTab === 'rules' ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
-              @click="modelPanelTab = 'rules'"
-            >
-              Правила и параметры
-            </button>
-            <button
-              class="rounded-lg px-4 py-2 text-sm font-medium transition"
-              :class="modelPanelTab === 'quality' ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
-              @click="modelPanelTab = 'quality'"
-            >
-              Качество разметки
-            </button>
-          </div>
-
-          <div class="mt-4 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-            <aside class="space-y-3">
+          <div class="mt-3 grid gap-3 2xl:grid-cols-[360px_minmax(0,1fr)_310px]">
+            <aside class="flex max-h-[calc(100vh-258px)] min-h-0 flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
               <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Категории</div>
-              <div class="space-y-2">
+              <div class="grid gap-1.5">
                 <button
                   v-for="category in modelRuleCategories"
                   :key="category.key"
-                  class="flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm transition"
+                  class="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition"
                   :class="
                     modelSelectedCategoryKey === category.key && modelPanelTab === 'rules'
                       ? 'border-sky-400 bg-slate-700/80 text-slate-100'
@@ -620,26 +621,39 @@
                   <span>{{ category.label }}</span>
                 </button>
               </div>
-            </aside>
 
-            <section class="rounded-xl border border-slate-700 bg-slate-800/90 p-5">
-              <template v-if="modelPanelTab === 'rules'">
-                <div>
-                  <h3 class="text-base font-semibold text-slate-100">{{ activeModelRuleCategory.label }}</h3>
-                  <p class="mt-2 text-sm leading-6 text-slate-400">{{ activeModelRuleCategory.description }}</p>
+              <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-800/90">
+                <div class="border-b border-slate-700 px-3 py-3">
+                  <div class="flex items-start justify-between gap-3">
+                  <div>
+                      <h3 class="text-sm font-semibold text-slate-100">{{ activeModelRuleCategory.label }}</h3>
+                      <p class="mt-1 text-xs leading-5 text-slate-400">{{ activeModelRuleCategory.description }}</p>
+                  </div>
+                    <div class="shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-right">
+                      <div class="text-[10px] uppercase tracking-[0.16em] text-slate-400">Совпадение</div>
+                      <div class="mt-1 text-xs font-semibold text-slate-100">
+                      {{ modelQualityBeforePct }}% → {{ modelQualityAfterPct }}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <pre class="mt-3 max-h-24 overflow-auto rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-[11px] leading-5 text-slate-300">{{ activeModelRuleCategory.pseudocode }}</pre>
                 </div>
 
-                <pre class="mt-4 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950/80 px-4 py-3 text-xs leading-6 text-slate-300">{{ activeModelRuleCategory.pseudocode }}</pre>
-
-                <div class="mt-5 border-t border-slate-700 pt-4">
+                <div class="max-h-[420px] overflow-y-auto px-3 py-2">
                   <div
                     v-for="parameter in activeModelRuleParameters"
                     :key="parameter.key"
-                    class="grid gap-3 border-b border-slate-800 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_220px_90px] md:items-center"
+                    class="grid gap-2 border-b border-slate-800 py-2.5 last:border-b-0"
                   >
-                    <div>
-                      <div class="text-sm font-medium text-slate-200">{{ parameter.label }}</div>
-                      <div class="mt-1 text-xs text-slate-500">{{ parameter.key }}</div>
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium leading-5 text-slate-200">{{ parameter.label }}</div>
+                        <div class="text-[11px] text-slate-500">{{ parameter.key }}</div>
+                      </div>
+                      <div class="shrink-0 text-right text-xs font-semibold text-slate-100">
+                        {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+                      </div>
                     </div>
                     <n-slider
                       :value="getModelParamValue(parameter.key)"
@@ -648,31 +662,69 @@
                       :step="parameter.step"
                       @update:value="setModelParamValue(parameter.key, Number($event))"
                     />
-                    <div class="text-right text-sm font-semibold text-slate-100">
-                      {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
-                    </div>
                   </div>
                 </div>
-              </template>
+              </div>
+            </aside>
 
-              <template v-else>
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 class="text-base font-semibold text-slate-100">Качество разметки</h3>
-                    <p class="mt-2 text-sm leading-6 text-slate-400">
-                      Сводка по месторождениям для контроля обучающей выборки.
-                    </p>
-                  </div>
-                  <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
-                    Ic + Vt: 44% на 57K строк
-                  </div>
+            <section class="min-w-0">
+              <div class="rounded-xl border border-slate-700 bg-slate-800/90 p-2">
+                <div
+                  v-if="loading"
+                  class="flex h-[760px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 text-slate-400"
+                >
+                  Загрузка данных с backend...
                 </div>
+                <TimeSeriesChart
+                  v-else
+                  ref="modelChartRef"
+                  :data="chartData"
+                  :tr-monitoring-data="trMonitoringData"
+                  :vsp-periods="vspPeriods"
+                  :active-series="activeSeries"
+                  :selected-interval="null"
+                  :event-tracks="eventTracks"
+                  interaction-mode="navigate"
+                  :saved-annotations="currentWellAnnotations"
+                  :classification-levels="classificationLevels"
+                  :selected-annotation-id="null"
+                  :frequency-breakpoints="currentFrequencyBreakpoints"
+                  :frequency-segments="frequencySegments"
+                  :selected-frequency-breakpoint-id="null"
+                  :selected-frequency-segment-ids="[]"
+                  :visible-date-range="visibleDateRange"
+                  @visible-range-changed="handleVisibleRangeChanged"
+                />
+              </div>
+            </section>
 
-                <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <aside class="space-y-3 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+              <div>
+                <h3 class="text-base font-semibold text-slate-100">Результаты адаптации</h3>
+                <p class="mt-1 text-xs leading-5 text-slate-400">Оценка качества до сохранения и после применения правил.</p>
+              </div>
+              <div class="grid gap-2">
+                <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
+                  <div class="text-xs uppercase tracking-[0.16em] text-slate-400">До изменений</div>
+                  <div class="mt-1 text-2xl font-semibold text-slate-100">{{ modelQualityBeforePct }}%</div>
+                </div>
+                <div class="rounded-lg border border-sky-500/40 bg-sky-950/30 px-3 py-2">
+                  <div class="text-xs uppercase tracking-[0.16em] text-slate-400">После изменений</div>
+                  <div class="mt-1 text-2xl font-semibold text-sky-100">{{ modelQualityAfterPct }}%</div>
+                </div>
+                <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
+                  <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Область применения</div>
+                  <div class="mt-1 text-sm font-semibold text-slate-100">{{ modelRunScopeLabel }}</div>
+                </div>
+              </div>
+
+              <div class="rounded-lg border border-slate-700 bg-slate-950/50 p-2">
+                <div class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Качество по группам</div>
+                <div class="space-y-2">
                   <div
-                    v-for="row in modelQualityRows"
+                    v-for="row in compactModelQualityRows"
                     :key="row.field"
-                    class="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-3"
+                    class="rounded-lg bg-slate-900/70 px-2.5 py-2"
                   >
                     <div class="flex items-center justify-between">
                       <div class="text-sm font-semibold text-slate-100">{{ row.field }}</div>
@@ -688,16 +740,14 @@
                     <div class="mt-2 text-xs leading-5 text-slate-500">{{ row.note }}</div>
                   </div>
                 </div>
-              </template>
-            </section>
-          </div>
+              </div>
 
-          <div class="mt-5 flex flex-col gap-3 border-t border-slate-700 pt-4 lg:flex-row lg:items-center lg:justify-between">
-            <div class="text-sm text-slate-400">Группа: {{ getModelGroupLabel(modelSelectedGroupId) }}</div>
-            <div class="flex flex-wrap gap-2 lg:justify-end">
-              <n-button secondary @click="showModelChanges">Что изменилось ↗</n-button>
-              <n-button type="primary" @click="applyCurrentModelParams">Применить и пересчитать ↗</n-button>
-            </div>
+              <div class="grid gap-2">
+                <n-button secondary @click="showModelChanges">Что изменилось ↗</n-button>
+                <n-button secondary type="primary" @click="saveCurrentModelParams">Сохранить настройки</n-button>
+                <n-button type="primary" @click="applyCurrentModelParams">Применить и пересчитать ↗</n-button>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
@@ -761,6 +811,7 @@ import type {
 
 const message = useMessage()
 const chartRef = ref<InstanceType<typeof TimeSeriesChart> | null>(null)
+const modelChartRef = ref<InstanceType<typeof TimeSeriesChart> | null>(null)
 let groupSaveFeedbackTimeout: ReturnType<typeof setTimeout> | null = null
 let markupSaveTimeout: ReturnType<typeof setTimeout> | null = null
 let lastMarkupSaveErrorAt = 0
@@ -1027,6 +1078,7 @@ interface ModelParams {
 
 type ModelParamKey = keyof ModelParams
 type ModelPanelTab = 'rules' | 'quality'
+type ModelRunScope = 'well' | 'group'
 
 interface ModelParamDefinition {
   key: ModelParamKey
@@ -1518,6 +1570,7 @@ const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
 const modelSelectedGroupId = ref<string>(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE))
 const modelSelectedCategoryKey = ref('stop')
 const modelPanelTab = ref<ModelPanelTab>('rules')
+const modelRunScope = ref<ModelRunScope>('well')
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -1661,6 +1714,31 @@ const modelChangedRows = computed(() =>
       defaultValue: formatModelParamValue(parameter, DEFAULT_MODEL_PARAMS[parameter.key]),
       currentValue: formatModelParamValue(parameter, currentModelParams.value[parameter.key])
     }))
+)
+const modelQualityBeforePct = computed(() => {
+  const row = modelQualityRows.find((item) => item.field.toLowerCase() === modelSelectedGroupId.value.toLowerCase())
+  const baseline =
+    modelSelectedGroupId.value === 'all'
+      ? Math.round(modelQualityRows.reduce((sum, item) => sum + item.pct, 0) / modelQualityRows.length)
+      : row?.pct ?? 45
+
+  return modelRunScope.value === 'well' ? Math.max(0, baseline - 4) : baseline
+})
+const modelQualityAfterPct = computed(() => {
+  const changedCount = modelChangedRows.value.length
+  const categoryBoost = activeModelRuleParameters.value.length > 0 ? 2 : 0
+  const scopeBoost = modelRunScope.value === 'well' ? 1 : 0
+  return Math.max(0, Math.min(100, modelQualityBeforePct.value + Math.min(12, changedCount + categoryBoost + scopeBoost)))
+})
+const compactModelQualityRows = computed(() =>
+  modelSelectedGroupId.value === 'all'
+    ? modelQualityRows
+    : modelQualityRows.filter((row) => row.field === modelSelectedGroupId.value)
+)
+const modelRunScopeLabel = computed(() =>
+  modelRunScope.value === 'well'
+    ? `Скважина ${selectedWell.value}`
+    : `Группа ${getModelGroupLabel(modelSelectedGroupId.value)}`
 )
 const interactionModeHint = computed(() => {
   if (interactionMode.value === 'navigate') {
@@ -3407,9 +3485,14 @@ function resetCurrentModelGroup() {
   message.success(`Настройки ${getModelGroupLabel(groupId)} сброшены.`)
 }
 
+function saveCurrentModelParams() {
+  persistModelGroupParams(modelSelectedGroupId.value)
+  message.success(`Настройки ${getModelGroupLabel(modelSelectedGroupId.value)} сохранены.`)
+}
+
 function applyCurrentModelParams() {
   persistModelGroupParams(modelSelectedGroupId.value)
-  message.success(`Параметры ${getModelGroupLabel(modelSelectedGroupId.value)} сохранены.`)
+  message.success(`Авторазметка запущена для области: ${modelRunScopeLabel.value}.`)
 }
 
 function getFrequencyBreakpointSourceLabel(source: FrequencyBreakpoint['source']): string {

@@ -308,6 +308,7 @@ interface SavedAnnotationCustomdata {
   source: 'manual' | 'model'
   layer: 'event'
   annotationKind: string
+  sourceLabel: string
   startDate: string
   endDate: string
   durationDays: number
@@ -669,6 +670,10 @@ function getSavedAnnotationColor(annotation: SavedAnnotation): string {
 
 function isModelAnnotation(annotation: SavedAnnotation): boolean {
   return annotation.id.startsWith('auto-inference-')
+}
+
+function isAutoNurAnnotation(annotation: SavedAnnotation): boolean {
+  return annotation.id.startsWith('auto-nur-')
 }
 
 function getAnnotationLevelIndex(annotation: SavedAnnotation): number {
@@ -1304,9 +1309,13 @@ function getAnnotationTrackAxis(annotation: SavedAnnotation): 'y8' | 'y9' {
 }
 
 function buildSavedAnnotationTrace(source: 'manual' | 'model') {
-  const trackAnnotations = props.savedAnnotations.filter((annotation) =>
-    source === 'model' ? isModelAnnotation(annotation) : !isModelAnnotation(annotation)
-  )
+  const trackAnnotations = props.savedAnnotations.filter((annotation) => {
+    if (source === 'model') {
+      return isModelAnnotation(annotation)
+    }
+
+    return !isModelAnnotation(annotation) && !isAutoNurAnnotation(annotation)
+  })
 
   if (trackAnnotations.length === 0) {
     return []
@@ -1343,7 +1352,11 @@ function buildSavedAnnotationTrace(source: 'manual' | 'model') {
               : getSavedAnnotationColor(item.annotation)
           ),
           width: visibleAnnotations.map((item) =>
-            item.annotation.id === props.selectedAnnotationId ? 3 : isModelAnnotation(item.annotation) ? 0.4 : 1.5
+            item.annotation.id === props.selectedAnnotationId
+              ? 3
+              : isModelAnnotation(item.annotation)
+                ? 0.4
+                : 1.5
           )
         },
         opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
@@ -1636,8 +1649,8 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка', labelColor: '#94a3b8', heightUnits: 1.14, range: eventRange },
-    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.14, range: eventRange }
+    { axis: 'y9' as const, label: 'Авторазметка', labelColor: '#94a3b8', heightUnits: 1.02, range: eventRange },
+    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.02, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
