@@ -11,6 +11,13 @@
       :class="{ 'frequency-segment-hover': hoveredFrequencySegmentId }"
       @wheel.prevent="handleChartWheel"
     ></div>
+    <div
+      v-if="chartRenderError"
+      class="absolute left-4 top-4 z-[30] max-w-[560px] rounded-lg border border-red-500/50 bg-red-950/80 px-4 py-3 text-sm text-red-100 shadow-lg"
+    >
+      <div class="font-semibold">График не отрисовался</div>
+      <div class="mt-1 text-red-100/85">{{ chartRenderError }}</div>
+    </div>
     <div class="chart-range-toolbar" :class="{ 'is-open': rangeToolbarOpen }" @wheel.prevent="handleChartWheel">
       <div class="chart-range-toolbar-header">
         <button
@@ -94,6 +101,22 @@
         @mouseenter="showTrackHoverTooltip($event, item)"
         @mousemove="showTrackHoverTooltip($event, item)"
         @mouseleave="clearTrackHoverTooltip"
+        @wheel.prevent="handleChartWheel"
+      />
+    </div>
+    <div class="pointer-events-none absolute inset-0 z-[14]">
+      <button
+        v-for="item in candidateAutoEpisodeOverlayItems"
+        :key="item.interval.id"
+        type="button"
+        class="saved-annotation-hitbox"
+        :class="{ 'is-selected': item.interval.id === selectedCandidateAutoIntervalId }"
+        :style="item.style"
+        :title="item.interval.label"
+        @mouseenter="showCandidateAutoEpisodeTooltip($event, item)"
+        @mousemove="showCandidateAutoEpisodeTooltip($event, item)"
+        @mouseleave="clearTrackHoverTooltip"
+        @click.stop="handleCandidateAutoEpisodeOverlayClick(item.interval)"
         @wheel.prevent="handleChartWheel"
       />
     </div>
@@ -376,6 +399,11 @@ interface SavedAnnotationOverlayItem {
   style: Record<string, string>
 }
 
+interface CandidateAutoEpisodeOverlayItem {
+  interval: EventInterval
+  style: Record<string, string>
+}
+
 interface TrackHoverLine {
   label: string
   value: string
@@ -418,8 +446,8 @@ interface RangePreset {
 }
 
 const TRACK_LABEL_LEFT = 22
-const MAIN_CHART_DOMAIN_START = 0.31
-const TRACK_PANEL_TOP = 0.282
+const MAIN_CHART_DOMAIN_START = 0.38
+const TRACK_PANEL_TOP = 0.35
 const TRACK_MAIN_GAP = 0.022
 const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
@@ -463,6 +491,7 @@ const hoverGuideDate = ref<string | null>(null)
 const hoverGuideX = ref<number | null>(null)
 const clickSelectionStart = ref<string | null>(null)
 const trackHoverTooltip = ref<TrackHoverTooltip | null>(null)
+const selectedCandidateAutoIntervalId = ref<string | null>(null)
 const chartSize = ref({ width: 0, height: 920 })
 const localVisibleDateRange = ref<VisibleDateRange | null>(null)
 const zoomSelectionArmed = ref(false)
@@ -470,6 +499,7 @@ const zoomHistory = ref<VisibleDateRange[]>([])
 const rangeToolbarOpen = ref(false)
 const telemetryPointTimes = computed(() => props.data.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
 const trPointTimes = computed(() => props.trMonitoringData.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
+const chartRenderError = ref<string | null>(null)
 let suppressBackgroundClickUntil = 0
 let suppressDeselectUntil = 0
 let hoveredFrequencySegment: FrequencySegmentCustomdata | null = null
@@ -495,10 +525,12 @@ function handleNativeChartClick(event: Event) {
 
   if (target.closest('.nsewdrag') || target.closest('.draglayer') || target.closest('.plotbg')) {
     if (props.interactionMode === 'annotate' && event instanceof MouseEvent) {
+      selectedCandidateAutoIntervalId.value = null
       handleTwoClickIntervalSelection(event)
       return
     }
 
+    selectedCandidateAutoIntervalId.value = null
     emit('background-clicked')
   }
 }
@@ -633,26 +665,26 @@ function getAnnotationColor(label: string): string {
   return getPaletteColor(label || 'episode', ['#38bdf8', '#f97316', '#22c55e', '#eab308', '#ec4899', '#a855f7', '#14b8a6'])
 }
 
-function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null {
-  const colorByLevelValue: Record<string, string> = {
-    'well_state:work': '#22c55e',
-    'well_state:stop': '#ef4444',
-    'gdi:gdi': '#06b6d4',
-    'esp_uvch:uvch': '#2563eb',
-    'esp_rptch:rptch': '#a855f7',
-    'esp_periodic:periodic_operation': '#facc15',
-    'esp_degradation:degr_yes': '#94a3b8',
-    'nur:nur_yes': '#ec4899',
-    'reservoir_pressure_trend:Pres_growth': '#a3e635',
-    'reservoir_pressure_trend:Pres_decline': '#fb923c',
-    'water_cut_trend:WCT_growth': '#7dd3fc',
-    'water_cut_trend:WCT_decline': '#d6a46f',
-    'productivity_trend:Kprod_growth': '#38bdf8',
-    'productivity_trend:Kprod_decline': '#ff2d2d',
-    'complicated_fund:slozhn_fond': '#f97316',
-    'sppv:sppv': '#2dd4bf'
-  }
+const colorByLevelValue: Record<string, string> = {
+  'well_state:work': '#22c55e',
+  'well_state:stop': '#ef4444',
+  'gdi:gdi': '#06b6d4',
+  'esp_uvch:uvch': '#2563eb',
+  'esp_rptch:rptch': '#a855f7',
+  'esp_periodic:periodic_operation': '#facc15',
+  'esp_degradation:degr_yes': '#94a3b8',
+  'nur:nur_yes': '#ec4899',
+  'reservoir_pressure_trend:Pres_growth': '#a3e635',
+  'reservoir_pressure_trend:Pres_decline': '#fb923c',
+  'water_cut_trend:WCT_growth': '#7dd3fc',
+  'water_cut_trend:WCT_decline': '#d6a46f',
+  'productivity_trend:Kprod_growth': '#38bdf8',
+  'productivity_trend:Kprod_decline': '#ff2d2d',
+  'complicated_fund:slozhn_fond': '#f97316',
+  'sppv:sppv': '#2dd4bf'
+}
 
+function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null {
   for (const level of props.classificationLevels) {
     const value = annotation.classification?.[level.key]
     const color = value ? colorByLevelValue[`${level.key}:${value}`] : null
@@ -688,6 +720,86 @@ function getAnnotationLevel(annotation: SavedAnnotation): AnnotationClassificati
 function getAnnotationLevelY(annotation: SavedAnnotation): number {
   const totalLevels = Math.max(1, props.classificationLevels.length)
   return totalLevels - getAnnotationLevelIndex(annotation) - 0.5
+}
+
+function normalizeCategoryToken(value: string): string {
+  return value.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е')
+}
+
+const candidateAutoLabelToLevelKey: Record<string, string> = {
+  работа: 'well_state',
+  остановка: 'well_state',
+  гди: 'gdi',
+  увч: 'esp_uvch',
+  рптч: 'esp_rptch',
+  нур: 'nur',
+  'периодическая работа': 'esp_periodic',
+  'рост рпл': 'reservoir_pressure_trend',
+  'снижение рпл': 'reservoir_pressure_trend',
+  'рост обводненности': 'water_cut_trend',
+  'снижение обводненности': 'water_cut_trend',
+  'рост кпрод': 'productivity_trend',
+  'снижение кпрод': 'productivity_trend',
+  'осложненный фонд': 'complicated_fund',
+  сппв: 'sppv',
+  'деградация эцн': 'esp_degradation'
+}
+
+const candidateAutoLabelToLevelValue: Record<string, string> = {
+  работа: 'work',
+  остановка: 'stop',
+  гди: 'gdi',
+  увч: 'uvch',
+  рптч: 'rptch',
+  нур: 'nur_yes',
+  'периодическая работа': 'periodic_operation',
+  'рост рпл': 'Pres_growth',
+  'снижение рпл': 'Pres_decline',
+  'рост обводненности': 'WCT_growth',
+  'снижение обводненности': 'WCT_decline',
+  'рост кпрод': 'Kprod_growth',
+  'снижение кпрод': 'Kprod_decline',
+  'осложненный фонд': 'slozhn_fond',
+  сппв: 'sppv',
+  'деградация эцн': 'degr_yes'
+}
+
+function getEventIntervalColor(interval: EventInterval): string {
+  const label = normalizeCategoryToken(interval.label)
+  const levelKey = candidateAutoLabelToLevelKey[label]
+  const levelValue = candidateAutoLabelToLevelValue[label]
+  const mappedColor = levelKey && levelValue ? colorByLevelValue[`${levelKey}:${levelValue}`] : null
+  return mappedColor ?? interval.color ?? getAnnotationColor(interval.label)
+}
+
+function getEventIntervalLevelIndex(interval: EventInterval): number {
+  const label = normalizeCategoryToken(interval.label)
+  const mappedLevelKey = candidateAutoLabelToLevelKey[label]
+  if (mappedLevelKey) {
+    const mappedLevelIndex = props.classificationLevels.findIndex((level) => level.key === mappedLevelKey)
+    if (mappedLevelIndex >= 0) {
+      return mappedLevelIndex
+    }
+  }
+
+  const levelIndex = props.classificationLevels.findIndex((level) =>
+    level.options.some((option) => {
+      const optionLabel = normalizeCategoryToken(option.label)
+      const optionValue = normalizeCategoryToken(option.value)
+      return optionLabel === label || optionValue === label
+    })
+  )
+
+  return levelIndex >= 0 ? levelIndex : 0
+}
+
+function getEventIntervalLevelY(interval: EventInterval): number {
+  const totalLevels = Math.max(1, props.classificationLevels.length)
+  return totalLevels - getEventIntervalLevelIndex(interval) - 0.5
+}
+
+function getEventIntervalLevelLabel(interval: EventInterval): string {
+  return props.classificationLevels[getEventIntervalLevelIndex(interval)]?.label ?? 'Разметка'
 }
 
 function getAnnotationCategoryLabel(annotation: SavedAnnotation): string {
@@ -1304,16 +1416,8 @@ function buildFrequencyBreakpointTrace() {
   ]
 }
 
-function getAnnotationTrackAxis(annotation: SavedAnnotation): 'y8' | 'y9' {
-  return isModelAnnotation(annotation) ? 'y9' : 'y8'
-}
-
-function buildSavedAnnotationTrace(source: 'manual' | 'model') {
+function buildSavedAnnotationTrace() {
   const trackAnnotations = props.savedAnnotations.filter((annotation) => {
-    if (source === 'model') {
-      return isModelAnnotation(annotation)
-    }
-
     return !isModelAnnotation(annotation) && !isAutoNurAnnotation(annotation)
   })
 
@@ -1342,7 +1446,7 @@ function buildSavedAnnotationTrace(source: 'manual' | 'model') {
       x: visibleAnnotations.map((item) => item.bar.durationMs),
       base: visibleAnnotations.map((item) => item.bar.base),
       y: visibleAnnotations.map((item) => getAnnotationLevelY(item.annotation)),
-      width: 0.78,
+      width: 0.92,
       marker: {
         color: visibleAnnotations.map((item) => getSavedAnnotationColor(item.annotation)),
         line: {
@@ -1361,15 +1465,15 @@ function buildSavedAnnotationTrace(source: 'manual' | 'model') {
         },
         opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
       },
-      yaxis: source === 'model' ? 'y9' : 'y8',
+      yaxis: 'y8',
       showlegend: false,
       customdata: visibleAnnotations.map((item) => ({
         kind: 'annotation',
         annotationId: item.annotation.id,
-        source,
+        source: 'manual',
         layer: 'event' as const,
         annotationKind: getAnnotationLevelLabel(item.annotation),
-        sourceLabel: source === 'model' ? 'Авторазметка' : 'Ручная разметка',
+        sourceLabel: 'Ручная разметка',
         startDate: item.annotation.startDate,
         endDate: item.annotation.endDate,
         durationDays: item.annotation.durationDays,
@@ -1381,6 +1485,56 @@ function buildSavedAnnotationTrace(source: 'manual' | 'model') {
         '<b>%{customdata.annotationKind}</b>: %{customdata.categoryLabel}<br>%{customdata.sourceLabel}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Мероприятия: %{customdata.actionsText}<br>' +
         'Длительность: %{customdata.durationDays} сут.<extra></extra>'
+    }
+  ]
+}
+
+function buildCandidateAutoEpisodeTrace() {
+  if (props.eventTracks.candidateModelEventIntervals.length === 0) {
+    return []
+  }
+
+  const visibleIntervals = props.eventTracks.candidateModelEventIntervals
+    .map((interval) => {
+      const bar = getVisibleIntervalBar(interval.startDate, interval.endDate)
+      return bar ? { interval, bar } : null
+    })
+    .filter((item): item is { interval: EventInterval; bar: { base: string; durationMs: number } } => Boolean(item))
+
+  if (visibleIntervals.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      type: 'bar',
+      orientation: 'h',
+      x: visibleIntervals.map((item) => item.bar.durationMs),
+      base: visibleIntervals.map((item) => item.bar.base),
+      y: visibleIntervals.map((item) => getEventIntervalLevelY(item.interval)),
+      width: 0.9,
+      marker: {
+        color: visibleIntervals.map((item) => getEventIntervalColor(item.interval)),
+        line: {
+          color: visibleIntervals.map((item) =>
+            item.interval.id === selectedCandidateAutoIntervalId.value ? '#f8fafc' : getEventIntervalColor(item.interval)
+          ),
+          width: visibleIntervals.map((item) => (item.interval.id === selectedCandidateAutoIntervalId.value ? 3 : 0))
+        },
+        opacity: visibleIntervals.map((item) => (item.interval.id === selectedCandidateAutoIntervalId.value ? 1 : 0.9))
+      },
+      yaxis: 'y9',
+      showlegend: false,
+      customdata: visibleIntervals.map((item) => ({
+        label: item.interval.label,
+        levelLabel: getEventIntervalLevelLabel(item.interval),
+        startDate: item.interval.startDate,
+        endDate: item.interval.endDate,
+        confidence: item.interval.confidence ?? '—'
+      })),
+      hovertemplate:
+        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка v2<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
 }
@@ -1400,7 +1554,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'diamond',
-              size: 9,
+              size: 13,
               color: '#d97706',
               line: {
                 color: '#9a3412',
@@ -1442,7 +1596,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'square',
-              size: 9,
+              size: 13,
               color: '#a855f7',
               line: {
                 color: '#6d28d9',
@@ -1478,7 +1632,7 @@ function buildContextMarkerTrackTraces() {
             cliponaxis: false,
             marker: {
               symbol: 'circle',
-              size: 8,
+              size: 12,
               color: '#2dd4bf',
               line: {
                 color: '#0f766e',
@@ -1633,8 +1787,8 @@ function buildTrackTraces() {
     ...buildContextMarkerTrackTraces(),
     ...buildVspTrackTrace(),
     ...espInstallationTrace,
-    ...buildSavedAnnotationTrace('manual'),
-    ...buildSavedAnnotationTrace('model')
+    ...buildCandidateAutoEpisodeTrace(),
+    ...buildSavedAnnotationTrace()
   ]
 }
 
@@ -1646,11 +1800,11 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const eventRange = getSavedAnnotationTrackRange()
 
   const rowSpecs = [
-    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
+    { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.24, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка', labelColor: '#94a3b8', heightUnits: 1.02, range: eventRange },
-    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.02, range: eventRange }
+    { axis: 'y9' as const, label: 'Авторазметка v2', labelColor: '#94a3b8', heightUnits: 1.35, range: eventRange },
+    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.35, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -1735,7 +1889,7 @@ function getFullVisibleDateRange(): VisibleDateRange | null {
     ...props.eventTracks.espWashEvents.map((event) => event.date),
     ...props.eventTracks.gtmEvents.flatMap((event) => [event.date, event.startDate, event.endDate]),
     ...props.eventTracks.gdiEvents.flatMap((event) => [event.date, event.startDate, event.endDate]),
-    ...props.eventTracks.modelEventIntervals.flatMap((event) => [event.startDate, event.endDate]),
+    ...props.eventTracks.candidateModelEventIntervals.flatMap((event) => [event.startDate, event.endDate]),
     ...props.savedAnnotations.flatMap((annotation) => [annotation.startDate, annotation.endDate])
   ].filter((value): value is string => Boolean(value))
 
@@ -2098,12 +2252,14 @@ function getSavedAnnotationPayload(annotation: SavedAnnotation): TimelineAnnotat
 }
 
 function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
-  const trackAnnotations = props.savedAnnotations
+  const trackAnnotations = props.savedAnnotations.filter(
+    (annotation) => !isModelAnnotation(annotation) && !isAutoNurAnnotation(annotation)
+  )
 
   return trackAnnotations
     .map((annotation) => {
       const style = getTrackIntervalOverlayGeometry(
-        getAnnotationTrackAxis(annotation),
+        'y8',
         annotation.startDate,
         annotation.endDate,
         getAnnotationLevelY(annotation),
@@ -2123,6 +2279,22 @@ function buildSavedAnnotationOverlayItems(): SavedAnnotationOverlayItem[] {
 
 const savedAnnotationOverlayItems = computed<SavedAnnotationOverlayItem[]>(() => buildSavedAnnotationOverlayItems())
 
+const candidateAutoEpisodeOverlayItems = computed<CandidateAutoEpisodeOverlayItem[]>(() =>
+  props.eventTracks.candidateModelEventIntervals
+    .map((interval) => {
+      const style = getTrackIntervalOverlayGeometry(
+        'y9',
+        interval.startDate,
+        interval.endDate,
+        getEventIntervalLevelY(interval),
+        18
+      )
+
+      return style ? { interval, style } : null
+    })
+    .filter((item): item is CandidateAutoEpisodeOverlayItem => Boolean(item))
+)
+
 function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOverlayItem) {
   showTrackHoverTooltip(event, {
     key: item.annotation.id,
@@ -2137,8 +2309,30 @@ function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOver
   })
 }
 
+function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoEpisodeOverlayItem) {
+  showTrackHoverTooltip(event, {
+    key: `candidate-auto-${item.interval.id}`,
+    title: 'Авторазметка v2',
+    lines: [
+      toTrackLine('Уровень', getEventIntervalLevelLabel(item.interval)),
+      toTrackLine('Категория', item.interval.label),
+      toTrackLine('Начало', item.interval.startDate),
+      toTrackLine('Конец', item.interval.endDate),
+      toTrackLine('Длительность, сут.', calculateDurationDays(item.interval.startDate, item.interval.endDate)),
+      toTrackLine('Уверенность', item.interval.confidence ?? '—')
+    ],
+    style: item.style
+  })
+}
+
+function handleCandidateAutoEpisodeOverlayClick(interval: EventInterval) {
+  suppressBackgroundClick(300)
+  selectedCandidateAutoIntervalId.value = interval.id
+}
+
 function handleSavedAnnotationOverlayClick(payload: TimelineAnnotationClickPayload) {
   suppressBackgroundClick(300)
+  selectedCandidateAutoIntervalId.value = null
   emit('annotation-clicked', payload)
 }
 
@@ -3222,6 +3416,8 @@ function renderChart() {
     return
   }
 
+  chartRenderError.value = null
+
   const hasGasProductionSeries = props.activeSeries.includes('qgas')
   const hasGasFactorSeries =
     props.activeSeries.includes('gas_factor') ||
@@ -3268,7 +3464,7 @@ function renderChart() {
   const vspRow = getTrackRowByAxis(trackLayout.rows, 'y5')
   const espRow = getTrackRowByAxis(trackLayout.rows, 'y6')
   const manualAnnotationRow = getTrackRowByAxis(trackLayout.rows, 'y8')
-  const modelAnnotationRow = getTrackRowByAxis(trackLayout.rows, 'y9')
+  const candidateAnnotationRow = getTrackRowByAxis(trackLayout.rows, 'y9')
   const visibleRangeForLayout = localVisibleDateRange.value ?? props.visibleDateRange
   const layoutShapes = [
     ...getSelectionShapes(),
@@ -3440,8 +3636,8 @@ function renderChart() {
       zeroline: false
     },
     yaxis9: {
-      domain: modelAnnotationRow.domain,
-      range: modelAnnotationRow.range,
+      domain: candidateAnnotationRow.domain,
+      range: candidateAnnotationRow.range,
       fixedrange: true,
       showgrid: false,
       showticklabels: false,
@@ -3573,8 +3769,8 @@ function renderChart() {
       zeroline: false
     },
     yaxis9: {
-      domain: modelAnnotationRow.domain,
-      range: modelAnnotationRow.range,
+      domain: candidateAnnotationRow.domain,
+      range: candidateAnnotationRow.range,
       fixedrange: true,
       showgrid: false,
       tickmode: 'array',
@@ -3594,7 +3790,44 @@ function renderChart() {
     modeBarButtonsToRemove: ['lasso2d']
   }
 
-  void Plotly.react(chartEl.value, [...buildMainTraces(), ...buildTrackTraces()], layout, config)
+  try {
+    const traces = [...buildMainTraces(), ...buildTrackTraces()]
+    void Plotly.react(chartEl.value, traces, layout, config).catch((error: unknown) => {
+      console.error('Plotly render failed', error)
+      chartRenderError.value = error instanceof Error ? error.message : 'Ошибка Plotly при отрисовке треков.'
+      void Plotly.react(
+        chartEl.value,
+        buildMainTraces(),
+        {
+          ...layout,
+          yaxis: {
+            ...layout.yaxis,
+            domain: [0, 1]
+          },
+          shapes: [],
+          annotations: []
+        },
+        config
+      )
+    })
+  } catch (error) {
+    console.error('Chart render failed', error)
+    chartRenderError.value = error instanceof Error ? error.message : 'Ошибка подготовки данных графика.'
+    void Plotly.react(
+      chartEl.value,
+      buildMainTraces(),
+      {
+        ...layout,
+        yaxis: {
+          ...layout.yaxis,
+          domain: [0, 1]
+        },
+        shapes: [],
+        annotations: []
+      },
+      config
+    )
+  }
 }
 
 function attachEventHandlers() {
@@ -3814,7 +4047,8 @@ watch(
     props.frequencySegments,
     props.selectedFrequencyBreakpointId,
     props.selectedFrequencySegmentIds,
-    props.visibleDateRange
+    props.visibleDateRange,
+    selectedCandidateAutoIntervalId.value
   ],
   () => {
     renderChart()
@@ -3899,9 +4133,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   transform: translateY(-50%);
   color: #cbd5e1;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.05;
   text-align: right;
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(2, 6, 23, 0.92);

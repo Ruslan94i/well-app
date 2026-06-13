@@ -85,7 +85,7 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
       espWashEvents: [],
       gtmEvents: [],
       gdiEvents: [],
-      modelEventIntervals: []
+      candidateModelEventIntervals: []
     }
   }
 
@@ -188,6 +188,6 @@ export function generateMockEventTracks(data: TimeSeriesPoint[]): HierarchicalEv
     espWashEvents: [],
     gtmEvents: [],
     gdiEvents: [],
-    modelEventIntervals
+    candidateModelEventIntervals: []
   }
 }

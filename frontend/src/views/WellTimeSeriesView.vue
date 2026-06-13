@@ -118,8 +118,17 @@
               >
                 Выгрузить CSV
               </n-button>
+              <n-button
+                secondary
+                size="small"
+                :loading="manualGraphDataExporting"
+                @click="downloadManualGraphDataExport"
+              >
+                Ручная CSV
+              </n-button>
             </div>
             <TimeSeriesChart
+              v-if="chartData.length"
               ref="chartRef"
               :data="chartData"
               :tr-monitoring-data="trMonitoringData"
@@ -147,7 +156,7 @@
             />
             <div
               v-if="!chartData.length"
-              class="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-400"
+              class="flex h-[520px] items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-400"
             >
               Нет данных для выбранной скважины и диапазона дат.
             </div>
@@ -762,9 +771,10 @@ import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadio
 import type { SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import {
-  fetchAutoEpisodeIntervals,
   fetchArtificialLiftPeriods,
+  fetchCandidateAutoEpisodeIntervals,
   fetchGraphDataExportCsv,
+  fetchManualGraphDataExportCsv,
   fetchMarkup,
   fetchTrMonitoring,
   fetchVspPeriods,
@@ -1561,7 +1571,7 @@ const chartData = ref<TimeSeriesPoint[]>([])
 const trMonitoringData = ref<TrMonitoringPoint[]>([])
 const vspPeriods = ref<VspPeriod[]>([])
 const artificialLiftPeriods = ref<EspInstallationPeriod[]>([])
-const autoEpisodeIntervals = ref<EventInterval[]>([])
+const candidateAutoEpisodeIntervals = ref<EventInterval[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
@@ -1609,7 +1619,9 @@ const newGroupName = ref('')
 const newEpisodeClassName = ref('')
 const newEventActionName = ref('')
 const loading = ref(false)
+const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
+const manualGraphDataExporting = ref(false)
 const errorMessage = ref('')
 const wellContext = ref<WellContext | null>(null)
 const markupLoaded = ref(false)
@@ -1682,7 +1694,7 @@ const eventTracks = computed(() => {
     gtmEvents: contextTracks.gtmEvents,
     gdiEvents: contextTracks.gdiEvents,
     dailyCauses: [],
-    modelEventIntervals: autoEpisodeIntervals.value
+    candidateModelEventIntervals: candidateAutoEpisodeIntervals.value
   }
 })
 const groupMigrationOptions = computed(() => [
@@ -3122,6 +3134,24 @@ async function downloadGraphDataExport(): Promise<void> {
   }
 }
 
+async function downloadManualGraphDataExport(): Promise<void> {
+  manualGraphDataExporting.value = true
+
+  try {
+    const blob = await fetchManualGraphDataExportCsv()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `well_graph_data_manual_${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    message.error('Не удалось сформировать CSV-выгрузку ручной разметки.')
+  } finally {
+    manualGraphDataExporting.value = false
+  }
+}
+
 function getAnnotationCategory(annotation: SavedAnnotation): string {
   return getAnnotationClassificationLabel(annotation)
 }
@@ -3319,7 +3349,7 @@ async function loadData() {
     trMonitoringData.value = []
     vspPeriods.value = []
     artificialLiftPeriods.value = []
-    autoEpisodeIntervals.value = []
+    candidateAutoEpisodeIntervals.value = []
     visibleDateRange.value = null
     wellContext.value = null
     return
@@ -3331,7 +3361,7 @@ async function loadData() {
   trMonitoringData.value = []
   vspPeriods.value = []
   artificialLiftPeriods.value = []
-  autoEpisodeIntervals.value = []
+  candidateAutoEpisodeIntervals.value = []
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
   editingAnnotationId.value = null
@@ -3358,7 +3388,7 @@ async function loadData() {
   }
 
   try {
-    const [data, context, trData, liftPeriods, vspData, autoEpisodes] = await Promise.all([
+    const [data, context, trData, liftPeriods, vspData, candidateAutoEpisodes] = await Promise.all([
       useMockTelemetry
         ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
         : fetchWellTimeseries(selectedWell.value, params),
@@ -3366,7 +3396,7 @@ async function loadData() {
       fetchTrMonitoring(selectedWell.value, trParams).catch(() => []),
       fetchArtificialLiftPeriods(selectedWell.value).catch(() => []),
       fetchVspPeriods(selectedWell.value).catch(() => []),
-      fetchAutoEpisodeIntervals(selectedWell.value).catch(() => [])
+      fetchCandidateAutoEpisodeIntervals(selectedWell.value).catch(() => [])
     ])
 
     chartData.value = data
@@ -3374,7 +3404,7 @@ async function loadData() {
     trMonitoringData.value = trData
     artificialLiftPeriods.value = liftPeriods
     vspPeriods.value = vspData
-    autoEpisodeIntervals.value = autoEpisodes
+    candidateAutoEpisodeIntervals.value = candidateAutoEpisodes
     visibleDateRange.value = getFullDateRange(data, trData)
     if (!context) {
       message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
@@ -3386,7 +3416,7 @@ async function loadData() {
     trMonitoringData.value = []
     vspPeriods.value = []
     artificialLiftPeriods.value = []
-    autoEpisodeIntervals.value = []
+    candidateAutoEpisodeIntervals.value = []
     wellContext.value = null
     visibleDateRange.value = getFullDateRange(fallbackData)
     errorMessage.value = 'Не удалось загрузить временные ряды. Убедитесь, что backend запущен на http://localhost:8000.'
@@ -3995,6 +4025,10 @@ watch(
     ) {
       navigationGroupId.value = assignedGroupId
     }
+
+    if (initialDataLoaded.value) {
+      void loadData()
+    }
   },
   { immediate: true }
 )
@@ -4036,9 +4070,12 @@ watch(navigationGroupId, (groupId) => {
 })
 
 onMounted(async () => {
-  await restorePersistentMarkup()
-
   await initializeWellOptions()
   await loadData()
+  initialDataLoaded.value = true
+
+  window.setTimeout(() => {
+    void restorePersistentMarkup()
+  }, 500)
 })
 </script>

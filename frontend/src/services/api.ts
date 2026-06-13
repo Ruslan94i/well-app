@@ -57,8 +57,8 @@ export async function fetchVspPeriods(wellId: string): Promise<VspPeriod[]> {
   return response.data
 }
 
-export async function fetchAutoEpisodeIntervals(wellId: string): Promise<EventInterval[]> {
-  const response = await api.get<EventInterval[]>(`/wells/${wellId}/auto-episodes`)
+export async function fetchCandidateAutoEpisodeIntervals(wellId: string): Promise<EventInterval[]> {
+  const response = await api.get<EventInterval[]>(`/wells/${wellId}/candidate-auto-episodes`)
   return response.data
 }
 
@@ -94,6 +94,14 @@ export async function saveMarkup(markup: MarkupState): Promise<MarkupState> {
 
 export async function fetchGraphDataExportCsv(params?: { field_code?: string }): Promise<Blob> {
   const response = await api.get<Blob>('/export/graph-data.csv', {
+    params,
+    responseType: 'blob'
+  })
+  return response.data
+}
+
+export async function fetchManualGraphDataExportCsv(params?: { field_code?: string }): Promise<Blob> {
+  const response = await api.get<Blob>('/export/manual-graph-data.csv', {
     params,
     responseType: 'blob'
   })

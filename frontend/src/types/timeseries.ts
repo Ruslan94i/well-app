@@ -173,7 +173,7 @@ export interface HierarchicalEventTracks {
   espWashEvents: OpzEventFlag[]
   gtmEvents: GtmEventFlag[]
   gdiEvents: GdiEventFlag[]
-  modelEventIntervals: EventInterval[]
+  candidateModelEventIntervals: EventInterval[]
 }
 
 export interface GtmContextEvent {

@@ -17,6 +17,7 @@ from app.services.xlsx_reference import get_well_context
 
 SCHEMA_VERSION = "2"
 FREQUENCY_CHANGE_THRESHOLD = 0.1
+AUTO_ANNOTATION_ID_PREFIXES = ("auto-", "auto-inference-")
 CLASSIFICATION_TO_TARGET = {
     "well_state=work": ("target_well_state", "Работа"),
     "well_state=stop": ("target_well_state", "Остановка"),
@@ -545,6 +546,10 @@ def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None
     row["auto_episode_confidences"] = _join_field(intervals, "confidence")
 
 
+def _is_manual_annotation(annotation: SavedAnnotation) -> bool:
+    return not any(annotation.id.startswith(prefix) for prefix in AUTO_ANNOTATION_ID_PREFIXES)
+
+
 def _fill_frequency(
     row: dict[str, object],
     point_time: datetime,
@@ -621,6 +626,8 @@ def _build_export_rows_for_well(
     annotations: list[SavedAnnotation],
     manual_breakpoints: list[FrequencyBreakpoint],
     suppressed_breakpoints: list[FrequencyBreakpointSuppression],
+    *,
+    include_auto_episodes: bool = True,
 ) -> list[dict[str, object]]:
     telemetry_rows = sorted(
         get_well_timeseries(well_id=well_id),
@@ -632,7 +639,7 @@ def _build_export_rows_for_well(
     tr_rows = sorted(get_well_tr_monitoring(well_id=well_id), key=lambda item: _date_key(item.get("date")))
     esp_periods = get_well_artificial_lift_periods(well_id)
     vsp_periods = get_well_vsp_periods(well_id)
-    auto_episode_intervals = get_well_auto_episode_intervals(well_id)
+    auto_episode_intervals = get_well_auto_episode_intervals(well_id) if include_auto_episodes else []
     context = get_well_context(well_id)
     well_annotations = [annotation for annotation in annotations if annotation.wellId == well_id]
     esp_interval_index = _prepare_datetime_intervals(esp_periods)
@@ -732,6 +739,34 @@ def build_graph_data_export_csv(field_code: str | None = None) -> str:
             annotations=markup.annotations,
             manual_breakpoints=markup.manualFrequencyBreakpoints,
             suppressed_breakpoints=markup.suppressedFrequencyBreakpoints,
+        ):
+            writer.writerow({column: _format_cell(row.get(column)) for column in EXPORT_COLUMNS})
+
+    return output.getvalue()
+
+
+def build_manual_graph_data_export_csv(field_code: str | None = None) -> str:
+    markup = load_markup_state()
+    field_codes = _normalize_field_codes(field_code)
+    manual_annotations = [annotation for annotation in markup.annotations if _is_manual_annotation(annotation)]
+    manually_marked_well_ids = {annotation.wellId for annotation in manual_annotations}
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+
+    for well_id in sorted(get_available_well_ids()):
+        if well_id not in manually_marked_well_ids:
+            continue
+
+        if field_codes and _well_field_code(well_id) not in field_codes:
+            continue
+
+        for row in _build_export_rows_for_well(
+            well_id=well_id,
+            annotations=manual_annotations,
+            manual_breakpoints=markup.manualFrequencyBreakpoints,
+            suppressed_breakpoints=markup.suppressedFrequencyBreakpoints,
+            include_auto_episodes=False,
         ):
             writer.writerow({column: _format_cell(row.get(column)) for column in EXPORT_COLUMNS})
 

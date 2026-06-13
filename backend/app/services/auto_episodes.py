@@ -4,7 +4,7 @@ import csv
 import logging
 import math
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -15,11 +15,11 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 AUTO_EPISODE_FILE_CANDIDATES = [
-    settings.auto_episode_segments_data_path,
     settings.reference_data_path / "claude_episode_segments.csv",
     settings.reference_data_path / "claude_auto_episodes.csv",
     settings.reference_data_path / "auto_episodes.csv",
 ]
+CANDIDATE_AUTO_EPISODE_FILE = settings.reference_data_path / "candidate_auto_episode_segments.csv"
 AUTO_EPISODE_COLORS = ["#38bdf8", "#f97316", "#22c55e", "#eab308", "#ec4899", "#a855f7", "#14b8a6"]
 EXCEL_EPOCH = date(1899, 12, 30)
 
@@ -75,6 +75,13 @@ def _clean_cell(value: object) -> str:
 
 def _repair_mojibake(value: object) -> str:
     cleaned = _clean_cell(value)
+    if cleaned and any(marker in cleaned for marker in ("Ð", "Ñ")):
+        try:
+            repaired_latin = cleaned.encode("latin1").decode("utf-8")
+        except UnicodeError:
+            repaired_latin = cleaned
+        if repaired_latin:
+            return repaired_latin
     if not cleaned or not any(marker in cleaned for marker in ("Р", "С")):
         return cleaned
 
@@ -135,6 +142,58 @@ def _parse_date(value: object) -> date | None:
     return None
 
 
+def _parse_temporal_value(value: object) -> date | datetime | None:
+    cleaned = _clean_cell(value)
+    if not cleaned:
+        return None
+
+    numeric_value = cleaned.replace(",", ".")
+    try:
+        serial_date = float(numeric_value)
+    except ValueError:
+        serial_date = None
+
+    if serial_date is not None and 20000 <= serial_date <= 80000:
+        return EXCEL_EPOCH + timedelta(days=int(serial_date))
+
+    iso_candidate = cleaned.replace(" ", "T")
+    try:
+        parsed_iso = datetime.fromisoformat(iso_candidate)
+        return parsed_iso if "T" in iso_candidate else parsed_iso.date()
+    except ValueError:
+        pass
+
+    for date_format, has_time in (
+        ("%d.%m.%Y %H:%M:%S", True),
+        ("%d.%m.%Y %H:%M", True),
+        ("%Y-%m-%d %H:%M:%S", True),
+        ("%Y-%m-%d %H:%M", True),
+        ("%d.%m.%Y", False),
+        ("%d/%m/%Y", False),
+        ("%Y/%m/%d", False),
+        ("%Y-%m-%d", False),
+    ):
+        try:
+            parsed = datetime.strptime(cleaned, date_format)
+            return parsed if has_time else parsed.date()
+        except ValueError:
+            continue
+
+    return None
+
+
+def _temporal_to_datetime(value: date | datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, time.min)
+
+
+def _format_temporal_value(value: date | datetime) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    return value.isoformat()
+
+
 def _parse_float(value: object) -> float | None:
     cleaned = _clean_cell(value)
     if not cleaned:
@@ -191,6 +250,18 @@ def _load_auto_episode_rows() -> list[dict[str, object]]:
     return _load_auto_episode_rows_cached(str(source_path), file_stat.st_mtime_ns, file_stat.st_size)
 
 
+def _load_candidate_auto_episode_rows() -> list[dict[str, object]]:
+    if not CANDIDATE_AUTO_EPISODE_FILE.exists():
+        return []
+
+    file_stat = CANDIDATE_AUTO_EPISODE_FILE.stat()
+    return _load_auto_episode_rows_cached(
+        str(CANDIDATE_AUTO_EPISODE_FILE),
+        file_stat.st_mtime_ns,
+        file_stat.st_size,
+    )
+
+
 @lru_cache(maxsize=4)
 def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int) -> list[dict[str, object]]:
     del file_mtime_ns, file_size
@@ -201,8 +272,8 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
     point_rows: list[dict[str, object]] = []
     for index, raw_row in enumerate(_read_csv_rows(source_path), start=1):
         well_id = _get_cell(raw_row, WELL_ID_COLUMNS)
-        start_date = _parse_date(_get_cell(raw_row, START_DATE_COLUMNS))
-        end_date = _parse_date(_get_cell(raw_row, END_DATE_COLUMNS))
+        start_date = _parse_temporal_value(_get_cell(raw_row, START_DATE_COLUMNS))
+        end_date = _parse_temporal_value(_get_cell(raw_row, END_DATE_COLUMNS))
         point_date = _parse_date(_get_cell(raw_row, DATE_COLUMNS))
         label = _repair_mojibake(_get_cell(raw_row, LABEL_COLUMNS)) or "Автоэпизод"
         confidence = _parse_float(_get_cell(raw_row, CONFIDENCE_COLUMNS))
@@ -219,10 +290,17 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
             )
             continue
 
-        if not well_id or start_date is None or end_date is None or end_date < start_date:
+        if (
+            not well_id
+            or start_date is None
+            or end_date is None
+            or _temporal_to_datetime(end_date) < _temporal_to_datetime(start_date)
+        ):
             continue
 
-        interval_id = _get_cell(raw_row, ID_COLUMNS) or f"auto-episode-{well_id}-{start_date.isoformat()}-{index}"
+        start_value = _format_temporal_value(start_date)
+        end_value = _format_temporal_value(end_date)
+        interval_id = _get_cell(raw_row, ID_COLUMNS) or f"auto-episode-{well_id}-{start_value}-{index}"
         color = _get_cell(raw_row, COLOR_COLUMNS) or _default_color(label)
 
         rows.append(
@@ -230,8 +308,8 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
                 "id": interval_id,
                 "wellId": well_id,
                 "normalizedWellId": well_id.casefold(),
-                "startDate": start_date.isoformat(),
-                "endDate": end_date.isoformat(),
+                "startDate": start_value,
+                "endDate": end_value,
                 "label": label,
                 "color": color,
                 "confidence": confidence,
@@ -330,5 +408,14 @@ def get_well_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
     return [
         {key: value for key, value in row.items() if key not in {"normalizedWellId", "wellId"}}
         for row in _load_auto_episode_rows()
+        if row["normalizedWellId"] == normalized_well_id
+    ]
+
+
+def get_well_candidate_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
+    normalized_well_id = well_id.strip().casefold()
+    return [
+        {key: value for key, value in row.items() if key not in {"normalizedWellId", "wellId"}}
+        for row in _load_candidate_auto_episode_rows()
         if row["normalizedWellId"] == normalized_well_id
     ]
