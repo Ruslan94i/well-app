@@ -21,6 +21,24 @@ AUTO_EPISODE_FILE_CANDIDATES = [
 ]
 CANDIDATE_AUTO_EPISODE_FILE = settings.reference_data_path / "candidate_auto_episode_segments.csv"
 AUTO_EPISODE_COLORS = ["#38bdf8", "#f97316", "#22c55e", "#eab308", "#ec4899", "#a855f7", "#14b8a6"]
+AUTO_EPISODE_LABEL_COLORS = {
+    "\u0440\u0430\u0431\u043e\u0442\u0430": "#22c55e",
+    "\u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0430": "#ef4444",
+    "\u0433\u0434\u0438": "#06b6d4",
+    "\u0443\u0432\u0447": "#2563eb",
+    "\u0440\u043f\u0442\u0447": "#a855f7",
+    "\u043d\u0443\u0440": "#ec4899",
+    "\u043f\u0435\u0440\u0438\u043e\u0434\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430": "#facc15",
+    "\u0440\u043e\u0441\u0442 \u0440\u043f\u043b": "#a3e635",
+    "\u0441\u043d\u0438\u0436\u0435\u043d\u0438\u0435 \u0440\u043f\u043b": "#fb923c",
+    "\u0440\u043e\u0441\u0442 \u043e\u0431\u0432\u043e\u0434\u043d\u0435\u043d\u043d\u043e\u0441\u0442\u0438": "#7dd3fc",
+    "\u0441\u043d\u0438\u0436\u0435\u043d\u0438\u0435 \u043e\u0431\u0432\u043e\u0434\u043d\u0435\u043d\u043d\u043e\u0441\u0442\u0438": "#d6a46f",
+    "\u0440\u043e\u0441\u0442 \u043a\u043f\u0440\u043e\u0434": "#38bdf8",
+    "\u0441\u043d\u0438\u0436\u0435\u043d\u0438\u0435 \u043a\u043f\u0440\u043e\u0434": "#ff2d2d",
+    "\u043e\u0441\u043b\u043e\u0436\u043d\u0435\u043d\u043d\u044b\u0439 \u0444\u043e\u043d\u0434": "#f97316",
+    "\u0441\u043f\u043f\u0432": "#2dd4bf",
+    "\u0434\u0435\u0433\u0440\u0430\u0434\u0430\u0446\u0438\u044f \u044d\u0446\u043d": "#94a3b8",
+}
 EXCEL_EPOCH = date(1899, 12, 30)
 
 WELL_ID_COLUMNS = {"wellid", "well", "скважина", "скв", "скважинаid"}
@@ -208,6 +226,10 @@ def _parse_float(value: object) -> float | None:
 
 
 def _default_color(label: str) -> str:
+    normalized_label = _repair_mojibake(label).casefold().replace("\u0451", "\u0435").strip()
+    if normalized_label in AUTO_EPISODE_LABEL_COLORS:
+        return AUTO_EPISODE_LABEL_COLORS[normalized_label]
+
     hash_value = sum(ord(char) for char in label or "auto-episode")
     return AUTO_EPISODE_COLORS[hash_value % len(AUTO_EPISODE_COLORS)]
 

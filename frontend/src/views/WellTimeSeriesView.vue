@@ -628,6 +628,11 @@
                 >
                   <span class="h-3 w-3 rounded-sm" :style="{ backgroundColor: category.color }" />
                   <span>{{ category.label }}</span>
+                  <span
+                    v-if="hasModelCategoryOverrides(category)"
+                    class="ml-auto h-2.5 w-2.5 rounded-full bg-sky-400 shadow shadow-sky-950"
+                    title="Есть переопределения в категории"
+                  />
                 </button>
               </div>
 
@@ -657,11 +662,30 @@
                   >
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
-                        <div class="text-xs font-medium leading-5 text-slate-200">{{ parameter.label }}</div>
+                        <div class="text-xs font-medium leading-5 text-slate-200">
+                          <span v-if="parameter.important" class="mr-1 text-sky-300">★</span>{{ parameter.label }}
+                        </div>
                         <div class="text-[11px] text-slate-500">{{ parameter.key }}</div>
+                        <div class="mt-0.5 text-[11px] text-slate-500">
+                          <span v-if="hasModelParamOverride(parameter.key)">
+                            Глобально: {{ formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)) }}
+                          </span>
+                          <span v-else>
+                            Диапазон: {{ parameter.min }}–{{ parameter.max }}{{ parameter.unit ? ` ${parameter.unit}` : '' }}
+                          </span>
+                        </div>
                       </div>
-                      <div class="shrink-0 text-right text-xs font-semibold text-slate-100">
-                        {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+                      <div class="shrink-0 text-right">
+                        <div class="text-xs font-semibold text-slate-100">
+                          {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+                        </div>
+                        <button
+                          v-if="hasModelParamOverride(parameter.key)"
+                          class="mt-1 text-[11px] text-sky-300 hover:text-sky-100"
+                          @click="resetModelParamValue(parameter.key)"
+                        >
+                          Сбросить
+                        </button>
                       </div>
                     </div>
                     <n-slider
@@ -724,6 +748,9 @@
                 <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
                   <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Область применения</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ modelRunScopeLabel }}</div>
+                  <div class="mt-2 text-xs text-slate-400">
+                    {{ modelChangedRows.length }} параметров изменено для {{ modelRunScopeLabel }}
+                  </div>
                 </div>
               </div>
 
@@ -776,11 +803,14 @@ import {
   fetchGraphDataExportCsv,
   fetchManualGraphDataExportCsv,
   fetchMarkup,
+  fetchModelParamsState,
   fetchTrMonitoring,
   fetchVspPeriods,
   fetchWellContext,
   fetchWellIds,
   fetchWellTimeseries,
+  resetModelParamsForTarget,
+  saveModelParamsForTarget,
   saveMarkup
 } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
@@ -1057,33 +1087,25 @@ const modelFeatureGroups = [
 ] as const
 
 interface ModelParams {
+  nur_gate_stop_h: number
+  nur_min_drop_bar: number
+  nur_max_d: number
+  nur_max_gap_to_post: number
+  uvch_stop_suppress_d: number
+  uvch_rise_hz: number
+  rptch_interday_std: number
+  rptch_osc_hz: number
+  rptch_density: number
+  snizh_seg_win_d: number
+  snizh_seg_drop_bar: number
+  snizh_win_d: number
+  snizh_win_drop: number
   stop_freq_hz: number
   stop_min_dur_min: number
-  gdi_rise_bar: number
-  gdi_rise_bar_first: number
-  gdi_min_work_before_d: number
-  uvch_freq_rise_hz: number
-  uvch_confirm_days: number
-  rptch_freq_std_hz: number
-  rptch_density_pct: number
-  rptch_fill_gap_days: number
-  nur_var_thr: number
-  nur_max_days: number
-  nur_stable_days: number
-  per_min_period_d: number
-  per_max_period_d: number
-  per_min_stops: number
-  per_min_ratio_pct: number
-  snizh_rpl_bar: number
-  rost_rpl_bar: number
-  rost_rpl_max_stops: number
-  rpl_fallback_bar: number
-  wcut_rise_pct: number
-  kprod_drop_bar: number
-  kprod_drop_bar_nur: number
-  kprod_max_freq_hz: number
-  kprod_qliq_drop: number
-  sppv_bdpv_min: number
+  long_stop_h: number
+  per_window_d: number
+  per_start_n: number
+  per_keep_n: number
 }
 
 type ModelParamKey = keyof ModelParams
@@ -1098,6 +1120,7 @@ interface ModelParamDefinition {
   step: number
   unit: string
   defaultValue: number
+  important?: boolean
 }
 
 interface ModelRuleCategory {
@@ -1156,33 +1179,25 @@ interface AnalysisDrillDown {
 const MODEL_PARAMS_STORAGE_PREFIX = 'model-params-'
 
 const DEFAULT_MODEL_PARAMS: ModelParams = {
+  nur_gate_stop_h: 12,
+  nur_min_drop_bar: 2,
+  nur_max_d: 30,
+  nur_max_gap_to_post: 30,
+  uvch_stop_suppress_d: 2,
+  uvch_rise_hz: 0.3,
+  rptch_interday_std: 1.0,
+  rptch_osc_hz: 1.5,
+  rptch_density: 0.2,
+  snizh_seg_win_d: 45,
+  snizh_seg_drop_bar: 4,
+  snizh_win_d: 14,
+  snizh_win_drop: 3,
   stop_freq_hz: 5,
   stop_min_dur_min: 30,
-  gdi_rise_bar: 3,
-  gdi_rise_bar_first: 10,
-  gdi_min_work_before_d: 1,
-  uvch_freq_rise_hz: 1,
-  uvch_confirm_days: 3,
-  rptch_freq_std_hz: 5,
-  rptch_density_pct: 30,
-  rptch_fill_gap_days: 5,
-  nur_var_thr: 0.3,
-  nur_max_days: 14,
-  nur_stable_days: 3,
-  per_min_period_d: 1,
-  per_max_period_d: 5,
-  per_min_stops: 3,
-  per_min_ratio_pct: 30,
-  snizh_rpl_bar: 3,
-  rost_rpl_bar: 3,
-  rost_rpl_max_stops: 5,
-  rpl_fallback_bar: 3,
-  wcut_rise_pct: 3,
-  kprod_drop_bar: 5,
-  kprod_drop_bar_nur: 8,
-  kprod_max_freq_hz: 0.5,
-  kprod_qliq_drop: 3,
-  sppv_bdpv_min: 20
+  long_stop_h: 12,
+  per_window_d: 14,
+  per_start_n: 8,
+  per_keep_n: 3
 }
 
 const modelFieldGroups: { label: string; value: string }[] = [
@@ -1196,33 +1211,25 @@ const modelFieldGroups: { label: string; value: string }[] = [
 ]
 
 const modelParamDefinitions: ModelParamDefinition[] = [
-  { key: 'stop_freq_hz', label: 'Порог остановки по частоте', min: 1, max: 10, step: 0.5, unit: 'Гц', defaultValue: 5 },
-  { key: 'stop_min_dur_min', label: 'Минимальная длительность остановки', min: 15, max: 240, step: 15, unit: 'мин', defaultValue: 30 },
-  { key: 'gdi_rise_bar', label: 'Рост давления для ГДИ', min: 1, max: 20, step: 1, unit: 'бар', defaultValue: 3 },
-  { key: 'gdi_rise_bar_first', label: 'Первый скачок давления для ГДИ', min: 5, max: 30, step: 1, unit: 'бар', defaultValue: 10 },
-  { key: 'gdi_min_work_before_d', label: 'Работа перед ГДИ', min: 0, max: 7, step: 1, unit: 'сут', defaultValue: 1 },
-  { key: 'uvch_freq_rise_hz', label: 'Прирост частоты для УВЧ', min: 1, max: 10, step: 1, unit: 'Гц', defaultValue: 1 },
-  { key: 'uvch_confirm_days', label: 'Подтверждение УВЧ', min: 1, max: 7, step: 1, unit: 'сут', defaultValue: 3 },
-  { key: 'rptch_freq_std_hz', label: 'Размах/STD частоты для РПТЧ', min: 2, max: 20, step: 1, unit: 'Гц', defaultValue: 5 },
-  { key: 'rptch_density_pct', label: 'Плотность РПТЧ', min: 10, max: 60, step: 5, unit: '%', defaultValue: 30 },
-  { key: 'rptch_fill_gap_days', label: 'Заполнение зазоров РПТЧ', min: 1, max: 14, step: 1, unit: 'сут', defaultValue: 5 },
-  { key: 'nur_var_thr', label: 'Порог вариативности НУР', min: 0.1, max: 1, step: 0.1, unit: '', defaultValue: 0.3 },
-  { key: 'nur_max_days', label: 'Максимальная длительность НУР', min: 3, max: 21, step: 1, unit: 'сут', defaultValue: 14 },
-  { key: 'nur_stable_days', label: 'Дни стабилизации после НУР', min: 1, max: 5, step: 1, unit: 'сут', defaultValue: 3 },
-  { key: 'per_min_period_d', label: 'Минимальный период', min: 1, max: 4, step: 1, unit: 'сут', defaultValue: 1 },
-  { key: 'per_max_period_d', label: 'Максимальный период', min: 2, max: 10, step: 1, unit: 'сут', defaultValue: 5 },
-  { key: 'per_min_stops', label: 'Минимум остановок', min: 2, max: 10, step: 1, unit: '', defaultValue: 3 },
-  { key: 'per_min_ratio_pct', label: 'Минимальная доля остановок', min: 10, max: 60, step: 5, unit: '%', defaultValue: 30 },
-  { key: 'snizh_rpl_bar', label: 'Порог снижения Рпл', min: 1, max: 15, step: 1, unit: 'бар', defaultValue: 3 },
-  { key: 'rost_rpl_bar', label: 'Порог роста Рпл', min: 1, max: 15, step: 1, unit: 'бар', defaultValue: 3 },
-  { key: 'rost_rpl_max_stops', label: 'Максимум остановок при росте Рпл', min: 0, max: 10, step: 1, unit: '', defaultValue: 5 },
-  { key: 'rpl_fallback_bar', label: 'Fallback-порог Рпл', min: 1, max: 10, step: 1, unit: 'бар', defaultValue: 3 },
-  { key: 'wcut_rise_pct', label: 'Порог роста обводненности', min: 1, max: 20, step: 1, unit: '%', defaultValue: 3 },
-  { key: 'kprod_drop_bar', label: 'Снижение Кпрод', min: 2, max: 15, step: 1, unit: 'бар', defaultValue: 5 },
-  { key: 'kprod_drop_bar_nur', label: 'Снижение Кпрод при НУР', min: 4, max: 20, step: 1, unit: 'бар', defaultValue: 8 },
-  { key: 'kprod_max_freq_hz', label: 'Макс. изменение частоты для Кпрод', min: 0.1, max: 2, step: 0.1, unit: 'Гц', defaultValue: 0.5 },
-  { key: 'kprod_qliq_drop', label: 'Падение Qж для Кпрод', min: 1, max: 20, step: 1, unit: 'м3/сут', defaultValue: 3 },
-  { key: 'sppv_bdpv_min', label: 'Минимальный БДПВ для СППВ', min: 5, max: 150, step: 5, unit: 'м3/сут', defaultValue: 20 }
+  { key: 'nur_gate_stop_h', label: 'Остановка перед НУР', min: 0.5, max: 24, step: 0.5, unit: 'ч', defaultValue: 12, important: true },
+  { key: 'nur_min_drop_bar', label: 'Мин. падение давления для НУР', min: 0.5, max: 10, step: 0.5, unit: 'бар', defaultValue: 2 },
+  { key: 'nur_max_d', label: 'Макс. длительность НУР', min: 5, max: 60, step: 1, unit: 'сут', defaultValue: 30 },
+  { key: 'nur_max_gap_to_post', label: 'Макс. зазор до пост-режима', min: 5, max: 60, step: 1, unit: 'сут', defaultValue: 30 },
+  { key: 'uvch_stop_suppress_d', label: 'Подавление УВЧ после остановки', min: 0, max: 7, step: 1, unit: 'сут', defaultValue: 2, important: true },
+  { key: 'uvch_rise_hz', label: 'Рост частоты для УВЧ', min: 0.1, max: 2, step: 0.1, unit: 'Гц', defaultValue: 0.3 },
+  { key: 'rptch_interday_std', label: 'Межсуточный std частоты', min: 0.3, max: 3, step: 0.1, unit: 'Гц', defaultValue: 1, important: true },
+  { key: 'rptch_osc_hz', label: 'Амплитуда осцилляций РПТЧ', min: 0.5, max: 5, step: 0.5, unit: 'Гц', defaultValue: 1.5 },
+  { key: 'rptch_density', label: 'Плотность РПТЧ', min: 0.05, max: 0.5, step: 0.05, unit: '', defaultValue: 0.2 },
+  { key: 'snizh_seg_win_d', label: 'Окно сегмента снижения', min: 20, max: 90, step: 5, unit: 'сут', defaultValue: 45, important: true },
+  { key: 'snizh_seg_drop_bar', label: 'Падение сегмента', min: 1, max: 15, step: 0.5, unit: 'бар', defaultValue: 4 },
+  { key: 'snizh_win_d', label: 'Окно локального снижения', min: 7, max: 30, step: 1, unit: 'сут', defaultValue: 14 },
+  { key: 'snizh_win_drop', label: 'Падение локального окна', min: 1, max: 10, step: 0.5, unit: 'бар', defaultValue: 3 },
+  { key: 'stop_freq_hz', label: 'Порог остановки по частоте', min: 0.5, max: 15, step: 0.5, unit: 'Гц', defaultValue: 5 },
+  { key: 'stop_min_dur_min', label: 'Минимальная длительность остановки', min: 5, max: 120, step: 5, unit: 'мин', defaultValue: 30 },
+  { key: 'long_stop_h', label: 'Длинная остановка', min: 2, max: 48, step: 1, unit: 'ч', defaultValue: 12 },
+  { key: 'per_window_d', label: 'Окно периодической работы', min: 7, max: 30, step: 1, unit: 'сут', defaultValue: 14 },
+  { key: 'per_start_n', label: 'Порог старта периодики', min: 3, max: 15, step: 1, unit: '', defaultValue: 8 },
+  { key: 'per_keep_n', label: 'Порог удержания периодики', min: 1, max: 8, step: 1, unit: '', defaultValue: 3 }
 ]
 
 const modelParamDefinitionByKey = Object.fromEntries(modelParamDefinitions.map((item) => [item.key, item])) as Record<
@@ -1236,80 +1243,48 @@ const modelRuleCategories: ModelRuleCategory[] = [
     label: 'Работа / Остановка',
     color: '#E24B4A',
     description: 'Базовое разделение временного ряда на работу и остановку по частоте ЭЦН.',
-    pseudocode: 'Остановка = esp_freq < stop_freq_hz\nесли длительность >= stop_min_dur_min',
-    paramKeys: ['stop_freq_hz', 'stop_min_dur_min']
-  },
-  {
-    key: 'gdi',
-    label: 'ГДИ',
-    color: '#AFA9EC',
-    description: 'Поиск ГДИ в остановках через рост давления на приеме после периода работы.',
-    pseudocode: 'is_stop AND Рпр[конец] - Рпр[начало] > порог\nAND работа_до >= gdi_min_work_before_d',
-    paramKeys: ['gdi_rise_bar', 'gdi_rise_bar_first', 'gdi_min_work_before_d']
+    pseudocode: 'Остановка = freq_hz < stop_freq_hz\nесли длительность >= stop_min_dur_min\nlong_stop = duration_h >= long_stop_h',
+    paramKeys: ['stop_freq_hz', 'stop_min_dur_min', 'long_stop_h']
   },
   {
     key: 'uvch',
     label: 'УВЧ',
     color: '#7F77DD',
     description: 'Фиксация устойчивого повышения частоты без признаков РПТЧ.',
-    pseudocode: 'd_freq = rolling_mean(freq, 7d) - shift(7d)\nУВЧ = d_freq >= uvch_freq_rise_hz N дней AND NOT РПТЧ',
-    paramKeys: ['uvch_freq_rise_hz', 'uvch_confirm_days']
+    pseudocode: 'УВЧ = рост частоты >= uvch_rise_hz\nостановки подавляют УВЧ на uvch_stop_suppress_d сут',
+    paramKeys: ['uvch_stop_suppress_d', 'uvch_rise_hz']
   },
   {
     key: 'rptch',
     label: 'РПТЧ',
     color: '#D85A30',
     description: 'Выделение частотного регулирования по плотности и вариативности изменения частоты.',
-    pseudocode: 'если rptch_raw / work_days >= rptch_density_pct\nто весь сегмент; иначе заполнить зазоры <= rptch_fill_gap_days',
-    paramKeys: ['rptch_freq_std_hz', 'rptch_density_pct', 'rptch_fill_gap_days']
+    pseudocode: 'rptch_raw = std(freq_hz) >= rptch_interday_std\nили oscillation >= rptch_osc_hz\nесли плотность >= rptch_density',
+    paramKeys: ['rptch_interday_std', 'rptch_osc_hz', 'rptch_density']
   },
   {
     key: 'nur',
     label: 'НУР',
     color: '#639922',
     description: 'Нестабильный установившийся режим по вариативности скорости давления.',
-    pseudocode: 'd3_var = rolling_std(speed(Рпр))\nНУР пока d3_var > nur_var_thr в окне nur_max_days',
-    paramKeys: ['nur_var_thr', 'nur_max_days', 'nur_stable_days']
+    pseudocode: 'НУР после остановки >= nur_gate_stop_h\nи падение Рпр >= nur_min_drop_bar\nдлительность <= nur_max_d',
+    paramKeys: ['nur_gate_stop_h', 'nur_min_drop_bar', 'nur_max_d', 'nur_max_gap_to_post']
   },
   {
     key: 'periodic',
     label: 'Периодическая работа',
     color: '#378ADD',
     description: 'Повторяющиеся остановки и пуски в заданном диапазоне периодов.',
-    pseudocode: 'count(интервалов в [min,max]) >= per_min_stops\nAND доля >= per_min_ratio_pct',
-    paramKeys: ['per_min_period_d', 'per_max_period_d', 'per_min_stops', 'per_min_ratio_pct']
+    pseudocode: 'в окне per_window_d\nstart если остановок >= per_start_n\nkeep если остановок >= per_keep_n',
+    paramKeys: ['per_window_d', 'per_start_n', 'per_keep_n']
   },
   {
-    key: 'rpl',
-    label: 'Снижение / Рост Рпл',
+    key: 'snizh',
+    label: 'Снижение давления',
     color: '#185FA5',
-    description: 'Тренды пластового давления на сглаженном месячном окне.',
-    pseudocode: 'd30 = rolling_mean(wi_smooth, 30d) - shift(30d)\nснижение = d30 < -snizh_rpl_bar\nрост = d30 > rost_rpl_bar',
-    paramKeys: ['snizh_rpl_bar', 'rost_rpl_bar', 'rost_rpl_max_stops', 'rpl_fallback_bar']
-  },
-  {
-    key: 'obv',
-    label: 'Рост обводненности',
-    color: '#D4537E',
-    description: 'Рост обводненности на двухнедельном сглаженном окне.',
-    pseudocode: 'd_wcut = rolling_mean(wcut, 14d) - shift(14d)\nрост = d_wcut > wcut_rise_pct',
-    paramKeys: ['wcut_rise_pct']
-  },
-  {
-    key: 'kprod',
-    label: 'Снижение Кпрод',
-    color: '#F09595',
-    description: 'Снижение продуктивности при ограниченном изменении частоты и падении дебита.',
-    pseudocode: 'd14 < -kprod_drop_bar\nAND abs(d_freq) <= kprod_max_freq_hz\nAND d_qliq < -kprod_qliq_drop',
-    paramKeys: ['kprod_drop_bar', 'kprod_drop_bar_nur', 'kprod_max_freq_hz', 'kprod_qliq_drop']
-  },
-  {
-    key: 'sppv',
-    label: 'СППВ',
-    color: '#888780',
-    description: 'Выделение СППВ по БДПВ при работающей скважине.',
-    pseudocode: 'СППВ = bdpv_volume_rate > sppv_bdpv_min AND is_work',
-    paramKeys: ['sppv_bdpv_min']
+    description: 'Снижение давления на сегментном и локальном окнах.',
+    pseudocode: 'сегмент: окно snizh_seg_win_d, падение snizh_seg_drop_bar\nлокально: окно snizh_win_d, падение snizh_win_drop',
+    paramKeys: ['snizh_seg_win_d', 'snizh_seg_drop_bar', 'snizh_win_d', 'snizh_win_drop']
   }
 ]
 
@@ -1411,10 +1386,6 @@ function getWellGroupLabel(value: WellGroupId | null | undefined): string {
   return wellGroupOptions.value.find((option) => option.value === value)?.label ?? value
 }
 
-function getModelStorageKey(groupId: string): string {
-  return `${MODEL_PARAMS_STORAGE_PREFIX}${groupId}`
-}
-
 function normalizeModelParams(value: unknown): Partial<ModelParams> {
   if (!value || typeof value !== 'object') {
     return {}
@@ -1434,60 +1405,75 @@ function normalizeModelParams(value: unknown): Partial<ModelParams> {
   return normalized
 }
 
-function loadModelParamsFromStorage(): Record<string, Partial<ModelParams>> {
-  const result: Record<string, Partial<ModelParams>> = {}
-
-  modelFieldGroups.forEach((group) => {
-    try {
-      const rawValue = localStorage.getItem(getModelStorageKey(group.value))
-      if (!rawValue) {
-        return
-      }
-
-      result[group.value] = normalizeModelParams(JSON.parse(rawValue))
-    } catch {
-      result[group.value] = {}
-    }
-  })
-
-  return result
+function toModelParamsPayload(params: Partial<ModelParams>): Record<string, number> {
+  return Object.fromEntries(Object.entries(params).filter((entry): entry is [string, number] => typeof entry[1] === 'number'))
 }
 
-function persistModelGroupParams(groupId: string): void {
+async function loadModelParamsFromBackend(): Promise<void> {
   try {
-    const overrides = modelParamsByGroup.value[groupId] ?? {}
-    if (Object.keys(overrides).length === 0) {
-      localStorage.removeItem(getModelStorageKey(groupId))
-      return
-    }
-
-    localStorage.setItem(getModelStorageKey(groupId), JSON.stringify(overrides))
+    const state = await fetchModelParamsState()
+    modelParamsByGroup.value = Object.fromEntries(
+      Object.entries(state.overrides).map(([key, value]) => [key, normalizeModelParams(value)])
+    )
   } catch {
-    message.warning('Не удалось сохранить настройки модели в localStorage.')
+    message.warning('Не удалось загрузить настройки модели с backend.')
   }
 }
 
-function getResolvedModelParams(groupId: string): ModelParams {
+function getCurrentModelTargetId(): string {
+  return modelRunScope.value === 'well' ? selectedWell.value : modelSelectedGroupId.value
+}
+
+function getModelTargetFieldId(targetId: string): string | null {
+  if (!targetId || targetId === 'all') {
+    return null
+  }
+
+  return targetId.includes('_') ? getWellFieldCodeFromId(targetId) : targetId
+}
+
+function getInheritedModelParams(targetId: string): ModelParams {
   const allOverrides = modelParamsByGroup.value.all ?? {}
-  const groupOverrides = groupId === 'all' ? {} : (modelParamsByGroup.value[groupId] ?? {})
+  const fieldId = getModelTargetFieldId(targetId)
+  const fieldOverrides = targetId !== fieldId && fieldId ? (modelParamsByGroup.value[fieldId] ?? {}) : {}
+
   return {
     ...DEFAULT_MODEL_PARAMS,
     ...allOverrides,
-    ...groupOverrides
+    ...fieldOverrides
   }
+}
+
+function getResolvedModelParams(targetId: string): ModelParams {
+  return {
+    ...getInheritedModelParams(targetId),
+    ...(modelParamsByGroup.value[targetId] ?? {})
+  }
+}
+
+function getCurrentModelOverrides(): Partial<ModelParams> {
+  return modelParamsByGroup.value[getCurrentModelTargetId()] ?? {}
 }
 
 function getModelParamValue(key: ModelParamKey): number {
   return currentModelParams.value[key]
 }
 
+function hasModelParamOverride(key: ModelParamKey): boolean {
+  return Object.prototype.hasOwnProperty.call(getCurrentModelOverrides(), key)
+}
+
+function getModelParamInheritedValue(key: ModelParamKey): number {
+  return getInheritedModelParams(getCurrentModelTargetId())[key]
+}
+
 function setModelParamValue(key: ModelParamKey, value: number): void {
   const definition = modelParamDefinitionByKey[key]
   const roundedValue = Number(value.toFixed(definition.step < 1 ? 2 : 0))
   const nextValue = Math.min(definition.max, Math.max(definition.min, roundedValue))
-  const groupId = modelSelectedGroupId.value
-  const currentOverrides = modelParamsByGroup.value[groupId] ?? {}
-  const inheritedValue = groupId === 'all' ? DEFAULT_MODEL_PARAMS[key] : getResolvedModelParams('all')[key]
+  const targetId = getCurrentModelTargetId()
+  const currentOverrides = modelParamsByGroup.value[targetId] ?? {}
+  const inheritedValue = getInheritedModelParams(targetId)[key]
   const nextOverrides = { ...currentOverrides }
 
   if (nextValue === inheritedValue) {
@@ -1498,9 +1484,18 @@ function setModelParamValue(key: ModelParamKey, value: number): void {
 
   modelParamsByGroup.value = {
     ...modelParamsByGroup.value,
-    [groupId]: nextOverrides
+    [targetId]: nextOverrides
   }
-  persistModelGroupParams(groupId)
+}
+
+function resetModelParamValue(key: ModelParamKey): void {
+  const targetId = getCurrentModelTargetId()
+  const nextOverrides = { ...(modelParamsByGroup.value[targetId] ?? {}) }
+  delete nextOverrides[key]
+  modelParamsByGroup.value = {
+    ...modelParamsByGroup.value,
+    [targetId]: nextOverrides
+  }
 }
 
 function formatModelParamValue(parameter: ModelParamDefinition, value: number): string {
@@ -1514,6 +1509,11 @@ function getModelGroupLabel(groupId: string): string {
 
 function hasModelGroupOverrides(groupId: string): boolean {
   return Object.keys(modelParamsByGroup.value[groupId] ?? {}).length > 0
+}
+
+function hasModelCategoryOverrides(category: ModelRuleCategory): boolean {
+  const overrides = getCurrentModelOverrides()
+  return category.paramKeys.some((key) => Object.prototype.hasOwnProperty.call(overrides, key))
 }
 
 function selectModelRuleCategory(categoryKey: string): void {
@@ -1597,7 +1597,7 @@ const selectedModelFeatures = ref<string[]>([
   'combo_pressure_growth_rate_drop',
   'combo_rate_growth_after_opz'
 ])
-const modelParamsByGroup = ref<Record<string, Partial<ModelParams>>>(loadModelParamsFromStorage())
+const modelParamsByGroup = ref<Record<string, Partial<ModelParams>>>({})
 const modelQualityByGroup = ref<Record<string, number>>({})
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
@@ -1710,7 +1710,8 @@ const filteredWellOptions = computed(() => {
 })
 const currentWellGroupId = computed<WellGroupId | null>(() => wellGroupAssignments.value[selectedWell.value] ?? null)
 const currentWellGroupLabel = computed(() => getWellGroupLabel(currentWellGroupId.value))
-const currentModelParams = computed(() => getResolvedModelParams(modelSelectedGroupId.value))
+const currentModelTargetId = computed(() => getCurrentModelTargetId())
+const currentModelParams = computed(() => getResolvedModelParams(currentModelTargetId.value))
 const activeModelRuleCategory = computed<ModelRuleCategory>(
   () => modelRuleCategories.find((category) => category.key === modelSelectedCategoryKey.value) ?? modelRuleCategories[0]!
 )
@@ -1719,11 +1720,11 @@ const activeModelRuleParameters = computed(() =>
 )
 const modelChangedRows = computed(() =>
   modelParamDefinitions
-    .filter((parameter) => currentModelParams.value[parameter.key] !== DEFAULT_MODEL_PARAMS[parameter.key])
+    .filter((parameter) => hasModelParamOverride(parameter.key))
     .map((parameter) => ({
       key: parameter.key,
       label: parameter.label,
-      defaultValue: formatModelParamValue(parameter, DEFAULT_MODEL_PARAMS[parameter.key]),
+      defaultValue: formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)),
       currentValue: formatModelParamValue(parameter, currentModelParams.value[parameter.key])
     }))
 )
@@ -3505,23 +3506,41 @@ function moveWellToGroup() {
   saveGroupForWell()
 }
 
-function resetCurrentModelGroup() {
-  const groupId = modelSelectedGroupId.value
+async function resetCurrentModelGroup() {
+  const targetId = currentModelTargetId.value
   modelParamsByGroup.value = {
     ...modelParamsByGroup.value,
-    [groupId]: {}
+    [targetId]: {}
   }
-  persistModelGroupParams(groupId)
-  message.success(`Настройки ${getModelGroupLabel(groupId)} сброшены.`)
+
+  try {
+    const state = await resetModelParamsForTarget(targetId)
+    modelParamsByGroup.value = Object.fromEntries(
+      Object.entries(state.overrides).map(([key, value]) => [key, normalizeModelParams(value)])
+    )
+    message.success(`Настройки ${modelRunScopeLabel.value} сброшены.`)
+  } catch {
+    message.error('Не удалось сбросить настройки модели.')
+  }
 }
 
-function saveCurrentModelParams() {
-  persistModelGroupParams(modelSelectedGroupId.value)
-  message.success(`Настройки ${getModelGroupLabel(modelSelectedGroupId.value)} сохранены.`)
+async function saveCurrentModelParams() {
+  const targetId = currentModelTargetId.value
+  const params = normalizeModelParams(modelParamsByGroup.value[targetId] ?? {})
+
+  try {
+    const state = await saveModelParamsForTarget(targetId, toModelParamsPayload(params))
+    modelParamsByGroup.value = Object.fromEntries(
+      Object.entries(state.overrides).map(([key, value]) => [key, normalizeModelParams(value)])
+    )
+    message.success(`Настройки ${modelRunScopeLabel.value} сохранены.`)
+  } catch {
+    message.error('Не удалось сохранить настройки модели.')
+  }
 }
 
-function applyCurrentModelParams() {
-  persistModelGroupParams(modelSelectedGroupId.value)
+async function applyCurrentModelParams() {
+  await saveCurrentModelParams()
   message.success(`Авторазметка запущена для области: ${modelRunScopeLabel.value}.`)
 }
 
@@ -4071,6 +4090,7 @@ watch(navigationGroupId, (groupId) => {
 
 onMounted(async () => {
   await initializeWellOptions()
+  await loadModelParamsFromBackend()
   await loadData()
   initialDataLoaded.value = true
 

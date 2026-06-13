@@ -29,6 +29,11 @@ interface TrMonitoringApiPoint {
   productivity: number | null
 }
 
+export interface ModelParamsState {
+  globalParams: Record<string, number>
+  overrides: Record<string, Record<string, number>>
+}
+
 export async function fetchWellTimeseries(
   wellId: string,
   params: { date_from?: string; date_to?: string }
@@ -89,6 +94,21 @@ export async function fetchMarkup(): Promise<MarkupState> {
 
 export async function saveMarkup(markup: MarkupState): Promise<MarkupState> {
   const response = await api.put<MarkupState>('/markup', markup)
+  return response.data
+}
+
+export async function fetchModelParamsState(): Promise<ModelParamsState> {
+  const response = await api.get<ModelParamsState>('/model-params')
+  return response.data
+}
+
+export async function saveModelParamsForTarget(targetId: string, params: Record<string, number>): Promise<ModelParamsState> {
+  const response = await api.put<ModelParamsState>(`/model-params/${targetId}`, { params })
+  return response.data
+}
+
+export async function resetModelParamsForTarget(targetId: string): Promise<ModelParamsState> {
+  const response = await api.delete<ModelParamsState>(`/model-params/${targetId}`)
   return response.data
 }
 
