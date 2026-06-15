@@ -441,3 +441,10 @@ def get_well_candidate_auto_episode_intervals(well_id: str) -> list[dict[str, ob
         for row in _load_candidate_auto_episode_rows()
         if row["normalizedWellId"] == normalized_well_id
     ]
+
+
+def get_candidate_auto_episode_intervals() -> list[dict[str, object]]:
+    return [
+        {key: value for key, value in row.items() if key != "normalizedWellId"}
+        for row in _load_candidate_auto_episode_rows()
+    ]

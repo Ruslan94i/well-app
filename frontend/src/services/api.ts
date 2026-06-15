@@ -34,6 +34,51 @@ export interface ModelParamsState {
   overrides: Record<string, Record<string, number>>
 }
 
+export interface PeriodSummaryRow {
+  field_code: string
+  well_id: string
+  category: string
+  interval_start: string
+  interval_end: string
+  duration_days: number | null
+  stop_qliq: number | null
+  qliq_1: number | null
+  qliq_2: number | null
+  qoil_1: number | null
+  qoil_2: number | null
+  water_cut_1: number | null
+  water_cut_2: number | null
+  intake_pressure_1: number | null
+  intake_pressure_2: number | null
+  frequency_1: number | null
+  frequency_2: number | null
+  load_1: number | null
+  load_2: number | null
+  gas_factor_1: number | null
+  gas_factor_2: number | null
+  bdpv_1: number | null
+  bdpv_2: number | null
+  delta_qliq: number | null
+  delta_qoil: number | null
+  accumulated_qliq: number | null
+  accumulated_qoil: number | null
+}
+
+export interface PeriodSummaryResponse {
+  period_start: string
+  period_end: string
+  window_days: number
+  rows: PeriodSummaryRow[]
+}
+
+export interface PeriodSummaryParams {
+  period?: 'week' | 'month' | 'year' | 'custom'
+  date_from?: string
+  date_to?: string
+  field_code?: string
+  well_id?: string
+}
+
 export async function fetchWellTimeseries(
   wellId: string,
   params: { date_from?: string; date_to?: string }
@@ -109,6 +154,11 @@ export async function saveModelParamsForTarget(targetId: string, params: Record<
 
 export async function resetModelParamsForTarget(targetId: string): Promise<ModelParamsState> {
   const response = await api.delete<ModelParamsState>(`/model-params/${targetId}`)
+  return response.data
+}
+
+export async function fetchPeriodSummary(params: PeriodSummaryParams): Promise<PeriodSummaryResponse> {
+  const response = await api.get<PeriodSummaryResponse>('/period-summary', { params })
   return response.data
 }
 

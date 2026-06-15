@@ -83,7 +83,7 @@ export interface VisibleDateRange {
   endDate: string
 }
 
-export type InteractionMode = 'navigate' | 'annotate' | 'modelTuning'
+export type InteractionMode = 'navigate' | 'annotate' | 'modelTuning' | 'periodSummary'
 
 export interface EventInterval {
   id: string

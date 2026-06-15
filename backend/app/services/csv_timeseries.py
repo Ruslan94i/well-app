@@ -425,6 +425,11 @@ def clear_timeseries_cache() -> None:
     _load_aggregated_timeseries_frame_cached.cache_clear()
 
 
+def get_timeseries_frame() -> pl.DataFrame:
+    """Return the cached normalized telemetry frame for read-only aggregate services."""
+    return _load_timeseries_frame()
+
+
 def get_well_timeseries(
     well_id: str,
     date_from: date | None = None,

@@ -446,9 +446,8 @@ interface RangePreset {
 }
 
 const TRACK_LABEL_LEFT = 22
-const MAIN_CHART_DOMAIN_START = 0.38
-const TRACK_PANEL_TOP = 0.35
-const TRACK_MAIN_GAP = 0.022
+const TRACK_PANEL_TOP = 0.33
+const TRACK_MAIN_GAP = 0.06
 const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
 const CHART_MARGIN_TOP = 10
@@ -1835,7 +1834,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
 
   return {
     rows,
-    mainDomain: [MAIN_CHART_DOMAIN_START, 1],
+    mainDomain: [TRACK_PANEL_TOP + TRACK_MAIN_GAP, 1],
     separatorYs
   }
 }
@@ -3134,7 +3133,7 @@ const timePanSliderOverlayStyle = computed<Record<string, string>>(() => {
 
   return {
     left: `${plotBounds.left}px`,
-    top: `${mainBottomY + 30}px`,
+    top: `${mainBottomY + 8}px`,
     width: `${plotBounds.width}px`
   }
 })

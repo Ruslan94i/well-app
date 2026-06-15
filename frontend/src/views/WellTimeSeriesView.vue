@@ -80,6 +80,13 @@
                   >
                     Настройка модели
                   </button>
+                  <button
+                    class="rounded-md px-3 py-1.5 text-sm transition"
+                    :class="isInteractionMode('periodSummary') ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
+                    @click="interactionMode = 'periodSummary'"
+                  >
+                    Сводка периода
+                  </button>
                 </div>
               </div>
 
@@ -93,7 +100,7 @@
           </div>
         </div>
 
-      <section v-if="interactionMode !== 'modelTuning'" class="grid gap-2 xl:grid-cols-[minmax(0,1fr)_304px]">
+      <section v-if="interactionMode === 'navigate' || interactionMode === 'annotate'" class="grid gap-2 xl:grid-cols-[minmax(0,1fr)_304px]">
         <div class="panel rounded-2xl p-2">
           <div
             v-if="errorMessage"
@@ -553,7 +560,7 @@
         </aside>
       </section>
 
-      <section v-else>
+      <section v-else-if="interactionMode === 'modelTuning'">
         <div class="panel rounded-2xl p-3">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -787,6 +794,117 @@
           </div>
         </div>
       </section>
+      <section v-else>
+        <div class="panel rounded-2xl p-3">
+          <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-100">Сводка авторазметки за период</h2>
+              <p class="mt-1 max-w-4xl text-sm leading-6 text-slate-400">
+                Категория попадает в таблицу, если её автоинтервал пересекает выбранный период. Для остановок и ГДИ показываются длительность, остановочный дебит и накопленные потери; для остальных категорий считается накопленный dQ по интервалу классификатора.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+              <div>
+                <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Месторождение</label>
+                <n-select
+                  v-model:value="periodSummaryFieldCode"
+                  class="w-44"
+                  :options="periodSummaryFieldOptions"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Скважина</label>
+                <n-select
+                  v-model:value="periodSummaryWellId"
+                  class="w-48"
+                  :options="periodSummaryWellOptions"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Период</label>
+                <n-select
+                  v-model:value="periodSummaryPreset"
+                  class="w-40"
+                  :options="periodSummaryPeriodOptions"
+                />
+              </div>
+              <div v-if="periodSummaryPreset === 'custom'">
+                <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Свой период</label>
+                <n-date-picker
+                  v-model:value="periodSummaryDateRange"
+                  type="daterange"
+                  clearable
+                  class="w-64"
+                />
+              </div>
+              <n-button type="primary" :loading="periodSummaryLoading" @click="loadPeriodSummary">
+                Обновить
+              </n-button>
+            </div>
+          </div>
+
+          <div class="mt-3 grid gap-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3 xl:grid-cols-6">
+            <div class="rounded-lg bg-slate-950/50 px-3 py-2">
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Область</div>
+              <div class="mt-1 text-sm font-semibold text-slate-100">{{ periodSummaryScopeLabel }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-950/50 px-3 py-2">
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Начало</div>
+              <div class="mt-1 text-sm font-semibold text-slate-100">{{ formatPeriodDate(periodSummaryMeta.period_start) }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-950/50 px-3 py-2">
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Конец</div>
+              <div class="mt-1 text-sm font-semibold text-slate-100">{{ formatPeriodDate(periodSummaryMeta.period_end) }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-950/50 px-3 py-2">
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Окно средних</div>
+              <div class="mt-1 text-sm font-semibold text-slate-100">{{ periodSummaryMeta.window_days }} сут.</div>
+            </div>
+            <div class="rounded-lg bg-slate-950/50 px-3 py-2">
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Строк</div>
+              <div class="mt-1 text-sm font-semibold text-slate-100">{{ filteredPeriodSummaryRows.length }} / {{ periodSummaryRows.length }}</div>
+            </div>
+          </div>
+
+          <div class="mt-2 rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-2 text-xs leading-5 text-slate-400">
+            Сейчас показаны только категории, которые пересекают выбранный календарный интервал. Если по области «Все»
+            отображается мало скважин, расширьте период до месяца, года или задайте свой диапазон.
+          </div>
+
+          <div
+            v-if="periodSummaryError"
+            class="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-300"
+          >
+            {{ periodSummaryError }}
+          </div>
+
+          <div class="mt-3 rounded-xl border border-slate-700 bg-slate-900/45 p-3">
+            <div class="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Фильтры по колонкам</div>
+            <div class="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+              <n-input
+                v-for="column in periodSummaryFilterColumns"
+                :key="column.key"
+                v-model:value="periodSummaryFilters[column.key]"
+                clearable
+                size="small"
+                :placeholder="column.title"
+              />
+            </div>
+          </div>
+
+          <div class="mt-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950/35">
+            <n-data-table
+              :loading="periodSummaryLoading"
+              :columns="periodSummaryColumns"
+              :data="filteredPeriodSummaryRows"
+              :pagination="{ pageSize: 25 }"
+              :single-line="false"
+              size="small"
+              max-height="620"
+            />
+          </div>
+        </div>
+      </section>
       </div>
     </section>
   </main>
@@ -794,8 +912,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NCheckbox, NCheckboxGroup, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
-import type { SelectOption } from 'naive-ui'
+import { NButton, NCheckbox, NCheckboxGroup, NDataTable, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
+import type { DataTableColumns, SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import {
   fetchArtificialLiftPeriods,
@@ -804,6 +922,7 @@ import {
   fetchManualGraphDataExportCsv,
   fetchMarkup,
   fetchModelParamsState,
+  fetchPeriodSummary,
   fetchTrMonitoring,
   fetchVspPeriods,
   fetchWellContext,
@@ -813,6 +932,7 @@ import {
   saveModelParamsForTarget,
   saveMarkup
 } from '@/services/api'
+import type { PeriodSummaryRow } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -1140,6 +1260,14 @@ interface ModelQualityRow {
   note: string
 }
 
+type PeriodSummaryPreset = 'week' | 'month' | 'year' | 'custom'
+type PeriodSummaryColumnKey = keyof PeriodSummaryRow
+
+interface PeriodSummaryColumnDefinition {
+  key: PeriodSummaryColumnKey
+  title: string
+}
+
 interface PersistedUiState {
   selectedWell?: string
   interactionMode?: InteractionMode
@@ -1296,6 +1424,47 @@ const modelQualityRows: ModelQualityRow[] = [
   { field: 'Mc', wells: 6, rows: '29.5K', pct: 100, note: 'только Работа/Остановка' },
   { field: 'Az', wells: 7, rows: '28.0K', pct: 100, note: 'только Работа/Остановка' }
 ]
+
+const periodSummaryPeriodOptions: { label: string; value: PeriodSummaryPreset }[] = [
+  { label: 'Неделя', value: 'week' },
+  { label: 'Месяц', value: 'month' },
+  { label: 'Год', value: 'year' },
+  { label: 'Свой период', value: 'custom' }
+]
+
+const periodSummaryColumnDefinitions: PeriodSummaryColumnDefinition[] = [
+  { key: 'field_code', title: 'Месторождение' },
+  { key: 'well_id', title: 'Скважина' },
+  { key: 'category', title: 'Категория' },
+  { key: 'interval_start', title: 'Начало интервала' },
+  { key: 'interval_end', title: 'Конец интервала' },
+  { key: 'duration_days', title: 'Длит., сут' },
+  { key: 'stop_qliq', title: 'Остановочный Qж' },
+  { key: 'qliq_1', title: 'Qж1' },
+  { key: 'qliq_2', title: 'Qж2' },
+  { key: 'qoil_1', title: 'Qнефти1' },
+  { key: 'qoil_2', title: 'Qнефти2' },
+  { key: 'water_cut_1', title: 'Обводненность1' },
+  { key: 'water_cut_2', title: 'Обводненность2' },
+  { key: 'intake_pressure_1', title: 'Рпр1' },
+  { key: 'intake_pressure_2', title: 'Рпр2' },
+  { key: 'frequency_1', title: 'F1' },
+  { key: 'frequency_2', title: 'F2' },
+  { key: 'load_1', title: 'Загрузка1' },
+  { key: 'load_2', title: 'Загрузка2' },
+  { key: 'gas_factor_1', title: 'ГФ1' },
+  { key: 'gas_factor_2', title: 'ГФ2' },
+  { key: 'bdpv_1', title: 'БДПВ1' },
+  { key: 'bdpv_2', title: 'БДПВ2' },
+  { key: 'delta_qliq', title: 'dQж' },
+  { key: 'delta_qoil', title: 'dQн' },
+  { key: 'accumulated_qliq', title: 'Накопл. dQж' },
+  { key: 'accumulated_qoil', title: 'Накопл. dQн' }
+]
+
+const defaultPeriodSummaryFilters = Object.fromEntries(
+  periodSummaryColumnDefinitions.map((column) => [column.key, ''])
+) as Record<PeriodSummaryColumnKey, string>
 
 function getEpisodeTypeLabel(value: EpisodeType): string {
   return episodeTypeOptions.value.find((option) => option.value === value)?.label ?? value
@@ -1527,7 +1696,7 @@ function showModelChanges(): void {
 }
 
 function isInteractionModeValue(value: unknown): value is InteractionMode {
-  return value === 'navigate' || value === 'annotate' || value === 'modelTuning'
+  return value === 'navigate' || value === 'annotate' || value === 'modelTuning' || value === 'periodSummary'
 }
 
 function loadPersistedUiState(): PersistedUiState {
@@ -1622,6 +1791,19 @@ const loading = ref(false)
 const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
 const manualGraphDataExporting = ref(false)
+const periodSummaryPreset = ref<PeriodSummaryPreset>('week')
+const periodSummaryFieldCode = ref<string>('all')
+const periodSummaryWellId = ref<string>('all')
+const periodSummaryDateRange = ref<[number, number] | null>(null)
+const periodSummaryRows = ref<PeriodSummaryRow[]>([])
+const periodSummaryLoading = ref(false)
+const periodSummaryError = ref('')
+const periodSummaryMeta = ref({
+  period_start: '',
+  period_end: '',
+  window_days: 0
+})
+const periodSummaryFilters = ref<Record<PeriodSummaryColumnKey, string>>({ ...defaultPeriodSummaryFilters })
 const errorMessage = ref('')
 const wellContext = ref<WellContext | null>(null)
 const markupLoaded = ref(false)
@@ -1753,6 +1935,57 @@ const modelRunScopeLabel = computed(() =>
     ? `Скважина ${selectedWell.value}`
     : `Группа ${getModelGroupLabel(modelSelectedGroupId.value)}`
 )
+const periodSummaryFieldOptions = computed<SelectOption[]>(() => {
+  const fieldCodes = Array.from(new Set(wellOptions.value.map((option) => getWellFieldCodeFromId(option.value)))).sort((left, right) =>
+    left.localeCompare(right, 'ru')
+  )
+  return [
+    { label: 'Все месторождения', value: 'all' },
+    ...fieldCodes.map((fieldCode) => ({ label: formatFieldGroupLabel(fieldCode), value: fieldCode }))
+  ]
+})
+const periodSummaryWellOptions = computed<SelectOption[]>(() => {
+  const wells = periodSummaryFieldCode.value === 'all'
+    ? wellOptions.value
+    : wellOptions.value.filter((option) => getWellFieldCodeFromId(option.value) === periodSummaryFieldCode.value)
+  return [
+    { label: 'Все скважины', value: 'all' },
+    ...wells
+  ]
+})
+const periodSummaryScopeLabel = computed(() => {
+  if (periodSummaryWellId.value !== 'all') {
+    return periodSummaryWellId.value
+  }
+
+  if (periodSummaryFieldCode.value !== 'all') {
+    return periodSummaryFieldCode.value
+  }
+
+  return 'Все'
+})
+const periodSummaryFilterColumns = computed(() => periodSummaryColumnDefinitions)
+const filteredPeriodSummaryRows = computed(() =>
+  periodSummaryRows.value.filter((row) =>
+    periodSummaryColumnDefinitions.every((column) => {
+      const filterValue = periodSummaryFilters.value[column.key]?.trim().toLocaleLowerCase('ru')
+      if (!filterValue) {
+        return true
+      }
+
+      return formatPeriodSummaryCell(row[column.key]).toLocaleLowerCase('ru').includes(filterValue)
+    })
+  )
+)
+const periodSummaryColumns = computed<DataTableColumns<PeriodSummaryRow>>(() =>
+  periodSummaryColumnDefinitions.map((column) => ({
+    key: column.key,
+    title: column.title,
+    minWidth: column.key === 'category' ? 170 : column.key === 'well_id' ? 110 : 96,
+    sorter: (leftRow, rightRow) => comparePeriodSummaryValues(leftRow[column.key], rightRow[column.key]),
+    render: (row) => formatPeriodSummaryCell(row[column.key])
+  }))
+)
 const interactionModeHint = computed(() => {
   if (interactionMode.value === 'navigate') {
     return 'Масштабирование, панорамирование и анализ'
@@ -1760,6 +1993,10 @@ const interactionModeHint = computed(() => {
 
   if (interactionMode.value === 'annotate') {
     return 'Протяните мышью для выбора интервала'
+  }
+
+  if (interactionMode.value === 'periodSummary') {
+    return 'Сводка категорий авторазметки за выбранный период'
   }
 
   return 'Настройка правил авторазметки по группе'
@@ -1773,6 +2010,10 @@ const currentTabTitle = computed(() => {
     return 'Разметка'
   }
 
+  if (interactionMode.value === 'periodSummary') {
+    return 'Сводка периода'
+  }
+
   return 'Настройка модели'
 })
 const currentTabDescription = computed(() => {
@@ -1782,6 +2023,10 @@ const currentTabDescription = computed(() => {
 
   if (interactionMode.value === 'annotate') {
     return 'Разметка интервалов: выделяйте начало и конец, затем сохраняйте пользовательский эпизод'
+  }
+
+  if (interactionMode.value === 'periodSummary') {
+    return 'Периодическая таблица по категориям авторазметки и изменению ключевых показателей'
   }
 
   return 'Настройка правил авторазметки: параметры наследуются из группы «Все» и могут переопределяться по месторождению'
@@ -3344,6 +3589,70 @@ function buildWellGroupOptions(wellIds: string[]): { label: string; value: WellG
   }))
 }
 
+function comparePeriodSummaryValues(leftValue: unknown, rightValue: unknown): number {
+  if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+    return leftValue - rightValue
+  }
+
+  return formatPeriodSummaryCell(leftValue).localeCompare(formatPeriodSummaryCell(rightValue), 'ru', {
+    numeric: true,
+    sensitivity: 'base'
+  })
+}
+
+function formatPeriodSummaryCell(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return ''
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toFixed(2) : ''
+  }
+
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    return value.replace('T', ' ').slice(0, 16)
+  }
+
+  return String(value)
+}
+
+function formatPeriodDate(value: string): string {
+  if (!value) {
+    return '—'
+  }
+
+  return value.replace('T', ' ').slice(0, 16)
+}
+
+async function loadPeriodSummary(): Promise<void> {
+  periodSummaryLoading.value = true
+  periodSummaryError.value = ''
+  const [start, end] = periodSummaryDateRange.value ?? []
+  const params = {
+    period: periodSummaryPreset.value,
+    date_from: periodSummaryPreset.value === 'custom' ? toIsoDate(start) : undefined,
+    date_to: periodSummaryPreset.value === 'custom' ? toIsoDate(end) : undefined,
+    field_code: periodSummaryFieldCode.value !== 'all' ? periodSummaryFieldCode.value : undefined,
+    well_id: periodSummaryWellId.value !== 'all' ? periodSummaryWellId.value : undefined
+  }
+
+  try {
+    const summary = await fetchPeriodSummary(params)
+    periodSummaryRows.value = summary.rows
+    periodSummaryMeta.value = {
+      period_start: summary.period_start,
+      period_end: summary.period_end,
+      window_days: summary.window_days
+    }
+  } catch {
+    periodSummaryRows.value = []
+    periodSummaryError.value = 'Не удалось загрузить сводку авторазметки за период.'
+    message.error(periodSummaryError.value)
+  } finally {
+    periodSummaryLoading.value = false
+  }
+}
+
 async function loadData() {
   if (!selectedWell.value) {
     chartData.value = []
@@ -4071,6 +4380,27 @@ watch(interactionMode, (nextMode, previousMode) => {
   if (previousMode === 'annotate' && nextMode === 'navigate') {
     resetAnnotationSelection()
     selectedAnalysisInterval.value = null
+  }
+
+  if (nextMode === 'periodSummary' && periodSummaryRows.value.length === 0 && !periodSummaryLoading.value) {
+    void loadPeriodSummary()
+  }
+})
+
+watch([periodSummaryPreset, periodSummaryDateRange, periodSummaryFieldCode, periodSummaryWellId], () => {
+  if (interactionMode.value === 'periodSummary') {
+    void loadPeriodSummary()
+  }
+})
+
+watch(periodSummaryFieldCode, () => {
+  if (periodSummaryWellId.value === 'all') {
+    return
+  }
+
+  const selectedWellStillAvailable = periodSummaryWellOptions.value.some((option) => option.value === periodSummaryWellId.value)
+  if (!selectedWellStillAvailable) {
+    periodSummaryWellId.value = 'all'
   }
 })
 
