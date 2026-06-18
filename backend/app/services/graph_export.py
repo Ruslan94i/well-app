@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from io import StringIO
 from typing import Any
 
-from app.schemas.markup import FrequencyBreakpoint, FrequencyBreakpointSuppression, SavedAnnotation
+from app.schemas.markup import AutoEpisodeReview, FrequencyBreakpoint, FrequencyBreakpointSuppression, SavedAnnotation
 from app.services.artificial_lift import get_well_artificial_lift_periods
 from app.services.auto_episodes import get_well_auto_episode_intervals
 from app.services.csv_timeseries import get_available_well_ids, get_well_timeseries
@@ -15,7 +15,7 @@ from app.services.vsp import get_well_vsp_periods
 from app.services.xlsx_reference import get_well_context
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 FREQUENCY_CHANGE_THRESHOLD = 0.1
 AUTO_ANNOTATION_ID_PREFIXES = ("auto-", "auto-inference-")
 CLASSIFICATION_TO_TARGET = {
@@ -27,17 +27,24 @@ CLASSIFICATION_TO_TARGET = {
     "productivity_trend=Kprod_decline": ("target_kprod_trend", "declining"),
     "esp_periodic=periodic_operation": ("target_periodic", "1"),
     "esp_uvch=uvch": ("target_uvch", "1"),
+    "esp_uvch=umch": ("target_umch", "1"),
     "esp_rptch=rptch": ("target_rptch", "1"),
     "nur=nur_yes": ("target_nur", "1"),
     "gdi=gdi": ("target_gdi", "1"),
     "complicated_fund=slozhn_fond": ("target_complicated_fund", "1"),
     "sppv=sppv": ("target_sppv", "1"),
+    "vgf=vgf_yes": ("target_vgf", "1"),
+    "gas_factor_trend=GF_growth": ("target_gas_factor_trend", "rising"),
+    "gas_factor_trend=GF_decline": ("target_gas_factor_trend", "falling"),
+    "deoptimization=esp_limit": ("target_deoptimization", "esp_limit"),
+    "deoptimization=infrastructure_limit": ("target_deoptimization", "infrastructure_limit"),
     "esp_degradation=degr_yes": ("target_esp_degradation", "1"),
 }
 TARGET_COLUMNS = [
     "target_well_state",
     "target_gdi",
     "target_uvch",
+    "target_umch",
     "target_rptch",
     "target_periodic",
     "target_nur",
@@ -47,6 +54,9 @@ TARGET_COLUMNS = [
     "target_kprod_trend",
     "target_complicated_fund",
     "target_sppv",
+    "target_vgf",
+    "target_gas_factor_trend",
+    "target_deoptimization",
 ]
 TELEMETRY_COLUMNS = [
     "qliq",
@@ -111,6 +121,9 @@ EXPORT_COLUMNS = [
     "auto_episode_start_dates",
     "auto_episode_end_dates",
     "auto_episode_confidences",
+    "auto_episode_review_ids",
+    "auto_episode_error_types",
+    "auto_episode_error_comments",
     "frequency_segment_id",
     "frequency_segment_start_date",
     "frequency_segment_end_date",
@@ -546,6 +559,12 @@ def _fill_auto_episodes(row: dict[str, object], intervals: list[object]) -> None
     row["auto_episode_confidences"] = _join_field(intervals, "confidence")
 
 
+def _fill_auto_episode_reviews(row: dict[str, object], reviews: list[object]) -> None:
+    row["auto_episode_review_ids"] = _join_field(reviews, "id")
+    row["auto_episode_error_types"] = _join_field(reviews, "errorType")
+    row["auto_episode_error_comments"] = _join_field(reviews, "comment")
+
+
 def _is_manual_annotation(annotation: SavedAnnotation) -> bool:
     return not any(annotation.id.startswith(prefix) for prefix in AUTO_ANNOTATION_ID_PREFIXES)
 
@@ -624,6 +643,7 @@ def _fill_gdi(row: dict[str, object], items: list[object]) -> None:
 def _build_export_rows_for_well(
     well_id: str,
     annotations: list[SavedAnnotation],
+    auto_episode_reviews: list[AutoEpisodeReview],
     manual_breakpoints: list[FrequencyBreakpoint],
     suppressed_breakpoints: list[FrequencyBreakpointSuppression],
     *,
@@ -642,10 +662,12 @@ def _build_export_rows_for_well(
     auto_episode_intervals = get_well_auto_episode_intervals(well_id) if include_auto_episodes else []
     context = get_well_context(well_id)
     well_annotations = [annotation for annotation in annotations if annotation.wellId == well_id]
+    well_auto_episode_reviews = [review for review in auto_episode_reviews if review.wellId == well_id]
     esp_interval_index = _prepare_datetime_intervals(esp_periods)
     vsp_interval_index = _prepare_datetime_intervals(vsp_periods)
     annotation_interval_index = _prepare_datetime_intervals(well_annotations)
     auto_episode_interval_index = _prepare_datetime_intervals(auto_episode_intervals)
+    auto_episode_review_interval_index = _prepare_datetime_intervals(well_auto_episode_reviews)
     breakpoints = _merge_frequency_breakpoints(
         _build_auto_frequency_breakpoints(telemetry_rows, well_id),
         manual_breakpoints,
@@ -700,6 +722,7 @@ def _build_export_rows_for_well(
         _fill_vsp(row, _active_prepared_datetime_intervals(vsp_interval_index, point_time))
         _fill_annotation_targets(row, _active_prepared_datetime_intervals(annotation_interval_index, point_time))
         _fill_auto_episodes(row, _active_prepared_datetime_intervals(auto_episode_interval_index, point_time))
+        _fill_auto_episode_reviews(row, _active_prepared_datetime_intervals(auto_episode_review_interval_index, point_time))
         _fill_frequency(row, point_time, breakpoints_by_time, frequency_segments)
         _fill_gtm(row, gtm_by_date.get(point_date, []))
         _fill_opz(row, opz_by_date.get(point_date, []))
@@ -723,36 +746,64 @@ def _normalize_field_codes(field_code: str | None) -> set[str]:
     return {item.strip() for item in field_code.split(",") if item.strip()}
 
 
-def build_graph_data_export_csv(field_code: str | None = None) -> str:
-    markup = load_markup_state()
-    field_codes = _normalize_field_codes(field_code)
+def _normalize_well_ids(well_id: str | None) -> set[str]:
+    if not well_id:
+        return set()
+
+    return {item.strip() for item in well_id.split(",") if item.strip()}
+
+
+def _new_csv_writer() -> tuple[StringIO, csv.DictWriter]:
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
+    return output, writer
+
+
+def _take_csv_chunk(output: StringIO) -> str:
+    chunk = output.getvalue()
+    output.seek(0)
+    output.truncate(0)
+    return chunk
+
+
+def iter_graph_data_export_csv(field_code: str | None = None, well_id: str | None = None):
+    markup = load_markup_state()
+    field_codes = _normalize_field_codes(field_code)
+    requested_well_ids = _normalize_well_ids(well_id)
+    output, writer = _new_csv_writer()
     writer.writeheader()
+    yield _take_csv_chunk(output)
 
     for well_id in sorted(get_available_well_ids()):
+        if requested_well_ids and well_id not in requested_well_ids:
+            continue
+
         if field_codes and _well_field_code(well_id) not in field_codes:
             continue
 
         for row in _build_export_rows_for_well(
             well_id=well_id,
             annotations=markup.annotations,
+            auto_episode_reviews=markup.autoEpisodeReviews,
             manual_breakpoints=markup.manualFrequencyBreakpoints,
             suppressed_breakpoints=markup.suppressedFrequencyBreakpoints,
         ):
             writer.writerow({column: _format_cell(row.get(column)) for column in EXPORT_COLUMNS})
+            yield _take_csv_chunk(output)
 
-    return output.getvalue()
+
+def build_graph_data_export_csv(field_code: str | None = None, well_id: str | None = None) -> str:
+    return "".join(iter_graph_data_export_csv(field_code=field_code, well_id=well_id))
 
 
-def build_manual_graph_data_export_csv(field_code: str | None = None) -> str:
+def iter_manual_graph_data_export_csv(field_code: str | None = None):
     markup = load_markup_state()
     field_codes = _normalize_field_codes(field_code)
     manual_annotations = [annotation for annotation in markup.annotations if _is_manual_annotation(annotation)]
     manually_marked_well_ids = {annotation.wellId for annotation in manual_annotations}
-    output = StringIO()
-    writer = csv.DictWriter(output, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
+    output, writer = _new_csv_writer()
     writer.writeheader()
+    yield _take_csv_chunk(output)
 
     for well_id in sorted(get_available_well_ids()):
         if well_id not in manually_marked_well_ids:
@@ -764,10 +815,14 @@ def build_manual_graph_data_export_csv(field_code: str | None = None) -> str:
         for row in _build_export_rows_for_well(
             well_id=well_id,
             annotations=manual_annotations,
+            auto_episode_reviews=markup.autoEpisodeReviews,
             manual_breakpoints=markup.manualFrequencyBreakpoints,
             suppressed_breakpoints=markup.suppressedFrequencyBreakpoints,
             include_auto_episodes=False,
         ):
             writer.writerow({column: _format_cell(row.get(column)) for column in EXPORT_COLUMNS})
+            yield _take_csv_chunk(output)
 
-    return output.getvalue()
+
+def build_manual_graph_data_export_csv(field_code: str | None = None) -> str:
+    return "".join(iter_manual_graph_data_export_csv(field_code=field_code))

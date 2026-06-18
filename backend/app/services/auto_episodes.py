@@ -26,6 +26,7 @@ AUTO_EPISODE_LABEL_COLORS = {
     "\u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0430": "#ef4444",
     "\u0433\u0434\u0438": "#06b6d4",
     "\u0443\u0432\u0447": "#2563eb",
+    "\u0443\u043c\u0447": "#ffffff",
     "\u0440\u043f\u0442\u0447": "#a855f7",
     "\u043d\u0443\u0440": "#ec4899",
     "\u043f\u0435\u0440\u0438\u043e\u0434\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0440\u0430\u0431\u043e\u0442\u0430": "#facc15",
@@ -37,6 +38,11 @@ AUTO_EPISODE_LABEL_COLORS = {
     "\u0441\u043d\u0438\u0436\u0435\u043d\u0438\u0435 \u043a\u043f\u0440\u043e\u0434": "#ff2d2d",
     "\u043e\u0441\u043b\u043e\u0436\u043d\u0435\u043d\u043d\u044b\u0439 \u0444\u043e\u043d\u0434": "#f97316",
     "\u0441\u043f\u043f\u0432": "#2dd4bf",
+    "\u0432\u0433\u0444": "#f97316",
+    "\u0441\u043d\u0438\u0436\u0435\u043d\u0438\u0435 \u0433\u0444": "#a3e635",
+    "\u0440\u043e\u0441\u0442 \u0433\u0444": "#f97316",
+    "\u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0435 \u044d\u0446\u043d": "#ffffff",
+    "\u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0435 \u0438\u043d\u0444\u0440\u0430\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b": "#ffffff",
     "\u0434\u0435\u0433\u0440\u0430\u0434\u0430\u0446\u0438\u044f \u044d\u0446\u043d": "#94a3b8",
 }
 EXCEL_EPOCH = date(1899, 12, 30)
@@ -85,6 +91,14 @@ COLOR_COLUMNS = {"color", "colour", "цвет"}
 ID_COLUMNS = {"id", "episodeid", "intervalid", "ид", "идентификатор"}
 DATE_COLUMNS = {"date", "дата", "pointdate", "датазамера"}
 CONFIDENCE_COLUMNS = {"confidence", "conf", "probability", "score", "уверенность", "вероятность"}
+
+CONFIDENCE_TIER_COLUMNS = {"confidencetier", "confidencelevel", "tier", "level", "quality"}
+CONFIDENCE_TIER_LABELS = {
+    "high": "\u0432\u044b\u0441\u043e\u043a\u0430\u044f",
+    "medium": "\u0441\u0440\u0435\u0434\u043d\u044f\u044f",
+    "mid": "\u0441\u0440\u0435\u0434\u043d\u044f\u044f",
+    "low": "\u043d\u0438\u0437\u043a\u0430\u044f",
+}
 
 
 def _clean_cell(value: object) -> str:
@@ -225,6 +239,27 @@ def _parse_float(value: object) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def _format_confidence(value: float | None, tier: object = None) -> str | float | None:
+    normalized_tier = _repair_mojibake(tier).casefold().replace("\u0451", "\u0435").strip()
+    if normalized_tier:
+        if normalized_tier in CONFIDENCE_TIER_LABELS:
+            return CONFIDENCE_TIER_LABELS[normalized_tier]
+        if "\u0432\u044b\u0441\u043e\u043a" in normalized_tier:
+            return CONFIDENCE_TIER_LABELS["high"]
+        if "\u0441\u0440\u0435\u0434" in normalized_tier:
+            return CONFIDENCE_TIER_LABELS["medium"]
+        if "\u043d\u0438\u0437" in normalized_tier:
+            return CONFIDENCE_TIER_LABELS["low"]
+
+    if value is None:
+        return None
+    if value >= 0.75:
+        return CONFIDENCE_TIER_LABELS["high"]
+    if value >= 0.5:
+        return CONFIDENCE_TIER_LABELS["medium"]
+    return CONFIDENCE_TIER_LABELS["low"]
+
+
 def _default_color(label: str) -> str:
     normalized_label = _repair_mojibake(label).casefold().replace("\u0451", "\u0435").strip()
     if normalized_label in AUTO_EPISODE_LABEL_COLORS:
@@ -269,7 +304,11 @@ def _load_auto_episode_rows() -> list[dict[str, object]]:
         return []
 
     file_stat = source_path.stat()
-    return _load_auto_episode_rows_cached(str(source_path), file_stat.st_mtime_ns, file_stat.st_size)
+    source_version = f"{file_stat.st_mtime_ns}-{file_stat.st_size}"
+    return [
+        {**row, "sourceVersion": source_version}
+        for row in _load_auto_episode_rows_cached(str(source_path), file_stat.st_mtime_ns, file_stat.st_size)
+    ]
 
 
 def _load_candidate_auto_episode_rows() -> list[dict[str, object]]:
@@ -277,11 +316,15 @@ def _load_candidate_auto_episode_rows() -> list[dict[str, object]]:
         return []
 
     file_stat = CANDIDATE_AUTO_EPISODE_FILE.stat()
-    return _load_auto_episode_rows_cached(
-        str(CANDIDATE_AUTO_EPISODE_FILE),
-        file_stat.st_mtime_ns,
-        file_stat.st_size,
-    )
+    source_version = f"{file_stat.st_mtime_ns}-{file_stat.st_size}"
+    return [
+        {**row, "sourceVersion": source_version}
+        for row in _load_auto_episode_rows_cached(
+            str(CANDIDATE_AUTO_EPISODE_FILE),
+            file_stat.st_mtime_ns,
+            file_stat.st_size,
+        )
+    ]
 
 
 @lru_cache(maxsize=4)
@@ -299,6 +342,7 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
         point_date = _parse_date(_get_cell(raw_row, DATE_COLUMNS))
         label = _repair_mojibake(_get_cell(raw_row, LABEL_COLUMNS)) or "Автоэпизод"
         confidence = _parse_float(_get_cell(raw_row, CONFIDENCE_COLUMNS))
+        confidence_display = _format_confidence(confidence, _get_cell(raw_row, CONFIDENCE_TIER_COLUMNS))
 
         if well_id and point_date is not None and start_date is None and end_date is None:
             point_rows.append(
@@ -334,7 +378,7 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
                 "endDate": end_value,
                 "label": label,
                 "color": color,
-                "confidence": confidence,
+                "confidence": confidence_display,
             }
         )
 
@@ -421,7 +465,7 @@ def _finalize_point_interval(interval: dict[str, object], index: int) -> dict[st
         "endDate": end_date.isoformat(),
         "label": label,
         "color": _default_color(label),
-        "confidence": confidence,
+        "confidence": _format_confidence(confidence),
     }
 
 

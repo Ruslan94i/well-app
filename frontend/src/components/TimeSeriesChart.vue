@@ -446,8 +446,8 @@ interface RangePreset {
 }
 
 const TRACK_LABEL_LEFT = 22
-const TRACK_PANEL_TOP = 0.33
-const TRACK_MAIN_GAP = 0.06
+const TRACK_PANEL_TOP = 0.39
+const TRACK_MAIN_GAP = 0.045
 const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
 const CHART_MARGIN_TOP = 10
@@ -669,6 +669,7 @@ const colorByLevelValue: Record<string, string> = {
   'well_state:stop': '#ef4444',
   'gdi:gdi': '#06b6d4',
   'esp_uvch:uvch': '#2563eb',
+  'esp_uvch:umch': '#ffffff',
   'esp_rptch:rptch': '#a855f7',
   'esp_periodic:periodic_operation': '#facc15',
   'esp_degradation:degr_yes': '#94a3b8',
@@ -680,19 +681,41 @@ const colorByLevelValue: Record<string, string> = {
   'productivity_trend:Kprod_growth': '#38bdf8',
   'productivity_trend:Kprod_decline': '#ff2d2d',
   'complicated_fund:slozhn_fond': '#f97316',
-  'sppv:sppv': '#2dd4bf'
+  'sppv:sppv': '#2dd4bf',
+  'vgf:vgf_yes': '#f97316',
+  'gas_factor_trend:GF_decline': '#a3e635',
+  'gas_factor_trend:GF_growth': '#f97316',
+  'deoptimization:esp_limit': '#ffffff',
+  'deoptimization:infrastructure_limit': '#ffffff'
 }
 
-function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null {
+const patternByLevelValue: Record<string, { shape: string; fgcolor: string; size: number; solidity: number }> = {
+  'vgf:vgf_yes': { shape: '/', fgcolor: '#7c2d12', size: 7, solidity: 0.28 },
+  'gas_factor_trend:GF_decline': { shape: '|', fgcolor: '#3f6212', size: 8, solidity: 0.32 },
+  'gas_factor_trend:GF_growth': { shape: '|', fgcolor: '#7c2d12', size: 8, solidity: 0.32 },
+  'deoptimization:esp_limit': { shape: '/', fgcolor: '#64748b', size: 7, solidity: 0.35 },
+  'deoptimization:infrastructure_limit': { shape: '|', fgcolor: '#64748b', size: 8, solidity: 0.38 }
+}
+
+function getAnnotationLevelValueKey(annotation: SavedAnnotation): string | null {
   for (const level of props.classificationLevels) {
     const value = annotation.classification?.[level.key]
-    const color = value ? colorByLevelValue[`${level.key}:${value}`] : null
-    if (color) {
-      return color
+    if (value) {
+      return `${level.key}:${value}`
     }
   }
 
   return null
+}
+
+function getAnnotationCategoryColor(annotation: SavedAnnotation): string | null {
+  const levelValueKey = getAnnotationLevelValueKey(annotation)
+  return levelValueKey ? colorByLevelValue[levelValueKey] ?? null : null
+}
+
+function getAnnotationPattern(annotation: SavedAnnotation) {
+  const levelValueKey = getAnnotationLevelValueKey(annotation)
+  return levelValueKey ? patternByLevelValue[levelValueKey] ?? null : null
 }
 
 function getSavedAnnotationColor(annotation: SavedAnnotation): string {
@@ -730,6 +753,7 @@ const candidateAutoLabelToLevelKey: Record<string, string> = {
   остановка: 'well_state',
   гди: 'gdi',
   увч: 'esp_uvch',
+  умч: 'esp_uvch',
   рптч: 'esp_rptch',
   нур: 'nur',
   'периодическая работа': 'esp_periodic',
@@ -741,6 +765,11 @@ const candidateAutoLabelToLevelKey: Record<string, string> = {
   'снижение кпрод': 'productivity_trend',
   'осложненный фонд': 'complicated_fund',
   сппв: 'sppv',
+  вгф: 'vgf',
+  'снижение гф': 'gas_factor_trend',
+  'рост гф': 'gas_factor_trend',
+  'ограничение эцн': 'deoptimization',
+  'ограничение инфраструктуры': 'deoptimization',
   'деградация эцн': 'esp_degradation'
 }
 
@@ -749,6 +778,7 @@ const candidateAutoLabelToLevelValue: Record<string, string> = {
   остановка: 'stop',
   гди: 'gdi',
   увч: 'uvch',
+  умч: 'umch',
   рптч: 'rptch',
   нур: 'nur_yes',
   'периодическая работа': 'periodic_operation',
@@ -760,6 +790,11 @@ const candidateAutoLabelToLevelValue: Record<string, string> = {
   'снижение кпрод': 'Kprod_decline',
   'осложненный фонд': 'slozhn_fond',
   сппв: 'sppv',
+  вгф: 'vgf_yes',
+  'снижение гф': 'GF_decline',
+  'рост гф': 'GF_growth',
+  'ограничение эцн': 'esp_limit',
+  'ограничение инфраструктуры': 'infrastructure_limit',
   'деградация эцн': 'degr_yes'
 }
 
@@ -769,6 +804,13 @@ function getEventIntervalColor(interval: EventInterval): string {
   const levelValue = candidateAutoLabelToLevelValue[label]
   const mappedColor = levelKey && levelValue ? colorByLevelValue[`${levelKey}:${levelValue}`] : null
   return mappedColor ?? interval.color ?? getAnnotationColor(interval.label)
+}
+
+function getEventIntervalPattern(interval: EventInterval) {
+  const label = normalizeCategoryToken(interval.label)
+  const levelKey = candidateAutoLabelToLevelKey[label]
+  const levelValue = candidateAutoLabelToLevelValue[label]
+  return levelKey && levelValue ? patternByLevelValue[`${levelKey}:${levelValue}`] ?? null : null
 }
 
 function getEventIntervalLevelIndex(interval: EventInterval): number {
@@ -819,7 +861,7 @@ function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel
   const labels: Record<string, string> = {
     well_state: '1. Работа',
     gdi: '2. ГДИ',
-    esp_uvch: '3. УВЧ',
+    esp_uvch: '3. Част.',
     esp_rptch: '4. РПТЧ',
     esp_periodic: '5. Период.',
     nur: '6. НУР',
@@ -828,7 +870,10 @@ function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel
     productivity_trend: '9. Кпрод',
     complicated_fund: '10. Осл.',
     sppv: '11. СППВ',
-    esp_degradation: '12. Дегр.'
+    esp_degradation: '12. Дегр.',
+    vgf: '13. ВГФ',
+    gas_factor_trend: '14. ГФ',
+    deoptimization: '15. Деопт.'
   }
 
   return labels[level.key] ?? level.label.replace(/^Уровень\s+/i, '')
@@ -1043,6 +1088,60 @@ function buildNiceAxis(values: Array<number | null>, desiredTicks = 5): { range:
     dtick: Number(dtick.toFixed(6)),
     tick0: Number(niceMin.toFixed(6))
   }
+}
+
+function getPercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) {
+    return 0
+  }
+
+  const clampedPercentile = Math.min(Math.max(percentile, 0), 1)
+  const index = (sortedValues.length - 1) * clampedPercentile
+  const lowerIndex = Math.floor(index)
+  const upperIndex = Math.ceil(index)
+  const lowerValue = sortedValues[lowerIndex] ?? sortedValues[0] ?? 0
+  const upperValue = sortedValues[upperIndex] ?? sortedValues[sortedValues.length - 1] ?? lowerValue
+
+  if (lowerIndex === upperIndex) {
+    return lowerValue
+  }
+
+  const weight = index - lowerIndex
+  return lowerValue * (1 - weight) + upperValue * weight
+}
+
+function buildCentralPercentileAxis(
+  values: Array<number | null>,
+  desiredTicks = 5,
+  lowerPercentile = 0.1,
+  upperPercentile = 0.9
+): { range: [number, number]; dtick: number; tick0: number } {
+  const sortedValues = values
+    .filter((value): value is number => Number.isFinite(value))
+    .sort((left, right) => left - right)
+
+  if (sortedValues.length < 4) {
+    return buildNiceAxis(sortedValues, desiredTicks)
+  }
+
+  let min = getPercentile(sortedValues, lowerPercentile)
+  let max = getPercentile(sortedValues, upperPercentile)
+
+  if (min === max) {
+    min = getPercentile(sortedValues, 0.05)
+    max = getPercentile(sortedValues, 0.95)
+  }
+
+  if (min === max) {
+    return buildNiceAxis(sortedValues, desiredTicks)
+  }
+
+  const centralRange = max - min
+  const allValuesAreNonNegative = (sortedValues[0] ?? 0) >= 0
+  const paddedMin = allValuesAreNonNegative ? Math.max(0, min - centralRange * 0.2) : min - centralRange * 0.2
+  const paddedMax = max + centralRange * 0.2
+
+  return buildNiceAxis([paddedMin, paddedMax], desiredTicks)
 }
 
 function isTrSeriesKey(key: SeriesKey): key is TrMonitoringSeriesKey {
@@ -1462,7 +1561,13 @@ function buildSavedAnnotationTrace() {
                 : 1.5
           )
         },
-        opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96))
+        opacity: visibleAnnotations.map((item) => (item.annotation.id === props.selectedAnnotationId ? 1 : 0.96)),
+        pattern: {
+          shape: visibleAnnotations.map((item) => getAnnotationPattern(item.annotation)?.shape ?? ''),
+          fgcolor: visibleAnnotations.map((item) => getAnnotationPattern(item.annotation)?.fgcolor ?? '#0f172a'),
+          size: visibleAnnotations.map((item) => getAnnotationPattern(item.annotation)?.size ?? 8),
+          solidity: visibleAnnotations.map((item) => getAnnotationPattern(item.annotation)?.solidity ?? 0.25)
+        }
       },
       yaxis: 'y8',
       showlegend: false,
@@ -1520,7 +1625,13 @@ function buildCandidateAutoEpisodeTrace() {
           ),
           width: visibleIntervals.map((item) => (item.interval.id === selectedCandidateAutoIntervalId.value ? 3 : 0))
         },
-        opacity: visibleIntervals.map((item) => (item.interval.id === selectedCandidateAutoIntervalId.value ? 1 : 0.9))
+        opacity: visibleIntervals.map((item) => (item.interval.id === selectedCandidateAutoIntervalId.value ? 1 : 0.9)),
+        pattern: {
+          shape: visibleIntervals.map((item) => getEventIntervalPattern(item.interval)?.shape ?? ''),
+          fgcolor: visibleIntervals.map((item) => getEventIntervalPattern(item.interval)?.fgcolor ?? '#0f172a'),
+          size: visibleIntervals.map((item) => getEventIntervalPattern(item.interval)?.size ?? 8),
+          solidity: visibleIntervals.map((item) => getEventIntervalPattern(item.interval)?.solidity ?? 0.25)
+        }
       },
       yaxis: 'y9',
       showlegend: false,
@@ -1532,7 +1643,7 @@ function buildCandidateAutoEpisodeTrace() {
         confidence: item.interval.confidence ?? '—'
       })),
       hovertemplate:
-        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка v2<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 9.7.2<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
@@ -1802,8 +1913,8 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.24, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка v2', labelColor: '#94a3b8', heightUnits: 1.35, range: eventRange },
-    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.35, range: eventRange }
+    { axis: 'y9' as const, label: 'Авторазметка 9.7.2', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
+    { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange }
   ]
 
   const trackPanelHeight = TRACK_PANEL_TOP
@@ -2311,7 +2422,7 @@ function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOver
 function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoEpisodeOverlayItem) {
   showTrackHoverTooltip(event, {
     key: `candidate-auto-${item.interval.id}`,
-    title: 'Авторазметка v2',
+    title: 'Авторазметка 9.7.2',
     lines: [
       toTrackLine('Уровень', getEventIntervalLevelLabel(item.interval)),
       toTrackLine('Категория', item.interval.label),
@@ -2327,6 +2438,21 @@ function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoE
 function handleCandidateAutoEpisodeOverlayClick(interval: EventInterval) {
   suppressBackgroundClick(300)
   selectedCandidateAutoIntervalId.value = interval.id
+  const label = normalizeCategoryToken(interval.label)
+  emit('annotation-clicked', {
+    source: 'candidateAuto',
+    layer: 'event',
+    autoEpisodeId: interval.id,
+    label: interval.label,
+    startDate: interval.startDate,
+    endDate: interval.endDate,
+    durationDays: calculateDurationDays(interval.startDate, interval.endDate),
+    actions: [],
+    classificationLevelKey: candidateAutoLabelToLevelKey[label],
+    classificationValue: candidateAutoLabelToLevelValue[label],
+    confidence: interval.confidence ?? null,
+    sourceVersion: interval.sourceVersion ?? null
+  })
 }
 
 function handleSavedAnnotationOverlayClick(payload: TimelineAnnotationClickPayload) {
@@ -3451,11 +3577,12 @@ function renderChart() {
     ...getSeriesValues('active_power'),
     ...getSeriesValues('full_power')
   ], 5)
-  const factorAxisConfig = buildNiceAxis([
-    ...getSeriesValues('gas_factor'),
-    ...getSeriesValues('gas_liquid_factor'),
-    ...getActiveSeriesValues(['tr_gas_factor'])
-  ], 5)
+  const factorAxisConfig = buildCentralPercentileAxis(
+    getActiveSeriesValues(['gas_factor', 'gas_liquid_factor', 'tr_gas_factor']),
+    5,
+    0,
+    0.8
+  )
   const dynamicLevelAxisConfig = buildNiceAxis(getSeriesValues('tr_dynamic_level'), 5)
   const productivityAxisConfig = buildNiceAxis(getSeriesValues('tr_productivity'), 5)
   const trackLayout = getTrackLayoutRows()

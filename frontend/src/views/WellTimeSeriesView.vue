@@ -116,14 +116,14 @@
             Загрузка данных с backend...
           </div>
           <div v-else class="space-y-4">
-            <div class="flex justify-end">
+            <div class="flex flex-wrap justify-end gap-1">
               <n-button
                 secondary
                 size="small"
                 :loading="graphDataExporting"
                 @click="downloadGraphDataExport"
               >
-                Выгрузить CSV
+                Выгрузить все
               </n-button>
               <n-button
                 secondary
@@ -131,7 +131,24 @@
                 :loading="manualGraphDataExporting"
                 @click="downloadManualGraphDataExport"
               >
-                Ручная CSV
+                Выгрузить ручную
+              </n-button>
+              <n-button
+                secondary
+                size="small"
+                :loading="viewedGraphDataExporting"
+                :disabled="viewedWellIds.length === 0"
+                @click="downloadViewedWellsGraphDataExport"
+              >
+                Выгрузить просмотренные
+              </n-button>
+              <n-button
+                secondary
+                size="small"
+                :loading="wellGraphDataExporting"
+                @click="downloadCurrentWellGraphDataExport"
+              >
+                Выгрузить скважину
               </n-button>
             </div>
             <TimeSeriesChart
@@ -178,6 +195,60 @@
                 <p class="mt-1 text-xs leading-5 text-slate-400">
                   Нажмите на эпизод на timeline, чтобы получить инженерное сравнение до, в периоде и после интервала.
                 </p>
+              </div>
+            </div>
+
+            <div
+              v-if="selectedCandidateAutoAnnotation && selectedInterval"
+              class="mt-3 flex flex-col gap-2 rounded-lg border border-sky-400/35 bg-slate-900/95 p-2 shadow-lg shadow-slate-950/20"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.7.2</div>
+                  <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
+                  <div class="mt-0.5 text-[11px] text-slate-400">
+                    {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
+                  </div>
+                </div>
+                <div
+                  v-if="selectedCandidateAutoConfidenceLabel"
+                  class="rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-300"
+                >
+                  Уверенность: {{ selectedCandidateAutoConfidenceLabel }}
+                </div>
+              </div>
+              <n-button
+                type="primary"
+                secondary
+                :disabled="!canTransferSelectedCandidateAuto"
+                @click="transferCandidateAutoToManual"
+              >
+                Перенос в ручную разметку
+              </n-button>
+              <div class="rounded-lg border border-slate-700 bg-slate-950/35 p-2">
+                <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Ошибка авторазметки</div>
+                <n-radio-group v-model:value="autoEpisodeErrorType" class="mt-2">
+                  <n-radio value="full">Полная ошибка</n-radio>
+                  <n-radio value="partial">Частичная ошибка</n-radio>
+                </n-radio-group>
+                <n-input
+                  v-model:value="autoEpisodeErrorComment"
+                  class="mt-2"
+                  type="textarea"
+                  size="small"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  placeholder="Комментарий к ошибочному эпизоду"
+                />
+                <n-button
+                  class="mt-2"
+                  type="warning"
+                  secondary
+                  block
+                  :disabled="!canReviewSelectedCandidateAuto"
+                  @click="saveCandidateAutoErrorReview"
+                >
+                  Ошибка
+                </n-button>
               </div>
             </div>
 
@@ -425,6 +496,60 @@
           </div>
 
           <div v-if="selectedInterval" class="mt-3 space-y-4 rounded-xl border border-slate-700 bg-slate-800/90 p-4">
+            <div
+              v-if="selectedCandidateAutoAnnotation"
+              class="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border border-sky-400/35 bg-slate-900/95 p-2 shadow-lg shadow-slate-950/20"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.7.2</div>
+                  <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
+                  <div class="mt-0.5 text-[11px] text-slate-400">
+                    {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
+                  </div>
+                </div>
+                <div
+                  v-if="selectedCandidateAutoConfidenceLabel"
+                  class="rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-300"
+                >
+                  Уверенность: {{ selectedCandidateAutoConfidenceLabel }}
+                </div>
+              </div>
+              <n-button
+                type="primary"
+                secondary
+                :disabled="!canTransferSelectedCandidateAuto"
+                @click="transferCandidateAutoToManual"
+              >
+                Перенос в ручную разметку
+              </n-button>
+              <div class="rounded-lg border border-slate-700 bg-slate-950/35 p-2">
+                <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">Ошибка авторазметки</div>
+                <n-radio-group v-model:value="autoEpisodeErrorType" class="mt-2">
+                  <n-radio value="full">Полная ошибка</n-radio>
+                  <n-radio value="partial">Частичная ошибка</n-radio>
+                </n-radio-group>
+                <n-input
+                  v-model:value="autoEpisodeErrorComment"
+                  class="mt-2"
+                  type="textarea"
+                  size="small"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  placeholder="Комментарий к ошибочному эпизоду"
+                />
+                <n-button
+                  class="mt-2"
+                  type="warning"
+                  secondary
+                  block
+                  :disabled="!canReviewSelectedCandidateAuto"
+                  @click="saveCandidateAutoErrorReview"
+                >
+                  Ошибка
+                </n-button>
+              </div>
+            </div>
+
             <div v-if="isEditMode" class="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border border-rose-500/25 bg-slate-900/95 p-2 shadow-lg shadow-slate-950/20">
               <div class="text-[11px] uppercase tracking-[0.16em] text-slate-400">{{ draftEpisodeLabel }}</div>
               <n-button type="error" secondary @click="deleteAnnotation">Удалить выбранный эпизод</n-button>
@@ -918,8 +1043,8 @@ import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import {
   fetchArtificialLiftPeriods,
   fetchCandidateAutoEpisodeIntervals,
-  fetchGraphDataExportCsv,
-  fetchManualGraphDataExportCsv,
+  buildGraphDataExportCsvUrl,
+  buildManualGraphDataExportCsvUrl,
   fetchMarkup,
   fetchModelParamsState,
   fetchPeriodSummary,
@@ -940,6 +1065,8 @@ import type {
   AnnotationClassOption,
   AnnotationClassification,
   AnnotationClassificationLevel,
+  AutoEpisodeErrorType,
+  AutoEpisodeReview,
   AnnotationKind,
   ConfidenceLevel,
   EpisodeFormState,
@@ -984,7 +1111,8 @@ const MARKUP_STORAGE_KEYS = {
   episodeClasses: 'wellInsight.markup.episodeClasses.v1',
   actionClasses: 'wellInsight.markup.actionClasses.v1',
   manualFrequencyBreakpoints: 'wellInsight.markup.manualFrequencyBreakpoints.v1',
-  suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1'
+  suppressedFrequencyBreakpoints: 'wellInsight.markup.suppressedFrequencyBreakpoints.v1',
+  autoEpisodeReviews: 'wellInsight.markup.autoEpisodeReviews.v1'
 }
 const UI_STATE_STORAGE_KEY = 'wellInsight.uiState.v1'
 const ANNOTATION_SNAP_THRESHOLD_MS = 30 * 60 * 1000
@@ -1054,11 +1182,12 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'esp_uvch',
-    label: 'Уровень 3. УВЧ',
+    label: 'Уровень 3. Изменение частоты',
     allowCustom: true,
     placeholder: 'Введите категорию',
     options: [
-      { label: 'УВЧ', value: 'uvch' }
+      { label: 'УВЧ', value: 'uvch' },
+      { label: 'УМЧ', value: 'umch' }
     ]
   },
   {
@@ -1130,6 +1259,29 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     allowCustom: true,
     options: [
       { label: 'Деградация ЭЦН', value: 'degr_yes' }
+    ]
+  },
+  {
+    key: 'vgf',
+    label: 'Уровень 13. ВГФ',
+    options: [
+      { label: 'ВГФ', value: 'vgf_yes' }
+    ]
+  },
+  {
+    key: 'gas_factor_trend',
+    label: 'Уровень 14. Изменение ГФ',
+    options: [
+      { label: 'Снижение ГФ', value: 'GF_decline' },
+      { label: 'Рост ГФ', value: 'GF_growth' }
+    ]
+  },
+  {
+    key: 'deoptimization',
+    label: 'Уровень 15. Деоптимизация',
+    options: [
+      { label: 'Ограничение ЭЦН', value: 'esp_limit' },
+      { label: 'Ограничение инфраструктуры', value: 'infrastructure_limit' }
     ]
   }
 ]
@@ -1743,6 +1895,7 @@ const artificialLiftPeriods = ref<EspInstallationPeriod[]>([])
 const candidateAutoEpisodeIntervals = ref<EventInterval[]>([])
 const selectedInterval = ref<SelectedInterval | null>(null)
 const selectedAnalysisInterval = ref<TimelineAnnotationClickPayload | null>(null)
+const selectedCandidateAutoAnnotation = ref<TimelineAnnotationClickPayload | null>(null)
 const visibleDateRange = ref<VisibleDateRange | null>(null)
 const interactionMode = ref<InteractionMode>(persistedUiState.interactionMode ?? 'navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
@@ -1771,6 +1924,7 @@ const modelQualityByGroup = ref<Record<string, number>>({})
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
+const autoEpisodeReviews = ref<AutoEpisodeReview[]>([])
 const episodeTypeOptions = ref<AnnotationClassOption[]>([])
 const actionOptions = ref<AnnotationClassOption[]>([])
 const classificationLevels = ref<AnnotationClassificationLevel[]>([...DEFAULT_CLASSIFICATION_LEVELS])
@@ -1778,6 +1932,8 @@ const manualFrequencyBreakpoints = ref<FrequencyBreakpoint[]>([])
 const suppressedFrequencyBreakpoints = ref<FrequencyBreakpointSuppression[]>([])
 const editingAnnotationId = ref<string | null>(null)
 const editingAnnotationKind = ref<AnnotationKind | null>(null)
+const autoEpisodeErrorType = ref<AutoEpisodeErrorType>('full')
+const autoEpisodeErrorComment = ref('')
 const selectedFrequencyBreakpointId = ref<string | null>(null)
 const selectedFrequencySegmentIds = ref<string[]>([])
 const additiveFrequencySelectionArmed = ref(false)
@@ -1791,6 +1947,9 @@ const loading = ref(false)
 const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
 const manualGraphDataExporting = ref(false)
+const viewedGraphDataExporting = ref(false)
+const wellGraphDataExporting = ref(false)
+const viewedWellIds = ref<string[]>([])
 const periodSummaryPreset = ref<PeriodSummaryPreset>('week')
 const periodSummaryFieldCode = ref<string>('all')
 const periodSummaryWellId = ref<string>('all')
@@ -2088,6 +2247,37 @@ function isInteractionMode(mode: InteractionMode): boolean {
 }
 
 const currentWellAnnotations = computed(() => savedAnnotations.value.filter((item) => item.wellId === selectedWell.value))
+const currentWellAutoEpisodeReviews = computed(() => autoEpisodeReviews.value.filter((item) => item.wellId === selectedWell.value))
+const selectedCandidateAutoLevel = computed(() => {
+  const levelKey = selectedCandidateAutoAnnotation.value?.classificationLevelKey
+  return levelKey ? classificationLevels.value.find((level) => level.key === levelKey) ?? null : null
+})
+const selectedCandidateAutoConfidenceLabel = computed(() => {
+  const confidence = selectedCandidateAutoAnnotation.value?.confidence
+  if (confidence === null || confidence === undefined || confidence === '') {
+    return ''
+  }
+  if (typeof confidence === 'string') {
+    return confidence
+  }
+  if (confidence >= 0.67) {
+    return 'высокая'
+  }
+  if (confidence >= 0.34) {
+    return 'средняя'
+  }
+  return 'низкая'
+})
+const canTransferSelectedCandidateAuto = computed(() =>
+  Boolean(
+    selectedInterval.value &&
+      selectedCandidateAutoAnnotation.value?.classificationLevelKey &&
+      selectedCandidateAutoAnnotation.value?.classificationValue
+  )
+)
+const canReviewSelectedCandidateAuto = computed(() =>
+  Boolean(selectedCandidateAutoAnnotation.value?.autoEpisodeId && selectedInterval.value)
+)
 function getActionOptionsForDraft(): GroupedSelectOption[] {
   const selectedCategory = buildDraftEpisodeLabel()
   const usedActionValues = new Set<string>()
@@ -2323,6 +2513,7 @@ function normalizeAnnotationDateTime(value: unknown): string | null {
 }
 
 function loadEpisodeIntoDraft(episode: SavedAnnotation) {
+  clearCandidateAutoSelection()
   selectedInterval.value = {
     startDate: episode.startDate,
     endDate: episode.endDate,
@@ -2339,6 +2530,41 @@ function loadEpisodeIntoDraft(episode: SavedAnnotation) {
   editingAnnotationKind.value = episode.annotationKind
   selectedFrequencyBreakpointId.value = null
   clearFrequencySegmentSelection()
+}
+
+function clearCandidateAutoSelection(): void {
+  selectedCandidateAutoAnnotation.value = null
+  autoEpisodeErrorType.value = 'full'
+  autoEpisodeErrorComment.value = ''
+}
+
+function loadCandidateAutoIntoDraft(payload: TimelineAnnotationClickPayload): void {
+  selectedCandidateAutoAnnotation.value = payload
+  selectedInterval.value = buildInterval(payload.startDate, payload.endDate)
+  editingAnnotationId.value = null
+  editingAnnotationKind.value = null
+  selectedFrequencyBreakpointId.value = null
+  clearFrequencySegmentSelection()
+
+  const nextForm = createDefaultEpisodeForm()
+  if (payload.classificationLevelKey && payload.classificationValue) {
+    nextForm.classification[payload.classificationLevelKey] = payload.classificationValue
+    nextForm.episodeType = resolveCandidateAutoEventType(payload)
+  } else {
+    nextForm.episodeType = payload.label
+  }
+  episodeForm.value = nextForm
+
+  const review = currentWellAutoEpisodeReviews.value.find(
+    (item) =>
+      item.autoEpisodeId === payload.autoEpisodeId &&
+      item.startDate === payload.startDate &&
+      item.endDate === payload.endDate &&
+      item.label === payload.label &&
+      (item.sourceVersion ?? '') === (payload.sourceVersion ?? '')
+  )
+  autoEpisodeErrorType.value = review?.errorType ?? 'full'
+  autoEpisodeErrorComment.value = review?.comment ?? ''
 }
 
 function subtractMonthsIsoDate(date: string, months: number): string {
@@ -2793,6 +3019,21 @@ function normalizeAnnotationClassification(
   if (!classification.nur && normalizedEventType.includes('нур')) {
     classification.nur = 'nur_yes'
   }
+  if (!classification.vgf && normalizedEventType.includes('вгф')) {
+    classification.vgf = 'vgf_yes'
+  }
+  if (!classification.gas_factor_trend && normalizedEventType.includes('снижение гф')) {
+    classification.gas_factor_trend = 'GF_decline'
+  }
+  if (!classification.gas_factor_trend && normalizedEventType.includes('рост гф')) {
+    classification.gas_factor_trend = 'GF_growth'
+  }
+  if (!classification.deoptimization && normalizedEventType.includes('ограничение эцн')) {
+    classification.deoptimization = 'esp_limit'
+  }
+  if (!classification.deoptimization && normalizedEventType.includes('ограничение инфраструктур')) {
+    classification.deoptimization = 'infrastructure_limit'
+  }
   if (!classification.reservoir_pressure_trend && typeof annotation.hasReservoirPressureDecline === 'boolean') {
     classification.reservoir_pressure_trend = annotation.hasReservoirPressureDecline ? 'Pres_decline' : null
   }
@@ -2915,6 +3156,45 @@ function normalizeFrequencyBreakpointSuppressions(suppressions: unknown): Freque
     .sort((left, right) => left.wellId.localeCompare(right.wellId, 'ru') || left.date.localeCompare(right.date))
 }
 
+function normalizeAutoEpisodeReviews(reviews: unknown): AutoEpisodeReview[] {
+  if (!Array.isArray(reviews)) {
+    return []
+  }
+
+  const seenReviews = new Set<string>()
+
+  return (reviews as AutoEpisodeReview[])
+    .map((review) => {
+      const errorType: AutoEpisodeErrorType = review.errorType === 'partial' ? 'partial' : 'full'
+      return {
+        id: String(review.id || `auto-review-${review.wellId}-${review.autoEpisodeId}`),
+        wellId: String(review.wellId ?? '').trim(),
+        autoEpisodeId: String(review.autoEpisodeId ?? '').trim(),
+        startDate: normalizeAnnotationDateTime(String(review.startDate ?? '')) ?? '',
+        endDate: normalizeAnnotationDateTime(String(review.endDate ?? '')) ?? '',
+        label: String(review.label ?? '').trim(),
+        errorType,
+        comment: String(review.comment ?? ''),
+        sourceVersion: review.sourceVersion ? String(review.sourceVersion) : undefined,
+        classificationLevelKey: review.classificationLevelKey ? String(review.classificationLevelKey) : undefined,
+        classificationValue: review.classificationValue ? String(review.classificationValue) : undefined
+      }
+    })
+    .filter((review) => {
+      const key = `${review.wellId}:${review.autoEpisodeId}:${review.startDate}:${review.endDate}:${review.label}`
+      if (!review.wellId || !review.autoEpisodeId || !review.startDate || !review.endDate || !review.label || seenReviews.has(key)) {
+        return false
+      }
+      seenReviews.add(key)
+      return true
+    })
+    .sort(
+      (left, right) =>
+        left.wellId.localeCompare(right.wellId, 'ru') ||
+        toTimestamp(right.startDate) - toTimestamp(left.startDate)
+    )
+}
+
 function normalizeMarkupState(markup: Partial<MarkupState> | null | undefined): MarkupState {
   const nextClassificationLevels = normalizeClassificationLevels(markup?.classificationLevels)
 
@@ -2924,7 +3204,8 @@ function normalizeMarkupState(markup: Partial<MarkupState> | null | undefined): 
     actionClasses: normalizeClassOptions(markup?.actionClasses),
     classificationLevels: nextClassificationLevels,
     manualFrequencyBreakpoints: normalizeFrequencyBreakpoints(markup?.manualFrequencyBreakpoints),
-    suppressedFrequencyBreakpoints: normalizeFrequencyBreakpointSuppressions(markup?.suppressedFrequencyBreakpoints)
+    suppressedFrequencyBreakpoints: normalizeFrequencyBreakpointSuppressions(markup?.suppressedFrequencyBreakpoints),
+    autoEpisodeReviews: normalizeAutoEpisodeReviews(markup?.autoEpisodeReviews)
   }
 }
 
@@ -2935,7 +3216,8 @@ function buildCurrentMarkupState(): MarkupState {
     actionClasses: actionOptions.value,
     classificationLevels: classificationLevels.value,
     manualFrequencyBreakpoints: manualFrequencyBreakpoints.value,
-    suppressedFrequencyBreakpoints: suppressedFrequencyBreakpoints.value
+    suppressedFrequencyBreakpoints: suppressedFrequencyBreakpoints.value,
+    autoEpisodeReviews: autoEpisodeReviews.value
   }
 }
 
@@ -2946,6 +3228,7 @@ function applyMarkupState(markup: MarkupState): void {
   classificationLevels.value = markup.classificationLevels
   manualFrequencyBreakpoints.value = markup.manualFrequencyBreakpoints
   suppressedFrequencyBreakpoints.value = markup.suppressedFrequencyBreakpoints
+  autoEpisodeReviews.value = markup.autoEpisodeReviews
 }
 
 function hasMarkupStateData(markup: MarkupState): boolean {
@@ -2954,7 +3237,8 @@ function hasMarkupStateData(markup: MarkupState): boolean {
     markup.episodeClasses.length > 0 ||
     markup.actionClasses.length > 0 ||
     markup.manualFrequencyBreakpoints.length > 0 ||
-    markup.suppressedFrequencyBreakpoints.length > 0
+    markup.suppressedFrequencyBreakpoints.length > 0 ||
+    markup.autoEpisodeReviews.length > 0
   )
 }
 
@@ -2964,7 +3248,8 @@ function readLegacyMarkupState(): MarkupState | null {
     episodeClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.episodeClasses, []),
     actionClasses: readStoredValue<AnnotationClassOption[]>(MARKUP_STORAGE_KEYS.actionClasses, []),
     manualFrequencyBreakpoints: readStoredValue<FrequencyBreakpoint[]>(MARKUP_STORAGE_KEYS.manualFrequencyBreakpoints, []),
-    suppressedFrequencyBreakpoints: readStoredValue<FrequencyBreakpointSuppression[]>(MARKUP_STORAGE_KEYS.suppressedFrequencyBreakpoints, [])
+    suppressedFrequencyBreakpoints: readStoredValue<FrequencyBreakpointSuppression[]>(MARKUP_STORAGE_KEYS.suppressedFrequencyBreakpoints, []),
+    autoEpisodeReviews: readStoredValue<AutoEpisodeReview[]>(MARKUP_STORAGE_KEYS.autoEpisodeReviews, [])
   })
 
   return hasMarkupStateData(legacyMarkup) ? legacyMarkup : null
@@ -3149,6 +3434,47 @@ function resolveSingleLevelEventType(levelKey: string): string | null {
 
   const valueLabel = getClassificationOptionLabel(level, episodeForm.value.classification[levelKey])
   return valueLabel ? `${level.label}: ${valueLabel}` : null
+}
+
+function resolveCandidateAutoEventType(payload: TimelineAnnotationClickPayload): string {
+  const levelKey = payload.classificationLevelKey
+  const value = payload.classificationValue
+  const level = levelKey ? classificationLevels.value.find((item) => item.key === levelKey) : null
+  const valueLabel = level ? getClassificationOptionLabel(level, value) : null
+  return level && valueLabel ? `${level.label}: ${valueLabel}` : payload.label
+}
+
+function createAutoEpisodeReviewId(payload: TimelineAnnotationClickPayload): string {
+  const autoEpisodeId = payload.autoEpisodeId ?? `${payload.label}-${payload.startDate}-${payload.endDate}`
+  return `auto-review-${selectedWell.value}-${autoEpisodeId}`.replace(/[^A-Za-z0-9_-]+/g, '-')
+}
+
+function getCandidateAutoReviewSignature(
+  item: Pick<AutoEpisodeReview, 'autoEpisodeId' | 'startDate' | 'endDate' | 'label' | 'sourceVersion'>
+): string {
+  return `${item.sourceVersion ?? ''}|${item.autoEpisodeId}|${item.startDate}|${item.endDate}|${item.label}`
+}
+
+function pruneStaleAutoEpisodeReviews(wellId: string, intervals: EventInterval[]): boolean {
+  const validSignatures = new Set(
+    intervals.map((interval) =>
+      getCandidateAutoReviewSignature({
+        autoEpisodeId: interval.id,
+        startDate: interval.startDate,
+        endDate: interval.endDate,
+        label: interval.label,
+        sourceVersion: interval.sourceVersion ?? undefined
+      })
+    )
+  )
+  const previousLength = autoEpisodeReviews.value.length
+  autoEpisodeReviews.value = autoEpisodeReviews.value.filter((review) => {
+    if (review.wellId !== wellId) {
+      return true
+    }
+    return validSignatures.has(getCandidateAutoReviewSignature(review))
+  })
+  return autoEpisodeReviews.value.length !== previousLength
 }
 
 function getPrimaryClassificationLevelKey(classification: AnnotationClassification): string | null {
@@ -3362,21 +3688,27 @@ function exportAnalysis(drillDown: AnalysisDrillDown) {
   URL.revokeObjectURL(url)
 }
 
+function triggerCsvDownload(url: string): void {
+  const link = document.createElement('a')
+  link.href = url
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 async function downloadGraphDataExport(): Promise<void> {
   graphDataExporting.value = true
 
   try {
-    const blob = await fetchGraphDataExportCsv()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `well_graph_data_${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    triggerCsvDownload(buildGraphDataExportCsvUrl())
+    message.success('CSV-выгрузка всех скважин запущена.')
   } catch {
     message.error('Не удалось сформировать CSV-выгрузку.')
   } finally {
-    graphDataExporting.value = false
+    window.setTimeout(() => {
+      graphDataExporting.value = false
+    }, 800)
   }
 }
 
@@ -3384,17 +3716,44 @@ async function downloadManualGraphDataExport(): Promise<void> {
   manualGraphDataExporting.value = true
 
   try {
-    const blob = await fetchManualGraphDataExportCsv()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `well_graph_data_manual_${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    triggerCsvDownload(buildManualGraphDataExportCsvUrl())
+    message.success('CSV-выгрузка скважин с ручной разметкой запущена.')
   } catch {
     message.error('Не удалось сформировать CSV-выгрузку ручной разметки.')
   } finally {
-    manualGraphDataExporting.value = false
+    window.setTimeout(() => {
+      manualGraphDataExporting.value = false
+    }, 800)
+  }
+}
+
+async function downloadViewedWellsGraphDataExport(): Promise<void> {
+  viewedGraphDataExporting.value = true
+
+  try {
+    triggerCsvDownload(buildGraphDataExportCsvUrl({ well_id: viewedWellIds.value.join(',') }))
+    message.success(`CSV-выгрузка просмотренных скважин запущена: ${viewedWellIds.value.length}.`)
+  } catch {
+    message.error('Не удалось сформировать CSV-выгрузку просмотренных скважин.')
+  } finally {
+    window.setTimeout(() => {
+      viewedGraphDataExporting.value = false
+    }, 800)
+  }
+}
+
+async function downloadCurrentWellGraphDataExport(): Promise<void> {
+  wellGraphDataExporting.value = true
+
+  try {
+    triggerCsvDownload(buildGraphDataExportCsvUrl({ well_id: selectedWell.value }))
+    message.success(`CSV-выгрузка ${selectedWell.value} запущена.`)
+  } catch {
+    message.error('Не удалось сформировать CSV-выгрузку по скважине.')
+  } finally {
+    window.setTimeout(() => {
+      wellGraphDataExporting.value = false
+    }, 800)
   }
 }
 
@@ -3660,6 +4019,7 @@ async function loadData() {
     vspPeriods.value = []
     artificialLiftPeriods.value = []
     candidateAutoEpisodeIntervals.value = []
+    clearCandidateAutoSelection()
     visibleDateRange.value = null
     wellContext.value = null
     return
@@ -3674,6 +4034,7 @@ async function loadData() {
   candidateAutoEpisodeIntervals.value = []
   selectedInterval.value = null
   selectedAnalysisInterval.value = null
+  clearCandidateAutoSelection()
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
   selectedFrequencyBreakpointId.value = null
@@ -3696,26 +4057,42 @@ async function loadData() {
     date_from: trDateFrom ? new Date(trDateFrom).toISOString().slice(0, 10) : undefined,
     date_to: dateTo
   }
+  const requestedWell = selectedWell.value
 
   try {
-    const [data, context, trData, liftPeriods, vspData, candidateAutoEpisodes] = await Promise.all([
+    const [data, context, trData, liftPeriods, candidateAutoEpisodes] = await Promise.all([
       useMockTelemetry
-        ? Promise.resolve(generateMockTimeseries(selectedWell.value, params))
-        : fetchWellTimeseries(selectedWell.value, params),
-      fetchWellContext(selectedWell.value).catch(() => null),
-      fetchTrMonitoring(selectedWell.value, trParams).catch(() => []),
-      fetchArtificialLiftPeriods(selectedWell.value).catch(() => []),
-      fetchVspPeriods(selectedWell.value).catch(() => []),
-      fetchCandidateAutoEpisodeIntervals(selectedWell.value).catch(() => [])
+        ? Promise.resolve(generateMockTimeseries(requestedWell, params))
+        : fetchWellTimeseries(requestedWell, params),
+      fetchWellContext(requestedWell).catch(() => null),
+      fetchTrMonitoring(requestedWell, trParams).catch(() => []),
+      fetchArtificialLiftPeriods(requestedWell).catch(() => []),
+      fetchCandidateAutoEpisodeIntervals(requestedWell).catch(() => [])
     ])
 
     chartData.value = data
+    if (!viewedWellIds.value.includes(requestedWell)) {
+      viewedWellIds.value = [...viewedWellIds.value, requestedWell]
+    }
     wellContext.value = context
     trMonitoringData.value = trData
     artificialLiftPeriods.value = liftPeriods
-    vspPeriods.value = vspData
     candidateAutoEpisodeIntervals.value = candidateAutoEpisodes
+    if (pruneStaleAutoEpisodeReviews(requestedWell, candidateAutoEpisodes)) {
+      void persistMarkupNow()
+    }
     visibleDateRange.value = getFullDateRange(data, trData)
+    void fetchVspPeriods(requestedWell)
+      .then((items) => {
+        if (selectedWell.value === requestedWell) {
+          vspPeriods.value = items
+        }
+      })
+      .catch(() => {
+        if (selectedWell.value === requestedWell) {
+          vspPeriods.value = []
+        }
+      })
     if (!context) {
       message.warning('Контекст ГТМ/ОПЗ/ГДИ не загружен. Проверьте backend, если нужны реальные маркеры мероприятий.')
     }
@@ -3958,6 +4335,7 @@ async function restoreAutoFrequencyBreakpoints(): Promise<void> {
 }
 
 function handleIntervalSelected(value: SelectedInterval | null) {
+  clearCandidateAutoSelection()
   selectedInterval.value = value ? snapIntervalToAnnotationBoundaries(value) : null
   selectedFrequencyBreakpointId.value = null
   clearFrequencySegmentSelection()
@@ -3978,6 +4356,7 @@ function handleFrequencySegmentClicked(payload: FrequencySegmentClickPayload) {
     return
   }
 
+  clearCandidateAutoSelection()
   selectedFrequencyBreakpointId.value = null
   selectedInterval.value = snapIntervalToAnnotationBoundaries(buildInterval(payload.startDate, payload.endDate))
   editingAnnotationId.value = null
@@ -4011,12 +4390,20 @@ function handleFrequencyBreakpointClicked(payload: FrequencyBreakpointClickPaylo
     return
   }
 
+  clearCandidateAutoSelection()
   clearFrequencySegmentSelection()
   selectedFrequencyBreakpointId.value = payload.id
 }
 
 function handleAnnotationClicked(payload: TimelineAnnotationClickPayload) {
+  if (payload.source === 'candidateAuto') {
+    selectedAnalysisInterval.value = payload
+    loadCandidateAutoIntoDraft(payload)
+    return
+  }
+
   if (interactionMode.value === 'navigate') {
+    clearCandidateAutoSelection()
     selectedAnalysisInterval.value = payload
     return
   }
@@ -4031,6 +4418,94 @@ function handleAnnotationClicked(payload: TimelineAnnotationClickPayload) {
   }
 
   loadEpisodeIntoDraft(episode)
+}
+
+async function transferCandidateAutoToManual(): Promise<void> {
+  const payload = selectedCandidateAutoAnnotation.value
+  const levelKey = payload?.classificationLevelKey
+  const levelValue = payload?.classificationValue
+
+  if (!payload || !selectedInterval.value || !levelKey || !levelValue) {
+    message.error('Для этого автоэпизода не найдена категория ручной разметки.')
+    return
+  }
+
+  const interval = buildInterval(payload.startDate, payload.endDate)
+  const overlappingAnnotations = currentWellAnnotations.value.filter(
+    (annotation) => getPrimaryClassificationLevelKey(annotation.classification) === levelKey && annotationsOverlap(annotation, interval)
+  )
+
+  if (overlappingAnnotations.length > 0) {
+    const confirmed = window.confirm(
+      `В ручной разметке уже есть пересекающиеся интервалы этого уровня: ${overlappingAnnotations.length}. Заменить пересекающиеся данные?`
+    )
+    if (!confirmed) {
+      return
+    }
+
+    const overlappingIds = new Set(overlappingAnnotations.map((annotation) => annotation.id))
+    savedAnnotations.value = savedAnnotations.value.filter((annotation) => !overlappingIds.has(annotation.id))
+  }
+
+  const annotation: SavedEventAnnotation = {
+    id: createAnnotationId('event'),
+    wellId: selectedWell.value,
+    wellGroupId: currentWellGroupId.value,
+    ...interval,
+    annotationKind: 'event',
+    eventType: resolveCandidateAutoEventType(payload),
+    classification: {
+      ...createDefaultClassification(classificationLevels.value),
+      [levelKey]: levelValue
+    },
+    confidenceEvent: 'medium',
+    comment: 'Перенесено из авторазметки 9.7.2.',
+    actions: []
+  }
+
+  normalizeAnnotationsForLayer(annotation)
+  loadEpisodeIntoDraft(annotation)
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Автоэпизод перенесён в ручную разметку.' : 'Автоэпизод перенесён в интерфейсе, но не сохранён на backend.'
+  )
+}
+
+async function saveCandidateAutoErrorReview(): Promise<void> {
+  const payload = selectedCandidateAutoAnnotation.value
+  if (!payload?.autoEpisodeId || !selectedInterval.value) {
+    message.error('Сначала выберите эпизод авторазметки.')
+    return
+  }
+
+  const review: AutoEpisodeReview = {
+    id: createAutoEpisodeReviewId(payload),
+    wellId: selectedWell.value,
+    autoEpisodeId: payload.autoEpisodeId,
+    startDate: payload.startDate,
+    endDate: payload.endDate,
+    label: payload.label,
+    errorType: autoEpisodeErrorType.value,
+    comment: autoEpisodeErrorComment.value.trim(),
+    sourceVersion: payload.sourceVersion ?? undefined,
+    classificationLevelKey: payload.classificationLevelKey,
+    classificationValue: payload.classificationValue
+  }
+  const reviewSignature = getCandidateAutoReviewSignature(review)
+
+  autoEpisodeReviews.value = [
+    ...autoEpisodeReviews.value.filter((item) => getCandidateAutoReviewSignature(item) !== reviewSignature),
+    review
+  ].sort(
+    (left, right) =>
+      left.wellId.localeCompare(right.wellId, 'ru') ||
+      toTimestamp(right.startDate) - toTimestamp(left.startDate)
+  )
+
+  const saved = await persistMarkupNow()
+  message[saved ? 'success' : 'warning'](
+    saved ? 'Ошибка авторазметки сохранена.' : 'Ошибка авторазметки сохранена в интерфейсе, но не сохранена на backend.'
+  )
 }
 
 function handleVisibleRangeChanged(value: VisibleDateRange | null) {
@@ -4048,6 +4523,7 @@ function openAnnotationForEdit(annotationId: string) {
 
 function resetAnnotationSelection() {
   chartRef.value?.clearSelection()
+  clearCandidateAutoSelection()
   selectedInterval.value = null
   editingAnnotationId.value = null
   editingAnnotationKind.value = null
@@ -4059,6 +4535,7 @@ function resetAnnotationSelection() {
 function clearSelection(options?: { force?: boolean }) {
   const hasUiSelection =
     selectedInterval.value ||
+    selectedCandidateAutoAnnotation.value ||
     editingAnnotationId.value ||
     editingAnnotationKind.value ||
     selectedFrequencyBreakpointId.value ||
@@ -4339,10 +4816,19 @@ watch(
 )
 
 watch(
+  autoEpisodeReviews,
+  () => {
+    scheduleMarkupSave()
+  },
+  { deep: true }
+)
+
+watch(
   selectedWell,
   (wellId) => {
     groupMigrationTarget.value = wellGroupAssignments.value[wellId] ?? null
     newGroupName.value = ''
+    clearCandidateAutoSelection()
     selectedFrequencyBreakpointId.value = null
     clearFrequencySegmentSelection()
     const assignedGroupId = wellGroupAssignments.value[wellId] ?? null
