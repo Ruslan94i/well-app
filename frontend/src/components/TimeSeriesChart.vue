@@ -446,11 +446,11 @@ interface RangePreset {
 }
 
 const TRACK_LABEL_LEFT = 22
-const TRACK_PANEL_TOP = 0.39
-const TRACK_MAIN_GAP = 0.045
+const TRACK_PANEL_TOP = 0.5
+const TRACK_MAIN_GAP = 0.035
 const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
-const CHART_MARGIN_TOP = 10
+const CHART_MARGIN_TOP = 44
 const CHART_MARGIN_BOTTOM = 42
 const MS_PER_DAY = 86400000
 const MIN_VISIBLE_RANGE_MS = 15 * 60 * 1000
@@ -1643,7 +1643,7 @@ function buildCandidateAutoEpisodeTrace() {
         confidence: item.interval.confidence ?? '—'
       })),
       hovertemplate:
-        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 9.7.2<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 9.9<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
@@ -1913,7 +1913,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.24, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка 9.7.2', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
+    { axis: 'y9' as const, label: 'Авторазметка 9.9', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
     { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange }
   ]
 
@@ -2422,7 +2422,7 @@ function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOver
 function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoEpisodeOverlayItem) {
   showTrackHoverTooltip(event, {
     key: `candidate-auto-${item.interval.id}`,
-    title: 'Авторазметка 9.7.2',
+    title: 'Авторазметка 9.9',
     lines: [
       toTrackLine('Уровень', getEventIntervalLevelLabel(item.interval)),
       toTrackLine('Категория', item.interval.label),
@@ -3636,8 +3636,8 @@ function renderChart() {
     uirevision: firstDate && lastDate ? `${firstDate}-${lastDate}` : 'empty',
     legend: {
       orientation: 'h',
-      yanchor: 'top',
-      y: 0.995,
+      yanchor: 'bottom',
+      y: 1.015,
       xanchor: 'left',
       x: 0.005,
       bgcolor: 'rgba(15,23,42,0.82)',

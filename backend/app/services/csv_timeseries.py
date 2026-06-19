@@ -401,7 +401,57 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
     return frame
 
 
+def _source_signature(path: Path) -> tuple[str, int, int] | None:
+    if not path.exists():
+        return None
+
+    file_stat = path.stat()
+    return (str(path), file_stat.st_mtime_ns, file_stat.st_size)
+
+
+@lru_cache(maxsize=2)
+def _load_available_well_ids_cached(source_signatures: tuple[tuple[str, int, int], ...]) -> tuple[str, ...]:
+    well_ids: set[str] = set()
+    source_well_column = COLUMN_MAPPING["well_id"]
+    for path_value, _mtime_ns, _size in source_signatures:
+        path = Path(path_value)
+        try:
+            frame = pl.read_csv(
+                path,
+                separator=";",
+                encoding="utf8-lossy",
+                columns=[source_well_column],
+                schema_overrides={source_well_column: pl.Utf8},
+            )
+        except Exception:
+            logger.exception("Failed to read well ids from %s", path)
+            continue
+
+        well_ids.update(
+            value
+            for value in frame.get_column(source_well_column).drop_nulls().cast(pl.Utf8).str.strip_chars().to_list()
+            if value
+        )
+
+    return tuple(sorted(well_ids))
+
+
 def get_available_well_ids() -> list[str]:
+    source_signatures = tuple(
+        signature
+        for signature in (
+            _source_signature(TELEMETRY_FILE_PATH),
+            _source_signature(MEASUREMENTS_FILE_PATH),
+            _source_signature(POWER_DAILY_FILE_PATH),
+        )
+        if signature is not None
+    )
+    if source_signatures:
+        well_ids = list(_load_available_well_ids_cached(source_signatures))
+        if well_ids:
+            logger.info("Returning %s unique well ids from aggregated source headers", len(well_ids))
+            return well_ids
+
     frame = _load_timeseries_frame()
     if frame.is_empty():
         logger.warning("No wells available because the CSV frame is empty")
@@ -423,6 +473,7 @@ def clear_timeseries_cache() -> None:
     """Drop cached CSV frames after aggregated telemetry files are regenerated."""
     _load_timeseries_frame_cached.cache_clear()
     _load_aggregated_timeseries_frame_cached.cache_clear()
+    _load_available_well_ids_cached.cache_clear()
 
 
 def get_timeseries_frame() -> pl.DataFrame:

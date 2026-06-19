@@ -136,15 +136,6 @@
               <n-button
                 secondary
                 size="small"
-                :loading="viewedGraphDataExporting"
-                :disabled="viewedWellIds.length === 0"
-                @click="downloadViewedWellsGraphDataExport"
-              >
-                Выгрузить просмотренные
-              </n-button>
-              <n-button
-                secondary
-                size="small"
                 :loading="wellGraphDataExporting"
                 @click="downloadCurrentWellGraphDataExport"
               >
@@ -204,7 +195,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.7.2</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.9</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -502,7 +493,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.7.2</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.9</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -1947,9 +1938,7 @@ const loading = ref(false)
 const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
 const manualGraphDataExporting = ref(false)
-const viewedGraphDataExporting = ref(false)
 const wellGraphDataExporting = ref(false)
-const viewedWellIds = ref<string[]>([])
 const periodSummaryPreset = ref<PeriodSummaryPreset>('week')
 const periodSummaryFieldCode = ref<string>('all')
 const periodSummaryWellId = ref<string>('all')
@@ -3727,21 +3716,6 @@ async function downloadManualGraphDataExport(): Promise<void> {
   }
 }
 
-async function downloadViewedWellsGraphDataExport(): Promise<void> {
-  viewedGraphDataExporting.value = true
-
-  try {
-    triggerCsvDownload(buildGraphDataExportCsvUrl({ well_id: viewedWellIds.value.join(',') }))
-    message.success(`CSV-выгрузка просмотренных скважин запущена: ${viewedWellIds.value.length}.`)
-  } catch {
-    message.error('Не удалось сформировать CSV-выгрузку просмотренных скважин.')
-  } finally {
-    window.setTimeout(() => {
-      viewedGraphDataExporting.value = false
-    }, 800)
-  }
-}
-
 async function downloadCurrentWellGraphDataExport(): Promise<void> {
   wellGraphDataExporting.value = true
 
@@ -4071,9 +4045,6 @@ async function loadData() {
     ])
 
     chartData.value = data
-    if (!viewedWellIds.value.includes(requestedWell)) {
-      viewedWellIds.value = [...viewedWellIds.value, requestedWell]
-    }
     wellContext.value = context
     trMonitoringData.value = trData
     artificialLiftPeriods.value = liftPeriods

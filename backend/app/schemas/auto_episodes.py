@@ -7,4 +7,5 @@ class AutoEpisodeInterval(BaseModel):
     endDate: str
     label: str
     color: str
-    confidence: float | None = None
+    confidence: float | str | None = None
+    sourceVersion: str | None = None

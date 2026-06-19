@@ -16,6 +16,10 @@ VSP_FILE_PATH = settings.intra_shift_downtime_data_path
 EXCEL_EPOCH = datetime(1899, 12, 30)
 WORK_STATE = "В работе"
 WORK_STATE_CODE = "SS0001"
+WELL_ID_ALIASES = {
+    "Da_51Da_515": "Da_515",
+    "Da_515Da_515": "Da_515",
+}
 XML_NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
 }
@@ -35,6 +39,11 @@ def _clean_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).replace("\ufeff", "").replace("\xa0", " ").strip()
+
+
+def _normalize_well_id(value: object) -> str:
+    cleaned = _clean_text(value)
+    return WELL_ID_ALIASES.get(cleaned, cleaned)
 
 
 def _parse_float(value: object) -> float | None:
@@ -145,38 +154,87 @@ def _format_datetime(value: datetime) -> str:
     return value.isoformat(timespec="minutes")
 
 
-def get_well_vsp_periods(well_id: str) -> list[dict[str, object]]:
-    normalized_well_id = well_id.strip().casefold()
+def _build_well_periods(well_rows: list[dict[str, object]]) -> list[dict[str, object]]:
     periods: list[dict[str, object]] = []
 
-    for row in _load_vsp_rows():
-        row_well_id = _clean_text(row.get(COLUMNS["well_id"]))
-        if row_well_id.casefold() != normalized_well_id:
-            continue
+    for index, item in enumerate(well_rows):
+        start = item["start"]
+        explicit_end = item["end"]
+        next_start = well_rows[index + 1]["start"] if index + 1 < len(well_rows) else None
 
-        start = _combine_datetime(row.get(COLUMNS["change_date"]), row.get(COLUMNS["change_time"]))
-        end = _combine_datetime(row.get(COLUMNS["close_date"]), row.get(COLUMNS["close_time"]))
-        if start is None:
-            continue
-        if end is None:
+        if explicit_end is not None and explicit_end > start:
+            end = explicit_end
+        elif next_start is not None and next_start > start:
+            end = next_start
+        else:
             end = start + timedelta(days=1)
+
         if end <= start:
             continue
 
-        well_state = _clean_text(row.get(COLUMNS["well_state"]))
-        well_state_code = _clean_text(row.get(COLUMNS["well_state_code"]))
-        is_work = well_state == WORK_STATE and well_state_code == WORK_STATE_CODE
-
         periods.append(
             {
-                "id": f"vsp-{row_well_id}-{_format_datetime(start)}-{len(periods) + 1}",
-                "wellId": row_well_id,
+                "id": f"vsp-{item['well_id']}-{_format_datetime(start)}-{len(periods) + 1}",
+                "wellId": item["well_id"],
                 "startDate": _format_datetime(start),
                 "endDate": _format_datetime(end),
-                "status": "work" if is_work else "downtime",
-                "wellState": well_state,
-                "wellStateCode": well_state_code,
+                "status": item["status"],
+                "wellState": item["well_state"],
+                "wellStateCode": item["well_state_code"],
             }
         )
 
     return sorted(periods, key=lambda item: (item["startDate"], item["endDate"]))
+
+
+@lru_cache(maxsize=2)
+def _load_vsp_period_index(file_mtime_ns: int, file_size: int) -> dict[str, list[dict[str, object]]]:
+    del file_mtime_ns, file_size
+    well_rows_by_id: dict[str, list[dict[str, object]]] = {}
+
+    for row in _load_vsp_rows():
+        row_well_id = _normalize_well_id(row.get(COLUMNS["well_id"]))
+        if not row_well_id:
+            continue
+
+        start = _combine_datetime(row.get(COLUMNS["change_date"]), row.get(COLUMNS["change_time"]))
+        if start is None:
+            continue
+
+        end = _combine_datetime(row.get(COLUMNS["close_date"]), row.get(COLUMNS["close_time"]))
+        well_state = _clean_text(row.get(COLUMNS["well_state"]))
+        well_state_code = _clean_text(row.get(COLUMNS["well_state_code"]))
+        is_work = well_state_code == WORK_STATE_CODE or well_state == WORK_STATE
+
+        well_rows_by_id.setdefault(row_well_id.casefold(), []).append(
+            {
+                "well_id": row_well_id,
+                "start": start,
+                "end": end,
+                "status": "work" if is_work else "downtime",
+                "well_state": well_state,
+                "well_state_code": well_state_code,
+            }
+        )
+
+    period_index: dict[str, list[dict[str, object]]] = {}
+    for normalized_well_id, well_rows in well_rows_by_id.items():
+        well_rows.sort(key=lambda item: (item["start"], item["end"] or datetime.max))
+        period_index[normalized_well_id] = _build_well_periods(well_rows)
+
+    logger.info("Built VSP period index for %s wells", len(period_index))
+    return period_index
+
+
+def _get_vsp_period_index() -> dict[str, list[dict[str, object]]]:
+    if not VSP_FILE_PATH.exists():
+        logger.warning("VSP file not found at %s", VSP_FILE_PATH)
+        return {}
+
+    file_stat = VSP_FILE_PATH.stat()
+    return _load_vsp_period_index(file_stat.st_mtime_ns, file_stat.st_size)
+
+
+def get_well_vsp_periods(well_id: str) -> list[dict[str, object]]:
+    normalized_well_id = _normalize_well_id(well_id).casefold()
+    return list(_get_vsp_period_index().get(normalized_well_id, []))

@@ -162,7 +162,7 @@ export async function fetchPeriodSummary(params: PeriodSummaryParams): Promise<P
   return response.data
 }
 
-export async function fetchGraphDataExportCsv(params?: { field_code?: string }): Promise<Blob> {
+export async function fetchGraphDataExportCsv(params?: { field_code?: string; well_id?: string }): Promise<Blob> {
   const response = await api.get<Blob>('/export/graph-data.csv', {
     params,
     responseType: 'blob'
@@ -176,4 +176,23 @@ export async function fetchManualGraphDataExportCsv(params?: { field_code?: stri
     responseType: 'blob'
   })
   return response.data
+}
+
+function buildCsvExportUrl(path: string, params?: Record<string, string | undefined>): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value) {
+      searchParams.set(key, value)
+    }
+  })
+  const query = searchParams.toString()
+  return `${backendBaseUrl}/api${path}${query ? `?${query}` : ''}`
+}
+
+export function buildGraphDataExportCsvUrl(params?: { field_code?: string; well_id?: string }): string {
+  return buildCsvExportUrl('/export/graph-data.csv', params)
+}
+
+export function buildManualGraphDataExportCsvUrl(params?: { field_code?: string }): string {
+  return buildCsvExportUrl('/export/manual-graph-data.csv', params)
 }

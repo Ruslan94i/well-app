@@ -91,7 +91,8 @@ export interface EventInterval {
   endDate: string
   label: string
   color: string
-  confidence?: number | null
+  confidence?: number | string | null
+  sourceVersion?: string | null
 }
 
 export interface DailyCauseBand {
@@ -251,6 +252,22 @@ export interface FrequencyBreakpointSuppression {
   date: string
 }
 
+export type AutoEpisodeErrorType = 'full' | 'partial'
+
+export interface AutoEpisodeReview {
+  id: string
+  wellId: string
+  autoEpisodeId: string
+  startDate: string
+  endDate: string
+  label: string
+  errorType: AutoEpisodeErrorType
+  comment: string
+  sourceVersion?: string | null
+  classificationLevelKey?: string
+  classificationValue?: string
+}
+
 export interface FrequencySegment extends SelectedInterval {
   id: string
   wellId: string
@@ -311,17 +328,23 @@ export interface MarkupState {
   classificationLevels: AnnotationClassificationLevel[]
   manualFrequencyBreakpoints: FrequencyBreakpoint[]
   suppressedFrequencyBreakpoints: FrequencyBreakpointSuppression[]
+  autoEpisodeReviews: AutoEpisodeReview[]
 }
 
 export interface TimelineAnnotationClickPayload {
   annotationId?: string
-  source: 'manual' | 'model'
+  autoEpisodeId?: string
+  source: 'manual' | 'model' | 'candidateAuto'
   layer: 'event'
   label: string
   startDate: string
   endDate: string
   durationDays: number
   actions: string[]
+  classificationLevelKey?: string
+  classificationValue?: string
+  confidence?: number | string | null
+  sourceVersion?: string | null
 }
 
 export interface FrequencyBreakpointClickPayload extends FrequencyBreakpoint {}

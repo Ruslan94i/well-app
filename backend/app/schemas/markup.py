@@ -32,6 +32,20 @@ class FrequencyBreakpointSuppression(BaseModel):
     date: str
 
 
+class AutoEpisodeReview(BaseModel):
+    id: str
+    wellId: str
+    autoEpisodeId: str
+    startDate: str
+    endDate: str
+    label: str
+    errorType: Literal["full", "partial"]
+    comment: str = ""
+    sourceVersion: str | None = None
+    classificationLevelKey: str | None = None
+    classificationValue: str | None = None
+
+
 class AnnotationBase(BaseModel):
     id: str
     wellId: str
@@ -62,6 +76,7 @@ class MarkupState(BaseModel):
     classificationLevels: list[AnnotationClassificationLevel] = Field(default_factory=list)
     manualFrequencyBreakpoints: list[FrequencyBreakpoint] = Field(default_factory=list)
     suppressedFrequencyBreakpoints: list[FrequencyBreakpointSuppression] = Field(default_factory=list)
+    autoEpisodeReviews: list[AutoEpisodeReview] = Field(default_factory=list)
 
     @field_validator("annotations", mode="before")
     @classmethod
