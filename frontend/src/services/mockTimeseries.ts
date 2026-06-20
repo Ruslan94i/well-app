@@ -334,6 +334,8 @@ export function generateMockTimeseries(
       casing_pressure: round(casingPressure),
       load: round(load),
       water_cut: round(waterCut),
+      water_cut_hal: null,
+      water_cut_algorithm: round(waterCut),
       intake_pressure: intakePressure,
       esp_frequency: round(espFrequency),
       active_power: round(activePower),

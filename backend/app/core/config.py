@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     reference_data_path: Path = Path(__file__).resolve().parents[3] / "backend" / "data" / "reference"
     tr_monitoring_data_path: Path = reference_data_path / "tr_monitoring.csv"
     auto_episode_segments_data_path: Path = reference_data_path / "auto_episode_segments.csv"
+    water_cut_hal_data_path: Path = reference_data_path / "water_cut_hal.csv"
+    water_cut_algorithm_model_path: Path = reference_data_path / "water_cut_algorithm_model.joblib"
     well_params_data_path: Path = reference_data_path / "well_params.json"
     artificial_lift_data_path: Path = reference_data_path / "artificial_lift.xlsx"
     intra_shift_downtime_data_path: Path = reference_data_path / "intra_shift_downtime_20260521_105050.xlsx"

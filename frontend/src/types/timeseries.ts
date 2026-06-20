@@ -5,6 +5,8 @@ export interface TimeSeriesPoint {
   casing_pressure: number | null
   load: number | null
   water_cut: number | null
+  water_cut_hal: number | null
+  water_cut_algorithm: number | null
   intake_pressure: number | null
   esp_frequency: number | null
   active_power: number | null
@@ -26,6 +28,8 @@ export type TelemetrySeriesKey =
   | 'casing_pressure'
   | 'load'
   | 'water_cut'
+  | 'water_cut_hal'
+  | 'water_cut_algorithm'
   | 'intake_pressure'
   | 'esp_frequency'
   | 'active_power'

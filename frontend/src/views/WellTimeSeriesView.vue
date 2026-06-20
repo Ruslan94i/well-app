@@ -195,7 +195,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.9</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 10.1</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -493,7 +493,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 9.9</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 10.1</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -1129,7 +1129,9 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Давление буферное', value: 'buffer_pressure' },
   { label: 'Давление затрубное', value: 'casing_pressure' },
   { label: 'Загрузка', value: 'load' },
-  { label: 'Обводненность', value: 'water_cut' },
+  { label: 'Обводненность_АГЗУ', value: 'water_cut' },
+  { label: 'Обводненность ХАЛ', value: 'water_cut_hal' },
+  { label: 'Обв_алгоритм', value: 'water_cut_algorithm' },
   { label: 'Р на приеме насоса', value: 'intake_pressure' },
   { label: 'Частота вращения двиг.', value: 'esp_frequency' },
   { label: 'Активная мощность', value: 'active_power' },
@@ -1271,8 +1273,7 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     key: 'deoptimization',
     label: 'Уровень 15. Деоптимизация',
     options: [
-      { label: 'Ограничение ЭЦН', value: 'esp_limit' },
-      { label: 'Ограничение инфраструктуры', value: 'infrastructure_limit' }
+      { label: 'Деоптимизация', value: 'deoptimization' }
     ]
   }
 ]
@@ -1877,7 +1878,15 @@ const persistedUiState = loadPersistedUiState()
 const selectedWell = ref(persistedUiState.selectedWell || DEFAULT_WELL_ID)
 const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE)))
 const dateRange = ref<[number, number] | null>(null)
-const defaultActiveSeries: SeriesKey[] = ['qliq', 'load', 'water_cut', 'intake_pressure', 'esp_frequency', 'active_power']
+const defaultActiveSeries: SeriesKey[] = [
+  'qliq',
+  'load',
+  'water_cut_algorithm',
+  'water_cut_hal',
+  'intake_pressure',
+  'esp_frequency',
+  'active_power'
+]
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
 const chartData = ref<TimeSeriesPoint[]>([])
 const trMonitoringData = ref<TrMonitoringPoint[]>([])
@@ -3017,11 +3026,15 @@ function normalizeAnnotationClassification(
   if (!classification.gas_factor_trend && normalizedEventType.includes('рост гф')) {
     classification.gas_factor_trend = 'GF_growth'
   }
-  if (!classification.deoptimization && normalizedEventType.includes('ограничение эцн')) {
-    classification.deoptimization = 'esp_limit'
-  }
-  if (!classification.deoptimization && normalizedEventType.includes('ограничение инфраструктур')) {
-    classification.deoptimization = 'infrastructure_limit'
+  if (
+    !classification.deoptimization &&
+    (
+      normalizedEventType.includes('деоптимизац') ||
+      normalizedEventType.includes('ограничение эцн') ||
+      normalizedEventType.includes('ограничение инфраструктур')
+    )
+  ) {
+    classification.deoptimization = 'deoptimization'
   }
   if (!classification.reservoir_pressure_trend && typeof annotation.hasReservoirPressureDecline === 'boolean') {
     classification.reservoir_pressure_trend = annotation.hasReservoirPressureDecline ? 'Pres_decline' : null

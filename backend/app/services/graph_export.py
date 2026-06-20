@@ -40,8 +40,9 @@ CLASSIFICATION_TO_TARGET = {
     "vgf=vgf_yes": ("target_vgf", "1"),
     "gas_factor_trend=GF_growth": ("target_gas_factor_trend", "rising"),
     "gas_factor_trend=GF_decline": ("target_gas_factor_trend", "falling"),
-    "deoptimization=esp_limit": ("target_deoptimization", "esp_limit"),
-    "deoptimization=infrastructure_limit": ("target_deoptimization", "infrastructure_limit"),
+    "deoptimization=deoptimization": ("target_deoptimization", "1"),
+    "deoptimization=esp_limit": ("target_deoptimization", "1"),
+    "deoptimization=infrastructure_limit": ("target_deoptimization", "1"),
     "esp_degradation=degr_yes": ("target_esp_degradation", "1"),
 }
 TARGET_COLUMNS = [
@@ -84,8 +85,10 @@ AUTO_LABEL_TO_TARGET = {
     "вгф": ("auto_target_vgf", "1"),
     "рост гф": ("auto_target_gas_factor_trend", "rising"),
     "снижение гф": ("auto_target_gas_factor_trend", "falling"),
-    "ограничение эцн": ("auto_target_deoptimization", "esp_limit"),
-    "ограничение инфраструктуры": ("auto_target_deoptimization", "infrastructure_limit"),
+    "деоптимизация": ("auto_target_deoptimization", "1"),
+    "деоптимизация эцн": ("auto_target_deoptimization", "1"),
+    "ограничение эцн": ("auto_target_deoptimization", "1"),
+    "ограничение инфраструктуры": ("auto_target_deoptimization", "1"),
 }
 TELEMETRY_COLUMNS = [
     "qliq",
@@ -93,6 +96,7 @@ TELEMETRY_COLUMNS = [
     "casing_pressure",
     "load",
     "water_cut",
+    "water_cut_hal",
     "intake_pressure",
     "esp_frequency",
     "active_power",

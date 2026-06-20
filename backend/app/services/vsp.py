@@ -18,7 +18,6 @@ WORK_STATE = "В работе"
 WORK_STATE_CODE = "SS0001"
 WELL_ID_ALIASES = {
     "Da_51Da_515": "Da_515",
-    "Da_515Da_515": "Da_515",
 }
 XML_NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",

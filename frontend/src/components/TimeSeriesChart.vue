@@ -498,6 +498,15 @@ const zoomHistory = ref<VisibleDateRange[]>([])
 const rangeToolbarOpen = ref(false)
 const telemetryPointTimes = computed(() => props.data.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
 const trPointTimes = computed(() => props.trMonitoringData.map((point) => parseIsoDateMs(point.date) ?? Number.NaN))
+const waterCutHalPoints = computed(() =>
+  props.data
+    .map((point) => ({
+      date: point.date,
+      time: parseIsoDateMs(point.date) ?? Number.NaN,
+      value: point.water_cut_hal
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+)
 const chartRenderError = ref<string | null>(null)
 let suppressBackgroundClickUntil = 0
 let suppressDeselectUntil = 0
@@ -562,7 +571,7 @@ const seriesConfig: Record<
     dash?: 'solid' | 'dot' | 'dash' | 'dashdot'
     source?: 'tr'
     shape?: 'linear' | 'hv'
-    chartType?: 'line' | 'bar'
+    chartType?: 'line' | 'bar' | 'markers'
     barWidthDays?: number
     barOffsetDays?: number
     markerLineColor?: string
@@ -583,7 +592,9 @@ const seriesConfig: Record<
   buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
   casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
   load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 0.85, markerSize: 2 },
-  water_cut: { label: 'Обводненность', color: '#7dd3fc', axis: 'y2', width: 2.2 },
+  water_cut: { label: 'Обводненность_АГЗУ', color: '#7dd3fc', axis: 'y2', width: 1.6 },
+  water_cut_hal: { label: 'Обводненность ХАЛ', color: '#7dd3fc', axis: 'y2', chartType: 'markers', markerSize: 7 },
+  water_cut_algorithm: { label: 'Обв_алгоритм', color: '#22d3ee', axis: 'y2', width: 2.4 },
   intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
   esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 0.85, markerSize: 2 },
   active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 0.85, markerSize: 2 },
@@ -685,6 +696,7 @@ const colorByLevelValue: Record<string, string> = {
   'vgf:vgf_yes': '#f97316',
   'gas_factor_trend:GF_decline': '#a3e635',
   'gas_factor_trend:GF_growth': '#f97316',
+  'deoptimization:deoptimization': '#ffffff',
   'deoptimization:esp_limit': '#ffffff',
   'deoptimization:infrastructure_limit': '#ffffff'
 }
@@ -693,6 +705,7 @@ const patternByLevelValue: Record<string, { shape: string; fgcolor: string; size
   'vgf:vgf_yes': { shape: '/', fgcolor: '#7c2d12', size: 7, solidity: 0.28 },
   'gas_factor_trend:GF_decline': { shape: '|', fgcolor: '#3f6212', size: 8, solidity: 0.32 },
   'gas_factor_trend:GF_growth': { shape: '|', fgcolor: '#7c2d12', size: 8, solidity: 0.32 },
+  'deoptimization:deoptimization': { shape: '/', fgcolor: '#64748b', size: 7, solidity: 0.35 },
   'deoptimization:esp_limit': { shape: '/', fgcolor: '#64748b', size: 7, solidity: 0.35 },
   'deoptimization:infrastructure_limit': { shape: '|', fgcolor: '#64748b', size: 8, solidity: 0.38 }
 }
@@ -768,6 +781,8 @@ const candidateAutoLabelToLevelKey: Record<string, string> = {
   вгф: 'vgf',
   'снижение гф': 'gas_factor_trend',
   'рост гф': 'gas_factor_trend',
+  деоптимизация: 'deoptimization',
+  'деоптимизация эцн': 'deoptimization',
   'ограничение эцн': 'deoptimization',
   'ограничение инфраструктуры': 'deoptimization',
   'деградация эцн': 'esp_degradation'
@@ -793,8 +808,10 @@ const candidateAutoLabelToLevelValue: Record<string, string> = {
   вгф: 'vgf_yes',
   'снижение гф': 'GF_decline',
   'рост гф': 'GF_growth',
-  'ограничение эцн': 'esp_limit',
-  'ограничение инфраструктуры': 'infrastructure_limit',
+  деоптимизация: 'deoptimization',
+  'деоптимизация эцн': 'deoptimization',
+  'ограничение эцн': 'deoptimization',
+  'ограничение инфраструктуры': 'deoptimization',
   'деградация эцн': 'degr_yes'
 }
 
@@ -1354,6 +1371,32 @@ function buildMainTraces() {
       }
     }
 
+    if (config.chartType === 'markers') {
+      const finiteMarkerPoints = seriesX
+        .map((date, index) => ({ date, value: seriesY[index] }))
+        .filter((point) => Number.isFinite(point.value))
+
+      return {
+        x: finiteMarkerPoints.map((point) => point.date),
+        y: finiteMarkerPoints.map((point) => point.value),
+        type: 'scatter',
+        mode: 'markers',
+        name: config.label,
+        yaxis: config.axis,
+        connectgaps: false,
+        marker: {
+          symbol: 'circle-open',
+          size: config.markerSize ?? 7,
+          color: config.color,
+          line: {
+            color: config.color,
+            width: 1.8
+          }
+        },
+        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
+      }
+    }
+
     return {
       x: seriesX,
       y: seriesY,
@@ -1643,7 +1686,7 @@ function buildCandidateAutoEpisodeTrace() {
         confidence: item.interval.confidence ?? '—'
       })),
       hovertemplate:
-        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 9.9<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 10.1<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
@@ -1913,7 +1956,7 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.24, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка 9.9', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
+    { axis: 'y9' as const, label: 'Авторазметка 10.1', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
     { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange }
   ]
 
@@ -2422,7 +2465,7 @@ function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOver
 function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoEpisodeOverlayItem) {
   showTrackHoverTooltip(event, {
     key: `candidate-auto-${item.interval.id}`,
-    title: 'Авторазметка 9.9',
+    title: 'Авторазметка 10.1',
     lines: [
       toTrackLine('Уровень', getEventIntervalLevelLabel(item.interval)),
       toTrackLine('Категория', item.interval.label),
@@ -2794,6 +2837,10 @@ function getNearestPointByDate(date: string): TimeSeriesPoint | null {
 }
 
 function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): number | null {
+  if (key === 'water_cut_hal') {
+    return getNearestWaterCutHalValueByDate(date)
+  }
+
   const targetMs = parseIsoDateMs(date)
   const startIndex = targetMs === null ? -1 : findNearestTimeIndex(telemetryPointTimes.value, targetMs)
 
@@ -2837,6 +2884,42 @@ function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): 
   }
 
   return nearestValue
+}
+
+function getNearestWaterCutHalValueByDate(date: string): number | null {
+  const targetMs = parseIsoDateMs(date)
+  const points = waterCutHalPoints.value
+
+  if (targetMs === null || points.length === 0) {
+    return null
+  }
+
+  let left = 0
+  let right = points.length - 1
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2)
+    const midTime = points[mid]?.time ?? Number.POSITIVE_INFINITY
+    if (midTime < targetMs) {
+      left = mid + 1
+    } else {
+      right = mid
+    }
+  }
+
+  const previousIndex = Math.max(0, left - 1)
+  const nextPoint = points[left]
+  const previousPoint = points[previousIndex]
+
+  if (!nextPoint || !previousPoint) {
+    const fallbackPoint = nextPoint ?? previousPoint
+    return fallbackPoint ? Number(fallbackPoint.value) : null
+  }
+
+  const nextDistance = Math.abs(nextPoint.time - targetMs)
+  const previousDistance = Math.abs(previousPoint.time - targetMs)
+
+  return Number(previousDistance <= nextDistance ? previousPoint.value : nextPoint.value)
 }
 
 function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
@@ -3557,6 +3640,7 @@ function renderChart() {
   const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
   const percentAxisConfig = buildNiceAxis([
     ...getSeriesValues('water_cut'),
+    ...getSeriesValues('water_cut_algorithm'),
     ...getSeriesValues('load'),
     ...getActiveSeriesValues(['tr_water_cut'])
   ], 5)

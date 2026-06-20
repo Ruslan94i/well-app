@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 
 from app.core.config import settings
+from app.services.water_cut_algorithm import add_water_cut_algorithm
 
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ CSV_FILE_PATH = settings.csv_data_path
 TELEMETRY_FILE_PATH = settings.telemetry_aggregated_data_path
 MEASUREMENTS_FILE_PATH = settings.measurements_data_path
 POWER_DAILY_FILE_PATH = settings.power_daily_data_path
+WATER_CUT_HAL_FILE_PATH = settings.water_cut_hal_data_path
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
 COLUMN_MAPPING = {
     "well_id": "Скважина",
@@ -45,6 +47,8 @@ NUMERIC_COLUMNS = [
     "casing_pressure",
     "load",
     "water_cut",
+    "water_cut_hal",
+    "water_cut_algorithm",
     "intake_pressure",
     "esp_frequency",
     "active_power",
@@ -85,6 +89,8 @@ RESPONSE_COLUMNS = [
     "casing_pressure",
     "load",
     "water_cut",
+    "water_cut_hal",
+    "water_cut_algorithm",
     "intake_pressure",
     "esp_frequency",
     "active_power",
@@ -107,6 +113,8 @@ FRAME_SCHEMA = {
     "casing_pressure": pl.Float64,
     "load": pl.Float64,
     "water_cut": pl.Float64,
+    "water_cut_hal": pl.Float64,
+    "water_cut_algorithm": pl.Float64,
     "intake_pressure": pl.Float64,
     "esp_frequency": pl.Float64,
     "active_power": pl.Float64,
@@ -200,7 +208,9 @@ def _fill_numeric_values(
     normalized_columns: list[str],
 ) -> None:
     for normalized_name in normalized_columns:
-        source_name = COLUMN_MAPPING[normalized_name]
+        source_name = COLUMN_MAPPING.get(normalized_name)
+        if source_name is None:
+            continue
         raw_value = _get_row_value(raw_row, column_indexes, source_name)
         row[normalized_name] = _parse_float(raw_value)
 
@@ -234,6 +244,7 @@ def _load_timeseries_frame() -> pl.DataFrame:
         telemetry_stat = TELEMETRY_FILE_PATH.stat()
         measurements_stat = MEASUREMENTS_FILE_PATH.stat()
         power_daily_stat = POWER_DAILY_FILE_PATH.stat()
+        water_cut_hal_stat = WATER_CUT_HAL_FILE_PATH.stat() if WATER_CUT_HAL_FILE_PATH.exists() else None
         return _load_aggregated_timeseries_frame_cached(
             str(TELEMETRY_FILE_PATH),
             telemetry_stat.st_mtime_ns,
@@ -244,6 +255,9 @@ def _load_timeseries_frame() -> pl.DataFrame:
             str(POWER_DAILY_FILE_PATH),
             power_daily_stat.st_mtime_ns,
             power_daily_stat.st_size,
+            str(WATER_CUT_HAL_FILE_PATH) if water_cut_hal_stat else "",
+            water_cut_hal_stat.st_mtime_ns if water_cut_hal_stat else 0,
+            water_cut_hal_stat.st_size if water_cut_hal_stat else 0,
         )
 
     if not CSV_FILE_PATH.exists():
@@ -301,6 +315,36 @@ def _load_aggregated_source_rows(
     return rows
 
 
+def _load_water_cut_hal_rows(csv_path: str) -> list[dict[str, object]]:
+    path = Path(csv_path)
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, object]] = []
+    skipped_rows = 0
+    with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.DictReader(csv_file, delimiter=";")
+        for raw_row in reader:
+            well_id = _clean_cell(raw_row.get("well_id"))
+            point_datetime = _parse_datetime(raw_row.get("date"))
+            water_cut = _parse_float(raw_row.get("water_cut_hal"))
+            if not well_id or point_datetime is None or water_cut is None:
+                skipped_rows += 1
+                continue
+
+            row = _build_empty_timeseries_row(well_id, point_datetime)
+            row["water_cut_hal"] = water_cut
+            rows.append(_finalize_timeseries_row(row))
+
+    logger.info(
+        "Loaded %s rows from water cut HAL CSV %s%s",
+        len(rows),
+        path,
+        f"; skipped {skipped_rows} rows" if skipped_rows else "",
+    )
+    return rows
+
+
 @lru_cache(maxsize=2)
 def _load_aggregated_timeseries_frame_cached(
     telemetry_path: str,
@@ -312,21 +356,27 @@ def _load_aggregated_timeseries_frame_cached(
     power_daily_path: str,
     power_daily_mtime_ns: int,
     power_daily_size: int,
+    water_cut_hal_path: str,
+    water_cut_hal_mtime_ns: int,
+    water_cut_hal_size: int,
 ) -> pl.DataFrame:
     logger.info("Loading aggregated telemetry from %s, %s and %s", telemetry_path, measurements_path, power_daily_path)
     logger.debug(
-        "Aggregated cache keys telemetry=(%s,%s) measurements=(%s,%s) power_daily=(%s,%s)",
+        "Aggregated cache keys telemetry=(%s,%s) measurements=(%s,%s) power_daily=(%s,%s) water_cut_hal=(%s,%s)",
         telemetry_mtime_ns,
         telemetry_size,
         measurements_mtime_ns,
         measurements_size,
         power_daily_mtime_ns,
         power_daily_size,
+        water_cut_hal_mtime_ns,
+        water_cut_hal_size,
     )
     rows = [
         *_load_aggregated_source_rows(telemetry_path, TELEMETRY_COLUMNS, "telemetry"),
         *_load_aggregated_source_rows(measurements_path, MEASUREMENT_COLUMNS, "measurements"),
         *_load_aggregated_source_rows(power_daily_path, POWER_DAILY_COLUMNS, "power_daily"),
+        *(_load_water_cut_hal_rows(water_cut_hal_path) if water_cut_hal_path else []),
     ]
     if not rows:
         logger.warning("Aggregated telemetry sources produced no valid rows")
@@ -340,6 +390,7 @@ def _load_aggregated_timeseries_frame_cached(
         .with_columns(pl.col("qliq_wfm").alias("qliq_vfm"))
         .sort(["well_id", "date"])
     )
+    frame = add_water_cut_algorithm(frame)
     logger.info(
         "Loaded %s aggregated rows for %s unique wells",
         frame.height,
@@ -390,7 +441,7 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         logger.warning("CSV file %s produced no valid well rows", CSV_FILE_PATH)
         return pl.DataFrame(schema=FRAME_SCHEMA)
 
-    frame = pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"])
+    frame = add_water_cut_algorithm(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
     logger.info(
         "Loaded %s rows for %s unique wells from %s%s",
         frame.height,

@@ -8,6 +8,8 @@ class TimeSeriesPoint(BaseModel):
     casing_pressure: float | None = None
     load: float | None = None
     water_cut: float | None = None
+    water_cut_hal: float | None = None
+    water_cut_algorithm: float | None = None
     intake_pressure: float | None = None
     esp_frequency: float | None = None
     active_power: float | None = None
