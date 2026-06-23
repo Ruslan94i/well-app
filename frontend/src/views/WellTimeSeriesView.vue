@@ -1243,7 +1243,8 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
     key: 'sppv',
     label: 'Уровень 11. СППВ',
     options: [
-      { label: 'СППВ', value: 'sppv' }
+      { label: 'СППВ', value: 'sppv' },
+      { label: 'Увеличение подачи воды', value: 'water_supply_increase' }
     ]
   },
   {

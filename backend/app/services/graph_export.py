@@ -37,6 +37,7 @@ CLASSIFICATION_TO_TARGET = {
     "gdi=gdi": ("target_gdi", "1"),
     "complicated_fund=slozhn_fond": ("target_complicated_fund", "1"),
     "sppv=sppv": ("target_sppv", "1"),
+    "sppv=water_supply_increase": ("target_water_supply_increase", "1"),
     "vgf=vgf_yes": ("target_vgf", "1"),
     "gas_factor_trend=GF_growth": ("target_gas_factor_trend", "rising"),
     "gas_factor_trend=GF_decline": ("target_gas_factor_trend", "falling"),
@@ -62,6 +63,7 @@ TARGET_COLUMNS = [
     "target_vgf",
     "target_gas_factor_trend",
     "target_deoptimization",
+    "target_water_supply_increase",
 ]
 AUTO_TARGET_COLUMNS = [f"auto_{column}" for column in TARGET_COLUMNS]
 AUTO_LABEL_TO_TARGET = {
@@ -82,6 +84,7 @@ AUTO_LABEL_TO_TARGET = {
     "снижение кпрод": ("auto_target_kprod_trend", "declining"),
     "осложненный фонд": ("auto_target_complicated_fund", "1"),
     "сппв": ("auto_target_sppv", "1"),
+    "увеличение подачи воды": ("auto_target_water_supply_increase", "1"),
     "вгф": ("auto_target_vgf", "1"),
     "рост гф": ("auto_target_gas_factor_trend", "rising"),
     "снижение гф": ("auto_target_gas_factor_trend", "falling"),
