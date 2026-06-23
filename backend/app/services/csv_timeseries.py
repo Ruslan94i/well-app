@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -20,6 +21,8 @@ MEASUREMENTS_FILE_PATH = settings.measurements_data_path
 POWER_DAILY_FILE_PATH = settings.power_daily_data_path
 WATER_CUT_HAL_FILE_PATH = settings.water_cut_hal_data_path
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
+INVALID_WELL_IDS = {"Da_51Da_515", "Da_515Da_515"}
+DUPLICATED_WELL_ID_PATTERN = re.compile(r"^([A-Za-z]+_\d+)\1$")
 COLUMN_MAPPING = {
     "well_id": "Скважина",
     "date": "Дата",
@@ -136,6 +139,11 @@ def _clean_cell(value: str | None) -> str:
         return ""
 
     return value.replace("\ufeff", "").replace("\xa0", " ").strip()
+
+
+def _is_valid_well_id(value: str | None) -> bool:
+    cleaned = _clean_cell(value)
+    return bool(cleaned) and cleaned not in INVALID_WELL_IDS and DUPLICATED_WELL_ID_PATTERN.match(cleaned) is None
 
 
 def _get_row_value(raw_row: list[str], column_indexes: dict[str, int], column_name: str) -> str | None:
@@ -297,7 +305,7 @@ def _load_aggregated_source_rows(
 
             well_id = _clean_cell(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["well_id"]))
             point_datetime = _parse_datetime(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["date"]))
-            if not well_id or point_datetime is None:
+            if not _is_valid_well_id(well_id) or point_datetime is None:
                 skipped_rows += 1
                 continue
 
@@ -328,7 +336,7 @@ def _load_water_cut_hal_rows(csv_path: str) -> list[dict[str, object]]:
             well_id = _clean_cell(raw_row.get("well_id"))
             point_datetime = _parse_datetime(raw_row.get("date"))
             water_cut = _parse_float(raw_row.get("water_cut_hal"))
-            if not well_id or point_datetime is None or water_cut is None:
+            if not _is_valid_well_id(well_id) or point_datetime is None or water_cut is None:
                 skipped_rows += 1
                 continue
 
@@ -429,7 +437,7 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
 
             well_id = _clean_cell(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["well_id"]))
             point_date = _parse_date(_get_row_value(raw_row, column_indexes, COLUMN_MAPPING["date"]))
-            if not well_id or point_date is None:
+            if not _is_valid_well_id(well_id) or point_date is None:
                 skipped_rows += 1
                 continue
 
@@ -481,7 +489,7 @@ def _load_available_well_ids_cached(source_signatures: tuple[tuple[str, int, int
         well_ids.update(
             value
             for value in frame.get_column(source_well_column).drop_nulls().cast(pl.Utf8).str.strip_chars().to_list()
-            if value
+            if _is_valid_well_id(value)
         )
 
     return tuple(sorted(well_ids))
@@ -510,7 +518,7 @@ def get_available_well_ids() -> list[str]:
 
     well_ids = (
         frame.select(pl.col("well_id").str.strip_chars().alias("well_id"))
-        .filter(pl.col("well_id") != "")
+        .filter(pl.col("well_id").map_elements(_is_valid_well_id, return_dtype=pl.Boolean))
         .unique()
         .sort("well_id")
         .get_column("well_id")

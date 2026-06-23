@@ -16,9 +16,8 @@ VSP_FILE_PATH = settings.intra_shift_downtime_data_path
 EXCEL_EPOCH = datetime(1899, 12, 30)
 WORK_STATE = "В работе"
 WORK_STATE_CODE = "SS0001"
-WELL_ID_ALIASES = {
-    "Da_51Da_515": "Da_515",
-}
+INVALID_WELL_IDS = {"Da_51Da_515", "Da_515Da_515"}
+DUPLICATED_WELL_ID_PATTERN = re.compile(r"^([A-Za-z]+_\d+)\1$")
 XML_NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
 }
@@ -42,7 +41,9 @@ def _clean_text(value: object) -> str:
 
 def _normalize_well_id(value: object) -> str:
     cleaned = _clean_text(value)
-    return WELL_ID_ALIASES.get(cleaned, cleaned)
+    if cleaned in INVALID_WELL_IDS or DUPLICATED_WELL_ID_PATTERN.match(cleaned):
+        return ""
+    return cleaned
 
 
 def _parse_float(value: object) -> float | None:
