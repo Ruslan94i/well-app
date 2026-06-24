@@ -293,6 +293,8 @@ def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
         row["gas_liquid_factor"] = round(qgas / qliq, 6)
 
     row["qliq_vfm"] = row["qliq_wfm"]
+    if not isinstance(row["predicted_qliq"], float) and isinstance(row["qliq_vfm"], float):
+        row["predicted_qliq"] = row["qliq_vfm"]
     return row
 
 
@@ -496,6 +498,7 @@ def _load_aggregated_timeseries_frame_cached(
         .group_by(["well_id", "date"])
         .agg(aggregations)
         .with_columns(pl.col("qliq_wfm").alias("qliq_vfm"))
+        .with_columns(pl.coalesce(["predicted_qliq", "qliq_vfm"]).alias("predicted_qliq"))
         .sort(["well_id", "date"])
     )
     frame = add_water_cut_algorithm(frame)
