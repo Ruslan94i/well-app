@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     auto_episode_segments_data_path: Path = reference_data_path / "auto_episode_segments.csv"
     water_cut_hal_data_path: Path = reference_data_path / "water_cut_hal.csv"
     predicted_qliq_data_path: Path = reference_data_path / "predicted_qliq.csv"
+    predicted_qliq_meta_path: Path = reference_data_path / "predicted_qliq_meta.json"
     water_cut_algorithm_model_path: Path = reference_data_path / "water_cut_algorithm_model.joblib"
     well_params_data_path: Path = reference_data_path / "well_params.json"
     episodes_table_data_path: Path = reference_data_path / "episodes.csv"

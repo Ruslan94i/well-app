@@ -1,0 +1,9 @@
+{
+  "computed_at_utc": "2026-06-24T06:24:23Z",
+  "computed_for_utc_date": "2026-06-24",
+  "source": "daily measured Qliq fallback with existing prediction seed priority",
+  "rows": 25635,
+  "wells": 53,
+  "telemetry_day_rows": 25635,
+  "telemetry_wells": 53
+}

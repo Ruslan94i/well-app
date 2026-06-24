@@ -10,6 +10,7 @@ from pathlib import Path
 import polars as pl
 
 from app.core.config import settings
+from app.services.predicted_qliq import ensure_predicted_qliq_cache
 from app.services.water_cut_algorithm import add_water_cut_algorithm
 
 
@@ -300,6 +301,11 @@ def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
 
 def _load_timeseries_frame() -> pl.DataFrame:
     if TELEMETRY_FILE_PATH.exists() and MEASUREMENTS_FILE_PATH.exists() and POWER_DAILY_FILE_PATH.exists():
+        try:
+            ensure_predicted_qliq_cache()
+        except Exception as exc:
+            logger.warning("Predicted Q liquid cache refresh failed; using existing cache if available: %s", exc)
+
         telemetry_stat = TELEMETRY_FILE_PATH.stat()
         measurements_stat = MEASUREMENTS_FILE_PATH.stat()
         power_daily_stat = POWER_DAILY_FILE_PATH.stat()
