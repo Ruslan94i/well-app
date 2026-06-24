@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class TimeSeriesPoint(BaseModel):
     date: str
     qliq: float | None = None
+    predicted_qliq: float | None = None
     buffer_pressure: float | None = None
     casing_pressure: float | None = None
     load: float | None = None

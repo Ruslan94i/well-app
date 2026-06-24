@@ -275,6 +275,10 @@ export function generateMockTimeseries(
     const gasLiquidFactor = qgas / Math.max(qliq, 1)
     const qliqVfm = clamp(qliq * (1.006 + 0.004 * Math.sin(index / 23)) + (random() - 0.5) * 1.1, 60)
     const qliqWfm = clamp(qliq * (0.996 + 0.005 * Math.cos(index / 19)) + (random() - 0.5) * 0.9, 60)
+    const predictedQliq = clamp(
+      qliq * (1 + 0.012 * Math.sin(index / 31)) + (random() - 0.5) * 1.4,
+      60
+    )
     const intakePressure = round(
       116.5 -
         0.018 * index +
@@ -330,6 +334,7 @@ export function generateMockTimeseries(
     return {
       date,
       qliq: round(qliq),
+      predicted_qliq: round(predictedQliq),
       buffer_pressure: round(bufferPressure),
       casing_pressure: round(casingPressure),
       load: round(load),

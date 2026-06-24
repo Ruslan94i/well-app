@@ -1,6 +1,7 @@
 export interface TimeSeriesPoint {
   date: string
   qliq: number | null
+  predicted_qliq: number | null
   buffer_pressure: number | null
   casing_pressure: number | null
   load: number | null
@@ -24,6 +25,7 @@ export interface TimeSeriesPoint {
 
 export type TelemetrySeriesKey =
   | 'qliq'
+  | 'predicted_qliq'
   | 'buffer_pressure'
   | 'casing_pressure'
   | 'load'
@@ -96,6 +98,13 @@ export interface EventInterval {
   label: string
   color: string
   confidence?: number | string | null
+  confidenceTier?: string | null
+  explanation?: string | null
+  computedAt?: string | null
+  modelVersion?: string | null
+  signals?: string | null
+  sigLabel?: string | null
+  sigMargin?: number | string | null
   sourceVersion?: string | null
 }
 
@@ -348,6 +357,13 @@ export interface TimelineAnnotationClickPayload {
   classificationLevelKey?: string
   classificationValue?: string
   confidence?: number | string | null
+  confidenceTier?: string | null
+  explanation?: string | null
+  computedAt?: string | null
+  modelVersion?: string | null
+  signals?: string | null
+  sigLabel?: string | null
+  sigMargin?: number | string | null
   sourceVersion?: string | null
 }
 

@@ -20,9 +20,21 @@ TELEMETRY_FILE_PATH = settings.telemetry_aggregated_data_path
 MEASUREMENTS_FILE_PATH = settings.measurements_data_path
 POWER_DAILY_FILE_PATH = settings.power_daily_data_path
 WATER_CUT_HAL_FILE_PATH = settings.water_cut_hal_data_path
+PREDICTED_QLIQ_FILE_PATH = settings.predicted_qliq_data_path
 NULL_TOKENS = {"", "—", "#ЗНАЧ!", "#ДЕЛ/0!"}
 INVALID_WELL_IDS = {"Da_51Da_515", "Da_515Da_515"}
 DUPLICATED_WELL_ID_PATTERN = re.compile(r"^([A-Za-z]+_\d+)\1$")
+PREDICTED_QLIQ_WELL_COLUMNS = ("well_id", "well")
+PREDICTED_QLIQ_DATE_COLUMNS = ("date", "telemetry_date", "telemetry_time")
+PREDICTED_QLIQ_VALUE_COLUMNS = (
+    "predicted_qliq",
+    "telemetry_predicted_qliq",
+    "predicted_q_liquid",
+    "predicted_liquid_rate",
+    "qliq_pred",
+    "q_liq_pred",
+    "pred_qliq",
+)
 COLUMN_MAPPING = {
     "well_id": "Скважина",
     "date": "Дата",
@@ -46,6 +58,7 @@ COLUMN_MAPPING = {
 }
 NUMERIC_COLUMNS = [
     "qliq",
+    "predicted_qliq",
     "buffer_pressure",
     "casing_pressure",
     "load",
@@ -88,6 +101,7 @@ POWER_DAILY_COLUMNS = [
 RESPONSE_COLUMNS = [
     "date",
     "qliq",
+    "predicted_qliq",
     "buffer_pressure",
     "casing_pressure",
     "load",
@@ -112,6 +126,7 @@ FRAME_SCHEMA = {
     "well_id": pl.Utf8,
     "date": pl.Datetime,
     "qliq": pl.Float64,
+    "predicted_qliq": pl.Float64,
     "buffer_pressure": pl.Float64,
     "casing_pressure": pl.Float64,
     "load": pl.Float64,
@@ -201,6 +216,34 @@ def _parse_float(value: str | None) -> float | None:
         return None
 
 
+def _normalize_csv_header(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", _clean_cell(value).lower()).strip("_")
+
+
+def _detect_csv_delimiter(path: Path) -> str:
+    try:
+        sample = path.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+    except OSError:
+        return ";"
+
+    if not sample:
+        return ";"
+
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=";,").delimiter
+    except csv.Error:
+        return ";" if sample.count(";") >= sample.count(",") else ","
+
+
+def _pick_csv_column(headers: list[str], aliases: tuple[str, ...]) -> str | None:
+    by_normalized_name = {_normalize_csv_header(header): header for header in headers}
+    for alias in aliases:
+        column = by_normalized_name.get(_normalize_csv_header(alias))
+        if column is not None:
+            return column
+    return None
+
+
 def _build_empty_timeseries_row(well_id: str, point_datetime: datetime) -> dict[str, object]:
     row: dict[str, object] = {"well_id": well_id, "date": point_datetime}
     for normalized_name in NUMERIC_COLUMNS:
@@ -216,10 +259,16 @@ def _fill_numeric_values(
     normalized_columns: list[str],
 ) -> None:
     for normalized_name in normalized_columns:
-        source_name = COLUMN_MAPPING.get(normalized_name)
-        if source_name is None:
-            continue
-        raw_value = _get_row_value(raw_row, column_indexes, source_name)
+        source_names = (
+            [COLUMN_MAPPING[normalized_name]]
+            if normalized_name in COLUMN_MAPPING
+            else [normalized_name, f"telemetry_{normalized_name}"]
+        )
+        raw_value = None
+        for source_name in source_names:
+            raw_value = _get_row_value(raw_row, column_indexes, source_name)
+            if raw_value is not None:
+                break
         row[normalized_name] = _parse_float(raw_value)
 
 
@@ -253,6 +302,7 @@ def _load_timeseries_frame() -> pl.DataFrame:
         measurements_stat = MEASUREMENTS_FILE_PATH.stat()
         power_daily_stat = POWER_DAILY_FILE_PATH.stat()
         water_cut_hal_stat = WATER_CUT_HAL_FILE_PATH.stat() if WATER_CUT_HAL_FILE_PATH.exists() else None
+        predicted_qliq_stat = PREDICTED_QLIQ_FILE_PATH.stat() if PREDICTED_QLIQ_FILE_PATH.exists() else None
         return _load_aggregated_timeseries_frame_cached(
             str(TELEMETRY_FILE_PATH),
             telemetry_stat.st_mtime_ns,
@@ -266,6 +316,9 @@ def _load_timeseries_frame() -> pl.DataFrame:
             str(WATER_CUT_HAL_FILE_PATH) if water_cut_hal_stat else "",
             water_cut_hal_stat.st_mtime_ns if water_cut_hal_stat else 0,
             water_cut_hal_stat.st_size if water_cut_hal_stat else 0,
+            str(PREDICTED_QLIQ_FILE_PATH) if predicted_qliq_stat else "",
+            predicted_qliq_stat.st_mtime_ns if predicted_qliq_stat else 0,
+            predicted_qliq_stat.st_size if predicted_qliq_stat else 0,
         )
 
     if not CSV_FILE_PATH.exists():
@@ -353,6 +406,44 @@ def _load_water_cut_hal_rows(csv_path: str) -> list[dict[str, object]]:
     return rows
 
 
+def _load_predicted_qliq_rows(csv_path: str) -> list[dict[str, object]]:
+    path = Path(csv_path)
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, object]] = []
+    skipped_rows = 0
+    with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.DictReader(csv_file, delimiter=_detect_csv_delimiter(path))
+        headers = reader.fieldnames or []
+        well_column = _pick_csv_column(headers, PREDICTED_QLIQ_WELL_COLUMNS)
+        date_column = _pick_csv_column(headers, PREDICTED_QLIQ_DATE_COLUMNS)
+        value_column = _pick_csv_column(headers, PREDICTED_QLIQ_VALUE_COLUMNS)
+        if well_column is None or date_column is None or value_column is None:
+            logger.warning("Predicted Q liquid CSV %s is missing expected columns", path)
+            return rows
+
+        for raw_row in reader:
+            well_id = _clean_cell(raw_row.get(well_column))
+            point_datetime = _parse_datetime(raw_row.get(date_column))
+            predicted_qliq = _parse_float(raw_row.get(value_column))
+            if not _is_valid_well_id(well_id) or point_datetime is None or predicted_qliq is None:
+                skipped_rows += 1
+                continue
+
+            row = _build_empty_timeseries_row(well_id, point_datetime)
+            row["predicted_qliq"] = predicted_qliq
+            rows.append(_finalize_timeseries_row(row))
+
+    logger.info(
+        "Loaded %s rows from predicted Q liquid CSV %s%s",
+        len(rows),
+        path,
+        f"; skipped {skipped_rows} rows" if skipped_rows else "",
+    )
+    return rows
+
+
 @lru_cache(maxsize=2)
 def _load_aggregated_timeseries_frame_cached(
     telemetry_path: str,
@@ -367,10 +458,16 @@ def _load_aggregated_timeseries_frame_cached(
     water_cut_hal_path: str,
     water_cut_hal_mtime_ns: int,
     water_cut_hal_size: int,
+    predicted_qliq_path: str,
+    predicted_qliq_mtime_ns: int,
+    predicted_qliq_size: int,
 ) -> pl.DataFrame:
     logger.info("Loading aggregated telemetry from %s, %s and %s", telemetry_path, measurements_path, power_daily_path)
     logger.debug(
-        "Aggregated cache keys telemetry=(%s,%s) measurements=(%s,%s) power_daily=(%s,%s) water_cut_hal=(%s,%s)",
+        (
+            "Aggregated cache keys telemetry=(%s,%s) measurements=(%s,%s) power_daily=(%s,%s) "
+            "water_cut_hal=(%s,%s) predicted_qliq=(%s,%s)"
+        ),
         telemetry_mtime_ns,
         telemetry_size,
         measurements_mtime_ns,
@@ -379,12 +476,15 @@ def _load_aggregated_timeseries_frame_cached(
         power_daily_size,
         water_cut_hal_mtime_ns,
         water_cut_hal_size,
+        predicted_qliq_mtime_ns,
+        predicted_qliq_size,
     )
     rows = [
         *_load_aggregated_source_rows(telemetry_path, TELEMETRY_COLUMNS, "telemetry"),
         *_load_aggregated_source_rows(measurements_path, MEASUREMENT_COLUMNS, "measurements"),
         *_load_aggregated_source_rows(power_daily_path, POWER_DAILY_COLUMNS, "power_daily"),
         *(_load_water_cut_hal_rows(water_cut_hal_path) if water_cut_hal_path else []),
+        *(_load_predicted_qliq_rows(predicted_qliq_path) if predicted_qliq_path else []),
     ]
     if not rows:
         logger.warning("Aggregated telemetry sources produced no valid rows")

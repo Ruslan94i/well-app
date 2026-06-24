@@ -67,7 +67,7 @@
         class="track-label-overlay"
         :style="item.style"
       >
-        {{ item.label }}
+        <span v-for="line in item.labelLines" :key="line">{{ line }}</span>
       </div>
     </div>
     <div class="pointer-events-none absolute inset-0 z-[12]">
@@ -362,6 +362,7 @@ interface AnnotationLaneAssignment {
 interface TrackLayoutRow {
   axis: 'y5' | 'y6' | 'y7' | 'y8' | 'y9'
   label: string
+  labelLines?: string[]
   labelColor: string
   domain: [number, number]
   range: [number, number]
@@ -370,6 +371,7 @@ interface TrackLayoutRow {
 interface TrackLabelOverlayItem {
   key: TrackLayoutRow['axis']
   label: string
+  labelLines: string[]
   style: Record<string, string>
 }
 
@@ -448,10 +450,14 @@ interface RangePreset {
 const TRACK_LABEL_LEFT = 22
 const TRACK_PANEL_TOP = 0.5
 const TRACK_MAIN_GAP = 0.035
+const TRACK_MAIN_GAP_MIN_PX = 68
 const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
 const CHART_MARGIN_TOP = 44
 const CHART_MARGIN_BOTTOM = 42
+const TIME_PAN_SLIDER_HEIGHT = 24
+const TIME_PAN_AXIS_LABEL_GAP_PX = 26
+const TIME_PAN_TRACK_GAP_PX = 10
 const MS_PER_DAY = 86400000
 const MIN_VISIBLE_RANGE_MS = 15 * 60 * 1000
 const X_AXIS_ZOOM_FACTOR = 0.82
@@ -588,6 +594,14 @@ const seriesConfig: Record<
     barOffsetDays: -0.44,
     markerLineColor: 'rgba(226,232,240,0.62)',
     opacity: 0.9
+  },
+  predicted_qliq: {
+    label: 'Predicted Q liquid',
+    color: '#facc15',
+    axis: 'y',
+    width: 2,
+    dash: 'dash',
+    markerSize: 3
   },
   buffer_pressure: { label: 'Давление буферное', color: '#fb7185', axis: 'y3', width: 1.35 },
   casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
@@ -1340,6 +1354,41 @@ function getSelectionShapes() {
   return shapes
 }
 
+function toCalendarDayStart(value: string): string {
+  const datePrefix = value.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePrefix)) {
+    return `${datePrefix}T00:00:00`
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}T00:00:00`
+}
+
+function buildDailyFiniteSeriesPoints(seriesX: string[], seriesY: (number | null)[]) {
+  const pointsByDay = new Map<string, { date: string; value: number }>()
+
+  seriesX.forEach((date, index) => {
+    const value = seriesY[index]
+    if (!Number.isFinite(value)) {
+      return
+    }
+
+    const day = toCalendarDayStart(date)
+    if (!pointsByDay.has(day)) {
+      pointsByDay.set(day, { date: day, value: Number(value) })
+    }
+  })
+
+  return Array.from(pointsByDay.values()).sort((left, right) => left.date.localeCompare(right.date))
+}
+
 function buildMainTraces() {
   const x = props.data.map((item) => item.date)
   const baseRange = buildStableRange(getPrimaryAxisValues())
@@ -1352,6 +1401,35 @@ function buildMainTraces() {
     const seriesY = isTrSeriesKey(seriesKey)
       ? props.trMonitoringData.map((item) => item[seriesKey])
       : props.data.map((item) => item[seriesKey])
+
+    if (seriesKey === 'water_cut_algorithm') {
+      const dailyPoints = buildDailyFiniteSeriesPoints(seriesX, seriesY)
+
+      return {
+        x: dailyPoints.map((point) => point.date),
+        y: dailyPoints.map((point) => point.value),
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: config.label,
+        yaxis: config.axis,
+        connectgaps: false,
+        line: {
+          color: config.color,
+          width: config.width ?? 2,
+          dash: config.dash ?? 'solid',
+          shape: config.shape ?? 'linear'
+        },
+        marker: {
+          color: config.color,
+          size: config.markerSize ?? 4,
+          line: {
+            color: '#0f172a',
+            width: 0.6
+          }
+        },
+        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
+      }
+    }
 
     if (config.chartType === 'bar') {
       return {
@@ -1639,6 +1717,11 @@ function buildSavedAnnotationTrace() {
   ]
 }
 
+function getCandidateAutoEpisodeTitle(interval?: EventInterval): string {
+  const version = interval?.modelVersion
+  return version ? `Авторазметка ${version}` : 'Авторазметка 10.1'
+}
+
 function buildCandidateAutoEpisodeTrace() {
   if (props.eventTracks.candidateModelEventIntervals.length === 0) {
     return []
@@ -1682,14 +1765,16 @@ function buildCandidateAutoEpisodeTrace() {
       yaxis: 'y9',
       showlegend: false,
       customdata: visibleIntervals.map((item) => ({
+        title: getCandidateAutoEpisodeTitle(item.interval),
         label: item.interval.label,
         levelLabel: getEventIntervalLevelLabel(item.interval),
         startDate: item.interval.startDate,
         endDate: item.interval.endDate,
-        confidence: item.interval.confidence ?? '—'
+        confidence: item.interval.confidence ?? item.interval.confidenceTier ?? '—',
+        explanation: item.interval.explanation ?? ''
       })),
       hovertemplate:
-        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>Авторазметка 10.1<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
+        '<b>%{customdata.levelLabel}</b>: %{customdata.label}<br>%{customdata.title}<br>%{customdata.startDate} -> %{customdata.endDate}<br>' +
         'Уверенность: %{customdata.confidence}<extra></extra>'
     }
   ]
@@ -1952,6 +2037,11 @@ function getSavedAnnotationTrackRange(): [number, number] {
   return [0, Math.max(1, props.classificationLevels.length)]
 }
 
+function getCandidateAutoTrackLabelLines(): string[] {
+  const version = props.eventTracks.candidateModelEventIntervals.find((interval) => interval.modelVersion)?.modelVersion
+  return ['Авторазметка', version ?? '10.1']
+}
+
 function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, number]; separatorYs: number[] } {
   const eventRange = getSavedAnnotationTrackRange()
 
@@ -1959,7 +2049,14 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
     { axis: 'y7' as const, label: 'ГТМ / ОПЗ / ГДИ', labelColor: '#94a3b8', heightUnits: 0.24, range: [0, 1] as [number, number] },
     { axis: 'y5' as const, label: 'ВСП', labelColor: '#94a3b8', heightUnits: 0.16, range: [0, 1] as [number, number] },
     { axis: 'y6' as const, label: 'Установленный ЭЦН', labelColor: '#94a3b8', heightUnits: 0.36, range: [0, 1] as [number, number] },
-    { axis: 'y9' as const, label: 'Авторазметка 10.1', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange },
+    {
+      axis: 'y9' as const,
+      label: getCandidateAutoTrackLabelLines().join(' '),
+      labelLines: getCandidateAutoTrackLabelLines(),
+      labelColor: '#94a3b8',
+      heightUnits: 1.75,
+      range: eventRange
+    },
     { axis: 'y8' as const, label: 'Разметка вручную', labelColor: '#94a3b8', heightUnits: 1.75, range: eventRange }
   ]
 
@@ -1988,10 +2085,12 @@ function getTrackLayoutRows(): { rows: TrackLayoutRow[]; mainDomain: [number, nu
   const separatorYs = rowsBottomToTop
     .slice(1)
     .map((row) => row.domain[1] + rowGap / 2)
+  const plotHeight = Math.max(1, chartSize.value.height - CHART_MARGIN_TOP - CHART_MARGIN_BOTTOM)
+  const mainGap = Math.max(TRACK_MAIN_GAP, TRACK_MAIN_GAP_MIN_PX / plotHeight)
 
   return {
     rows,
-    mainDomain: [TRACK_PANEL_TOP + TRACK_MAIN_GAP, 1],
+    mainDomain: [TRACK_PANEL_TOP + mainGap, 1],
     separatorYs
   }
 }
@@ -2223,6 +2322,7 @@ const trackLabelOverlayItems = computed<TrackLabelOverlayItem[]>(() => {
     return {
       key: row.axis,
       label: row.label,
+      labelLines: row.labelLines ?? [row.label],
       style: {
         left: `${TRACK_LABEL_LEFT}px`,
         top: `${centerY}px`,
@@ -2468,14 +2568,15 @@ function showSavedAnnotationTooltip(event: MouseEvent, item: SavedAnnotationOver
 function showCandidateAutoEpisodeTooltip(event: MouseEvent, item: CandidateAutoEpisodeOverlayItem) {
   showTrackHoverTooltip(event, {
     key: `candidate-auto-${item.interval.id}`,
-    title: 'Авторазметка 10.1',
+    title: getCandidateAutoEpisodeTitle(item.interval),
     lines: [
       toTrackLine('Уровень', getEventIntervalLevelLabel(item.interval)),
       toTrackLine('Категория', item.interval.label),
       toTrackLine('Начало', item.interval.startDate),
       toTrackLine('Конец', item.interval.endDate),
       toTrackLine('Длительность, сут.', calculateDurationDays(item.interval.startDate, item.interval.endDate)),
-      toTrackLine('Уверенность', item.interval.confidence ?? '—')
+      toTrackLine('Уверенность', item.interval.confidence ?? item.interval.confidenceTier ?? '—'),
+      toTrackLine('Объяснение', item.interval.explanation ?? null)
     ],
     style: item.style
   })
@@ -2497,6 +2598,13 @@ function handleCandidateAutoEpisodeOverlayClick(interval: EventInterval) {
     classificationLevelKey: candidateAutoLabelToLevelKey[label],
     classificationValue: candidateAutoLabelToLevelValue[label],
     confidence: interval.confidence ?? null,
+    confidenceTier: interval.confidenceTier ?? null,
+    explanation: interval.explanation ?? null,
+    computedAt: interval.computedAt ?? null,
+    modelVersion: interval.modelVersion ?? null,
+    signals: interval.signals ?? null,
+    sigLabel: interval.sigLabel ?? null,
+    sigMargin: interval.sigMargin ?? null,
     sourceVersion: interval.sourceVersion ?? null
   })
 }
@@ -3342,10 +3450,14 @@ const timePanSliderOverlayStyle = computed<Record<string, string>>(() => {
   const trackLayout = getTrackLayoutRows()
   const plotBounds = getPlotBounds()
   const mainBottomY = plotBounds.top + (1 - trackLayout.mainDomain[0]) * plotBounds.height
+  const trackTopY = plotBounds.top + (1 - TRACK_PANEL_TOP) * plotBounds.height
+  const preferredTop = mainBottomY + TIME_PAN_AXIS_LABEL_GAP_PX
+  const latestTop = trackTopY - TIME_PAN_SLIDER_HEIGHT - TIME_PAN_TRACK_GAP_PX
+  const top = Math.max(mainBottomY + 4, Math.min(preferredTop, latestTop))
 
   return {
     left: `${plotBounds.left}px`,
-    top: `${mainBottomY + 8}px`,
+    top: `${top}px`,
     width: `${plotBounds.width}px`
   }
 })
@@ -4333,6 +4445,8 @@ onBeforeUnmount(() => {
 
 .track-label-overlay {
   position: absolute;
+  display: grid;
+  gap: 2px;
   transform: translateY(-50%);
   white-space: nowrap;
   font-size: 10px;

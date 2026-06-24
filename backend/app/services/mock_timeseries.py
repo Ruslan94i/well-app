@@ -169,6 +169,13 @@ def generate_well_timeseries(
         + _smooth_noise(rng, total_days, scale=0.85, window=7)
     )
     qliq = np.clip(qliq, 62.0, None)
+    predicted_qliq = qliq * (1.0 + 0.012 * np.sin(timeline / 31.0)) + _smooth_noise(
+        rng,
+        total_days,
+        scale=0.7,
+        window=9,
+    )
+    predicted_qliq = np.clip(predicted_qliq, 60.0, None)
 
     water_cut = (
         23.0
@@ -256,6 +263,7 @@ def generate_well_timeseries(
         {
             "date": dates,
             "qliq": np.round(qliq, 2),
+            "predicted_qliq": np.round(predicted_qliq, 2),
             "qoil": np.round(qoil, 2),
             "qgas": np.round(qgas, 2),
             "gas_factor": np.round(gas_factor, 2),

@@ -195,7 +195,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 10.1</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">{{ selectedCandidateAutoVersionLabel }}</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -207,6 +207,12 @@
                 >
                   Уверенность: {{ selectedCandidateAutoConfidenceLabel }}
                 </div>
+              </div>
+              <div
+                v-if="selectedCandidateAutoAnnotation.explanation"
+                class="rounded-md border border-slate-700 bg-slate-950/35 px-2 py-1 text-[11px] leading-5 text-slate-300"
+              >
+                {{ selectedCandidateAutoAnnotation.explanation }}
               </div>
               <n-button
                 type="primary"
@@ -493,7 +499,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">Авторазметка 10.1</div>
+                  <div class="text-[11px] uppercase tracking-[0.16em] text-sky-300">{{ selectedCandidateAutoVersionLabel }}</div>
                   <div class="mt-1 text-sm font-semibold text-slate-100">{{ selectedCandidateAutoAnnotation.label }}</div>
                   <div class="mt-0.5 text-[11px] text-slate-400">
                     {{ selectedCandidateAutoAnnotation.startDate }} -> {{ selectedCandidateAutoAnnotation.endDate }}
@@ -505,6 +511,12 @@
                 >
                   Уверенность: {{ selectedCandidateAutoConfidenceLabel }}
                 </div>
+              </div>
+              <div
+                v-if="selectedCandidateAutoAnnotation.explanation"
+                class="rounded-md border border-slate-700 bg-slate-950/35 px-2 py-1 text-[11px] leading-5 text-slate-300"
+              >
+                {{ selectedCandidateAutoAnnotation.explanation }}
               </div>
               <n-button
                 type="primary"
@@ -1126,6 +1138,7 @@ const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownField
 
 const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Дебит жидкости', value: 'qliq' },
+  { label: 'Predicted Q liquid', value: 'predicted_qliq' },
   { label: 'Давление буферное', value: 'buffer_pressure' },
   { label: 'Давление затрубное', value: 'casing_pressure' },
   { label: 'Загрузка', value: 'load' },
@@ -1881,6 +1894,7 @@ const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(getWellFieldCo
 const dateRange = ref<[number, number] | null>(null)
 const defaultActiveSeries: SeriesKey[] = [
   'qliq',
+  'predicted_qliq',
   'load',
   'water_cut_algorithm',
   'water_cut_hal',
@@ -2266,6 +2280,10 @@ const selectedCandidateAutoConfidenceLabel = computed(() => {
     return 'средняя'
   }
   return 'низкая'
+})
+const selectedCandidateAutoVersionLabel = computed(() => {
+  const version = selectedCandidateAutoAnnotation.value?.modelVersion
+  return version ? `Авторазметка ${version}` : 'Авторазметка 10.1'
 })
 const canTransferSelectedCandidateAuto = computed(() =>
   Boolean(
@@ -4444,7 +4462,7 @@ async function transferCandidateAutoToManual(): Promise<void> {
       [levelKey]: levelValue
     },
     confidenceEvent: 'medium',
-    comment: 'Перенесено из авторазметки 9.7.2.',
+    comment: payload.modelVersion ? `Перенесено из авторазметки ${payload.modelVersion}.` : 'Перенесено из авторазметки.',
     actions: []
   }
 
