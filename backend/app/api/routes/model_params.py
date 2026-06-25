@@ -2,12 +2,19 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.model_params import ModelParamOverrides, ModelParamsState, ModelParamValue
+from app.schemas.model_params import (
+    AutomarkRecomputeRequest,
+    AutomarkRecomputeResponse,
+    ModelParamOverrides,
+    ModelParamsState,
+    ModelParamValue,
+)
 from app.services.model_params import (
     PARAMS,
     get_params,
     load_overrides,
     replace_target_overrides,
+    recompute_model_quality,
     reset_well_params,
     set_param_override,
 )
@@ -43,7 +50,7 @@ def put_model_param_override(target_id: str, param_key: str, payload: ModelParam
     try:
         overrides = set_param_override(target_id, param_key, payload.value)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Unknown model parameter: {param_key}")
+        raise HTTPException(status_code=403, detail=f"Model parameter is not user-editable: {param_key}")
     except Exception:
         logger.exception(
             "Failed to save model parameter override target_id=%s param_key=%s",
@@ -53,6 +60,20 @@ def put_model_param_override(target_id: str, param_key: str, payload: ModelParam
         raise HTTPException(status_code=500, detail="Failed to save model parameter override")
 
     return ModelParamsState(globalParams=PARAMS.copy(), overrides=overrides)
+
+
+@router.post("/automark/recompute", response_model=AutomarkRecomputeResponse)
+def post_automark_recompute(payload: AutomarkRecomputeRequest) -> AutomarkRecomputeResponse:
+    try:
+        result = recompute_model_quality(
+            scope=payload.scope.model_dump(),
+            overrides=payload.overrides,
+        )
+    except Exception:
+        logger.exception("Failed to recompute automark quality")
+        raise HTTPException(status_code=500, detail="Failed to recompute automark quality")
+
+    return AutomarkRecomputeResponse.model_validate(result)
 
 
 @router.delete("/model-params/{target_id}", response_model=ModelParamsState)

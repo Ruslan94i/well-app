@@ -690,59 +690,85 @@
 
       <section v-else-if="interactionMode === 'modelTuning'">
         <div class="panel rounded-2xl p-3">
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <h2 class="text-lg font-semibold text-slate-100">Настройка модели авторазметки</h2>
-              <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
-                Правила можно подбирать для одной скважины или группы. Центральный график использует те же параметры,
-                что выбраны в анализе и разметке.
-              </p>
-            </div>
-            <div class="grid gap-2 sm:grid-cols-3 lg:min-w-[520px]">
-              <n-button secondary @click="resetCurrentModelGroup">Сбросить</n-button>
-              <n-button secondary type="primary" @click="saveCurrentModelParams">Сохранить настройки</n-button>
-              <n-button type="primary" @click="applyCurrentModelParams">Запустить авторазметку ↗</n-button>
-            </div>
-          </div>
-
-          <div class="mt-3 grid gap-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-center">
+          <div class="rounded-xl border border-slate-700 bg-slate-900/50 p-3">
             <div class="flex flex-wrap items-center gap-2">
-              <div class="mr-2 text-sm text-slate-300">Группа:</div>
-            <button
-              v-for="group in modelFieldGroups"
-              :key="group.value"
-                class="relative rounded-lg border px-3 py-1.5 text-sm font-medium transition"
-              :class="
-                modelSelectedGroupId === group.value
-                  ? 'border-sky-400 bg-slate-700 text-slate-100'
-                  : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'
-              "
-              @click="modelSelectedGroupId = group.value"
+              <div class="mr-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Область модели</div>
+              <button
+                v-for="scope in modelScopeOptions"
+                :key="scope.value"
+                class="rounded-lg border px-3 py-1.5 text-sm font-medium transition"
+                :class="modelRunScope === scope.value ? 'border-sky-400 bg-slate-700 text-slate-100' : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'"
+                @click="modelRunScope = scope.value"
               >
-                {{ group.label }}
-                <span
-                  v-if="hasModelGroupOverrides(group.value)"
-                  class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-orange-400 shadow shadow-orange-950"
-                />
+                {{ scope.label }}
               </button>
             </div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <button
-                class="rounded-lg border px-3 py-2 text-left text-sm transition"
-                :class="modelRunScope === 'well' ? 'border-sky-400 bg-slate-700 text-slate-100' : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'"
-                @click="modelRunScope = 'well'"
-              >
-                <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Одна скважина</div>
-                <div class="mt-1 font-semibold">{{ selectedWell }}</div>
-              </button>
-              <button
-                class="rounded-lg border px-3 py-2 text-left text-sm transition"
-                :class="modelRunScope === 'group' ? 'border-sky-400 bg-slate-700 text-slate-100' : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:bg-slate-800'"
-                @click="modelRunScope = 'group'"
-              >
-                <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Группа скважин</div>
-                <div class="mt-1 font-semibold">{{ getModelGroupLabel(modelSelectedGroupId) }}</div>
-              </button>
+
+            <div class="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+              <div v-if="modelRunScope === 'well'" class="text-sm text-slate-200">
+                Скважина <span class="font-semibold text-slate-100">{{ selectedWell }}</span>
+                · месторождение <span class="font-semibold text-slate-100">{{ getWellFieldCodeFromId(selectedWell) }}</span>
+              </div>
+              <div v-else-if="modelRunScope === 'field'" class="grid gap-2 md:grid-cols-[280px_minmax(0,1fr)] md:items-center">
+                <n-select v-model:value="modelSelectedFieldId" :options="modelFieldOptions" />
+                <div class="text-sm text-slate-300">
+                  Месторождение <span class="font-semibold text-slate-100">{{ modelSelectedFieldId }}</span>
+                  · {{ modelSelectedFieldWellCount }} скважин
+                </div>
+              </div>
+              <div v-else class="space-y-3">
+                <div class="grid gap-2 lg:grid-cols-[280px_auto_minmax(0,1fr)] lg:items-center">
+                  <n-input v-model:value="modelSetName" placeholder="Название групповой модели" />
+                  <n-popover
+                    v-model:show="modelWellPickerVisible"
+                    trigger="click"
+                    placement="bottom-start"
+                    :show-arrow="false"
+                    :width="360"
+                  >
+                    <template #trigger>
+                      <n-button secondary>Выбрать скважины ({{ modelSetWellIds.length }})</n-button>
+                    </template>
+                    <div class="w-[340px] space-y-2">
+                      <n-input v-model:value="modelWellSearch" placeholder="Поиск скважины" clearable size="small" />
+                      <div class="max-h-[240px] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950/80 p-2">
+                        <div v-if="modelGroupedWellOptions.length" class="space-y-3">
+                          <div v-for="group in modelGroupedWellOptions" :key="group.field">
+                            <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              {{ group.field }} · {{ group.wells.length }}
+                            </div>
+                            <div class="grid gap-1">
+                              <label
+                                v-for="well in group.wells"
+                                :key="well.value"
+                                class="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                              >
+                                <n-checkbox
+                                  :checked="modelSetWellIds.includes(String(well.value))"
+                                  @update:checked="toggleWellInModelSet(String(well.value), Boolean($event))"
+                                />
+                                <span>{{ well.label }}</span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                        <div v-else class="px-2 py-3 text-xs text-slate-500">Скважины не найдены</div>
+                      </div>
+                    </div>
+                  </n-popover>
+                  <div class="text-sm text-slate-300">{{ modelSetScopeCaption }}</div>
+                </div>
+                <div v-if="modelSetWellIds.length" class="flex flex-wrap gap-1.5">
+                  <button
+                    v-for="wellId in modelSetWellIds"
+                    :key="wellId"
+                    class="rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:border-rose-400"
+                    @click="removeWellFromModelSet(wellId)"
+                  >
+                    {{ wellId }} ×
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -755,7 +781,7 @@
                   :key="category.key"
                   class="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition"
                   :class="
-                    modelSelectedCategoryKey === category.key && modelPanelTab === 'rules'
+                    modelSelectedCategoryKey === category.key
                       ? 'border-sky-400 bg-slate-700/80 text-slate-100'
                       : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800'
                   "
@@ -781,12 +807,12 @@
                     <div class="shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-right">
                       <div class="text-[10px] uppercase tracking-[0.16em] text-slate-400">Совпадение</div>
                       <div class="mt-1 text-xs font-semibold text-slate-100">
-                      {{ modelQualityBeforePct }}% → {{ modelQualityAfterPct }}%
+                      {{ displayedModelQualityBeforePct }}% → {{ displayedModelQualityAfterPct }}%
                       </div>
                     </div>
                   </div>
 
-                  <pre class="mt-3 max-h-24 overflow-auto rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-[11px] leading-5 text-slate-300">{{ activeModelRuleCategory.pseudocode }}</pre>
+                  <pre class="mt-3 max-h-24 overflow-auto rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-[11px] leading-5 text-slate-300">{{ activeModelRulePseudocode }}</pre>
                 </div>
 
                 <div class="max-h-[420px] overflow-y-auto px-3 py-2">
@@ -811,6 +837,7 @@
                         </div>
                       </div>
                       <div class="shrink-0 text-right">
+                        <div class="text-[10px] uppercase tracking-[0.14em] text-slate-500">После</div>
                         <div class="text-xs font-semibold text-slate-100">
                           {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
                         </div>
@@ -823,13 +850,16 @@
                         </button>
                       </div>
                     </div>
-                    <n-slider
+                    <input
+                      class="model-param-range"
+                      type="range"
                       :value="getModelParamValue(parameter.key)"
                       :min="parameter.min"
                       :max="parameter.max"
                       :step="parameter.step"
-                      @update:value="setModelParamValue(parameter.key, Number($event))"
-                    />
+                      @input="handleModelParamRangeInput(parameter.key, $event)"
+                    >
+                    <div v-if="parameter.hint" class="truncate text-[11px] leading-4 text-slate-400">{{ parameter.hint }}</div>
                   </div>
                 </div>
               </div>
@@ -869,16 +899,16 @@
             <aside class="space-y-3 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
               <div>
                 <h3 class="text-base font-semibold text-slate-100">Результаты адаптации</h3>
-                <p class="mt-1 text-xs leading-5 text-slate-400">Оценка качества до сохранения и после применения правил.</p>
+                <p class="mt-1 text-xs leading-5 text-slate-400">Оценка обновляется только после пересчёта текущей области.</p>
               </div>
               <div class="grid gap-2">
                 <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
                   <div class="text-xs uppercase tracking-[0.16em] text-slate-400">До изменений</div>
-                  <div class="mt-1 text-2xl font-semibold text-slate-100">{{ modelQualityBeforePct }}%</div>
+                  <div class="mt-1 text-2xl font-semibold text-slate-100">{{ displayedModelQualityBeforePct }}%</div>
                 </div>
                 <div class="rounded-lg border border-sky-500/40 bg-sky-950/30 px-3 py-2">
                   <div class="text-xs uppercase tracking-[0.16em] text-slate-400">После изменений</div>
-                  <div class="mt-1 text-2xl font-semibold text-sky-100">{{ modelQualityAfterPct }}%</div>
+                  <div class="mt-1 text-2xl font-semibold text-sky-100">{{ displayedModelQualityAfterPct }}%</div>
                 </div>
                 <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
                   <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Область применения</div>
@@ -893,7 +923,7 @@
                 <div class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Качество по группам</div>
                 <div class="space-y-2">
                   <div
-                    v-for="row in compactModelQualityRows"
+                    v-for="row in displayedModelQualityRows"
                     :key="row.field"
                     class="rounded-lg bg-slate-900/70 px-2.5 py-2"
                   >
@@ -914,9 +944,32 @@
               </div>
 
               <div class="grid gap-2">
-                <n-button secondary @click="showModelChanges">Что изменилось ↗</n-button>
-                <n-button secondary type="primary" @click="saveCurrentModelParams">Сохранить настройки</n-button>
-                <n-button type="primary" @click="applyCurrentModelParams">Применить и пересчитать ↗</n-button>
+                <div>
+                  <n-button class="w-full" type="primary" :loading="modelQualityLoading" @click="applyCurrentModelParams">
+                    Пересчитать качество
+                  </n-button>
+                  <div class="mt-1 text-xs text-slate-500">прогнать модель и сравнить с ручной разметкой</div>
+                </div>
+                <div>
+                  <n-button class="w-full" secondary type="primary" :disabled="!modelQualitySnapshot" @click="saveAndExportModelOverrides">
+                    Сохранить и выгрузить
+                  </n-button>
+                  <div class="mt-1 text-xs text-slate-500">сохранить параметры и выгрузить JSON для классификатора</div>
+                </div>
+                <div>
+                  <n-button class="w-full" text @click="resetCurrentModelGroup">Сбросить</n-button>
+                  <div class="mt-1 text-xs text-slate-500">вернуть значения по умолчанию</div>
+                </div>
+                <details class="rounded-lg border border-slate-700 bg-slate-950/50 px-3 py-2">
+                  <summary class="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Что изменилось</summary>
+                  <div v-if="modelChangedRows.length" class="mt-2 space-y-2">
+                    <div v-for="row in modelChangedRows" :key="row.key" class="text-xs leading-5 text-slate-300">
+                      <span class="font-semibold text-slate-100">{{ row.label }}:</span>
+                      {{ row.defaultValue }} → {{ row.currentValue }}
+                    </div>
+                  </div>
+                  <div v-else class="mt-2 text-xs text-slate-500">Изменений относительно наследуемых значений нет.</div>
+                </details>
               </div>
             </aside>
           </div>
@@ -1056,6 +1109,7 @@ import {
   fetchWellContext,
   fetchWellIds,
   fetchWellTimeseries,
+  recomputeAutomarkQuality,
   resetModelParamsForTarget,
   saveModelParamsForTarget,
   saveMarkup
@@ -1364,35 +1418,15 @@ const modelFeatureGroups = [
   }
 ] as const
 
-interface ModelParams {
-  nur_gate_stop_h: number
-  nur_min_drop_bar: number
-  nur_max_d: number
-  nur_max_gap_to_post: number
-  uvch_stop_suppress_d: number
-  uvch_rise_hz: number
-  rptch_interday_std: number
-  rptch_osc_hz: number
-  rptch_density: number
-  snizh_seg_win_d: number
-  snizh_seg_drop_bar: number
-  snizh_win_d: number
-  snizh_win_drop: number
-  stop_freq_hz: number
-  stop_min_dur_min: number
-  long_stop_h: number
-  per_window_d: number
-  per_start_n: number
-  per_keep_n: number
-}
-
-type ModelParamKey = keyof ModelParams
+type ModelParams = Record<string, number>
+type ModelParamKey = string
 type ModelPanelTab = 'rules' | 'quality'
-type ModelRunScope = 'well' | 'group'
+type ModelRunScope = 'well' | 'field' | 'set'
 
 interface ModelParamDefinition {
   key: ModelParamKey
   label: string
+  hint?: string
   min: number
   max: number
   step: number
@@ -1416,6 +1450,12 @@ interface ModelQualityRow {
   rows: string
   pct: number
   note: string
+}
+
+interface ModelQualitySnapshot {
+  before: number
+  after: number
+  rows: ModelQualityRow[]
 }
 
 type PeriodSummaryPreset = 'week' | 'month' | 'year' | 'custom'
@@ -1464,115 +1504,179 @@ interface AnalysisDrillDown {
 
 const MODEL_PARAMS_STORAGE_PREFIX = 'model-params-'
 
-const DEFAULT_MODEL_PARAMS: ModelParams = {
-  nur_gate_stop_h: 12,
-  nur_min_drop_bar: 2,
-  nur_max_d: 30,
-  nur_max_gap_to_post: 30,
-  uvch_stop_suppress_d: 2,
-  uvch_rise_hz: 0.3,
-  rptch_interday_std: 1.0,
-  rptch_osc_hz: 1.5,
-  rptch_density: 0.2,
-  snizh_seg_win_d: 45,
-  snizh_seg_drop_bar: 4,
-  snizh_win_d: 14,
-  snizh_win_drop: 3,
-  stop_freq_hz: 5,
-  stop_min_dur_min: 30,
-  long_stop_h: 12,
-  per_window_d: 14,
-  per_start_n: 8,
-  per_keep_n: 3
-}
-
-const modelFieldGroups: { label: string; value: string }[] = [
-  { label: 'Все скважины', value: 'all' },
-  { label: 'Ic', value: 'Ic' },
-  { label: 'Vt', value: 'Vt' },
-  { label: 'Ya', value: 'Ya' },
-  { label: 'Au', value: 'Au' },
-  { label: 'Mc', value: 'Mc' },
-  { label: 'Az', value: 'Az' }
-]
-
-const modelParamDefinitions: ModelParamDefinition[] = [
-  { key: 'nur_gate_stop_h', label: 'Остановка перед НУР', min: 0.5, max: 24, step: 0.5, unit: 'ч', defaultValue: 12, important: true },
-  { key: 'nur_min_drop_bar', label: 'Мин. падение давления для НУР', min: 0.5, max: 10, step: 0.5, unit: 'бар', defaultValue: 2 },
-  { key: 'nur_max_d', label: 'Макс. длительность НУР', min: 5, max: 60, step: 1, unit: 'сут', defaultValue: 30 },
-  { key: 'nur_max_gap_to_post', label: 'Макс. зазор до пост-режима', min: 5, max: 60, step: 1, unit: 'сут', defaultValue: 30 },
-  { key: 'uvch_stop_suppress_d', label: 'Подавление УВЧ после остановки', min: 0, max: 7, step: 1, unit: 'сут', defaultValue: 2, important: true },
-  { key: 'uvch_rise_hz', label: 'Рост частоты для УВЧ', min: 0.1, max: 2, step: 0.1, unit: 'Гц', defaultValue: 0.3 },
-  { key: 'rptch_interday_std', label: 'Межсуточный std частоты', min: 0.3, max: 3, step: 0.1, unit: 'Гц', defaultValue: 1, important: true },
-  { key: 'rptch_osc_hz', label: 'Амплитуда осцилляций РПТЧ', min: 0.5, max: 5, step: 0.5, unit: 'Гц', defaultValue: 1.5 },
-  { key: 'rptch_density', label: 'Плотность РПТЧ', min: 0.05, max: 0.5, step: 0.05, unit: '', defaultValue: 0.2 },
-  { key: 'snizh_seg_win_d', label: 'Окно сегмента снижения', min: 20, max: 90, step: 5, unit: 'сут', defaultValue: 45, important: true },
-  { key: 'snizh_seg_drop_bar', label: 'Падение сегмента', min: 1, max: 15, step: 0.5, unit: 'бар', defaultValue: 4 },
-  { key: 'snizh_win_d', label: 'Окно локального снижения', min: 7, max: 30, step: 1, unit: 'сут', defaultValue: 14 },
-  { key: 'snizh_win_drop', label: 'Падение локального окна', min: 1, max: 10, step: 0.5, unit: 'бар', defaultValue: 3 },
-  { key: 'stop_freq_hz', label: 'Порог остановки по частоте', min: 0.5, max: 15, step: 0.5, unit: 'Гц', defaultValue: 5 },
-  { key: 'stop_min_dur_min', label: 'Минимальная длительность остановки', min: 5, max: 120, step: 5, unit: 'мин', defaultValue: 30 },
-  { key: 'long_stop_h', label: 'Длинная остановка', min: 2, max: 48, step: 1, unit: 'ч', defaultValue: 12 },
-  { key: 'per_window_d', label: 'Окно периодической работы', min: 7, max: 30, step: 1, unit: 'сут', defaultValue: 14 },
-  { key: 'per_start_n', label: 'Порог старта периодики', min: 3, max: 15, step: 1, unit: '', defaultValue: 8 },
-  { key: 'per_keep_n', label: 'Порог удержания периодики', min: 1, max: 8, step: 1, unit: '', defaultValue: 3 }
-]
-
-const modelParamDefinitionByKey = Object.fromEntries(modelParamDefinitions.map((item) => [item.key, item])) as Record<
-  ModelParamKey,
-  ModelParamDefinition
->
-
-const modelRuleCategories: ModelRuleCategory[] = [
+const MODEL_RULE_SCHEMA: Array<Omit<ModelRuleCategory, 'paramKeys'> & { params: ModelParamDefinition[] }> = [
   {
     key: 'stop',
     label: 'Работа / Остановка',
     color: '#E24B4A',
     description: 'Базовое разделение временного ряда на работу и остановку по частоте ЭЦН.',
-    pseudocode: 'Остановка = freq_hz < stop_freq_hz\nесли длительность >= stop_min_dur_min\nlong_stop = duration_h >= long_stop_h',
-    paramKeys: ['stop_freq_hz', 'stop_min_dur_min', 'long_stop_h']
+    pseudocode: 'Остановка = freq_hz < stop_freq_hz\nкороткие провалы фильтруются внутренним правилом\nlong_stop = duration_h >= long_stop_h',
+    params: [
+      { key: 'stop_freq_hz', label: 'Порог остановки по частоте', hint: 'Ниже этого значения скважина считается остановленной.', min: 0.5, max: 15, step: 0.5, unit: 'Гц', defaultValue: 5 },
+      { key: 'long_stop_h', label: 'Длинная остановка', hint: 'Порог для отдельной логики длинных остановок.', min: 2, max: 48, step: 1, unit: 'ч', defaultValue: 12 }
+    ]
   },
   {
-    key: 'uvch',
-    label: 'УВЧ',
+    key: 'gdi',
+    label: 'ГДИ',
+    color: '#A6A1F0',
+    description: 'Остановка с ростом давления, похожая на исследование или восстановление давления.',
+    pseudocode: 'если остановка длится >= gdi_min_stop_h\nи суммарный рост давления >= gdi_total_rise_bar → ГДИ',
+    params: [
+      { key: 'gdi_min_stop_h', label: 'Мин. длительность остановки', hint: 'Короткие остановки не считаются ГДИ.', min: 12, max: 96, step: 1, unit: 'ч', defaultValue: 48 },
+      { key: 'gdi_total_rise_bar', label: 'Рост давления за остановку', hint: 'Минимальный суммарный рост давления для ГДИ.', min: 2, max: 20, step: 0.5, unit: 'бар', defaultValue: 5 }
+    ]
+  },
+  {
+    key: 'frequency',
+    label: 'Изменение частоты',
     color: '#7F77DD',
-    description: 'Фиксация устойчивого повышения частоты без признаков РПТЧ.',
-    pseudocode: 'УВЧ = рост частоты >= uvch_rise_hz\nостановки подавляют УВЧ на uvch_stop_suppress_d сут',
-    paramKeys: ['uvch_stop_suppress_d', 'uvch_rise_hz']
+    description: 'УВЧ и УМЧ выделяются по устойчивым изменениям частоты без признаков РПТЧ.',
+    pseudocode: 'если изменение частоты >= uvch_rise_hz\nи новая частота удерживается >= uvch_hold_d → УВЧ/УМЧ',
+    params: [
+      { key: 'uvch_rise_hz', label: 'Минимальное изменение частоты', hint: 'Порог изменения частоты для УВЧ или УМЧ.', min: 0.3, max: 3, step: 0.1, unit: 'Гц', defaultValue: 0.9, important: true },
+      { key: 'uvch_hold_d', label: 'Удержание изменения частоты', hint: 'Сколько суток частота должна удерживаться после изменения.', min: 2, max: 14, step: 1, unit: 'сут', defaultValue: 5 }
+    ]
   },
   {
     key: 'rptch',
     label: 'РПТЧ',
     color: '#D85A30',
     description: 'Выделение частотного регулирования по плотности и вариативности изменения частоты.',
-    pseudocode: 'rptch_raw = std(freq_hz) >= rptch_interday_std\nили oscillation >= rptch_osc_hz\nесли плотность >= rptch_density',
-    paramKeys: ['rptch_interday_std', 'rptch_osc_hz', 'rptch_density']
+    pseudocode: 'если доля округлённых частот >= rptch_round_frac → РПТЧ',
+    params: [
+      { key: 'rptch_round_frac', label: 'Доля округлённых частот', hint: 'Плотность округлённых значений частоты в сегменте.', min: 0.3, max: 0.9, step: 0.05, unit: 'доля', defaultValue: 0.6, important: true }
+    ]
+  },
+  {
+    key: 'periodic',
+    label: 'Периодическая работа',
+    color: '#378ADD',
+    description: 'Повторяющиеся остановки и пуски в заданном окне.',
+    pseudocode: 'в фиксированном окне периодики\nстарт если остановок >= per_start_n',
+    params: [
+      { key: 'per_start_n', label: 'Порог старта периодики', hint: 'Минимальное число остановок в окне.', min: 4, max: 20, step: 1, unit: '', defaultValue: 8 }
+    ]
   },
   {
     key: 'nur',
     label: 'НУР',
     color: '#639922',
     description: 'Нестабильный установившийся режим по вариативности скорости давления.',
-    pseudocode: 'НУР после остановки >= nur_gate_stop_h\nи падение Рпр >= nur_min_drop_bar\nдлительность <= nur_max_d',
-    paramKeys: ['nur_gate_stop_h', 'nur_min_drop_bar', 'nur_max_d', 'nur_max_gap_to_post']
+    pseudocode: 'если падение давления >= nur_min_drop_bar\nи форма перехода похожа на НУР → НУР',
+    params: [
+      { key: 'nur_min_drop_bar', label: 'Минимальное падение давления', hint: 'Нижний порог просадки давления для НУР.', min: 1, max: 6, step: 0.5, unit: 'бар', defaultValue: 2, important: true }
+    ]
   },
   {
-    key: 'periodic',
-    label: 'Периодическая работа',
-    color: '#378ADD',
-    description: 'Повторяющиеся остановки и пуски в заданном диапазоне периодов.',
-    pseudocode: 'в окне per_window_d\nstart если остановок >= per_start_n\nkeep если остановок >= per_keep_n',
-    paramKeys: ['per_window_d', 'per_start_n', 'per_keep_n']
-  },
-  {
-    key: 'snizh',
-    label: 'Снижение давления',
+    key: 'pressure_decline',
+    label: 'Снижение Рпл',
     color: '#185FA5',
-    description: 'Снижение давления на сегментном и локальном окнах.',
-    pseudocode: 'сегмент: окно snizh_seg_win_d, падение snizh_seg_drop_bar\nлокально: окно snizh_win_d, падение snizh_win_drop',
-    paramKeys: ['snizh_seg_win_d', 'snizh_seg_drop_bar', 'snizh_win_d', 'snizh_win_drop']
+    description: 'Снижение пластового давления с защитой от частотного управления.',
+    pseudocode: 'если падение Рпл >= snizh_win_drop → Снижение Рпл',
+    params: [
+      { key: 'snizh_win_drop', label: 'Падение Рпл', hint: 'Минимальное падение давления для классификации снижения.', min: 1, max: 10, step: 0.5, unit: 'бар', defaultValue: 3 }
+    ]
+  },
+  {
+    key: 'pressure_growth',
+    label: 'Рост Рпл',
+    color: '#84CC16',
+    description: 'Рост пластового давления после изменения режима или восстановления.',
+    pseudocode: 'если рост Рпл >= rost_rise_bar → Рост Рпл',
+    params: [
+      { key: 'rost_rise_bar', label: 'Рост Рпл', hint: 'Минимальный рост давления для категории роста.', min: 2, max: 15, step: 0.5, unit: 'бар', defaultValue: 5 }
+    ]
+  },
+  {
+    key: 'kprod',
+    label: 'Снижение / Рост Кпрод',
+    color: '#F59E9E',
+    description: 'Изменение продуктивности по расчётному Кпрод и техрежиму.',
+    pseudocode: 'снижение если drop >= kprod_pulse_drop\nдля циклов используется kprod_pulse_drop_cyclic',
+    params: [
+      { key: 'kprod_pulse_drop', label: 'Падение Кпрод', hint: 'Минимальная относительная просадка Кпрод.', min: 0.03, max: 0.15, step: 0.005, unit: 'доля', defaultValue: 0.06 },
+      { key: 'kprod_pulse_drop_cyclic', label: 'Падение Кпрод в циклах', hint: 'Более мягкий порог для циклических режимов.', min: 0.02, max: 0.12, step: 0.005, unit: 'доля', defaultValue: 0.045 }
+    ]
+  },
+  {
+    key: 'complicated',
+    label: 'Осложнённый фонд',
+    color: '#C85B89',
+    description: 'Признаки повторяющихся осложнений и вмешательств.',
+    pseudocode: 'если ОПЗ >= cf_min_opz в фиксированном окне → Осложнённый фонд',
+    params: [
+      { key: 'cf_min_opz', label: 'Минимум ОПЗ', hint: 'Число ОПЗ для признака осложнённого фонда.', min: 2, max: 6, step: 1, unit: '', defaultValue: 3 }
+    ]
+  },
+  {
+    key: 'degradation',
+    label: 'Деградация ЭЦН',
+    color: '#9CA3AF',
+    description: 'Деградация установки по нагрузке, частоте и длительности прогона.',
+    pseudocode: 'если рост загрузки >= degr_load_pct\nи режим соответствует деградации → Деградация ЭЦН',
+    params: [
+      { key: 'degr_load_pct', label: 'Рост загрузки', hint: 'Относительный рост загрузки для деградации.', min: 0.01, max: 0.1, step: 0.005, unit: 'доля', defaultValue: 0.03 }
+    ]
+  },
+  {
+    key: 'deoptimization',
+    label: 'Деоптимизация',
+    color: '#F8FAFC',
+    description: 'Ограничение режима работы при стабильном или ухудшающемся дебите.',
+    pseudocode: 'если изменение Рзаб >= deopt_pzab_pct\nи режим похож на ограничение → Деоптимизация',
+    params: [
+      { key: 'deopt_pzab_pct', label: 'Изменение Рзаб', hint: 'Относительный порог изменения забойного давления.', min: 0.01, max: 0.1, step: 0.005, unit: 'доля', defaultValue: 0.03 }
+    ]
+  },
+  {
+    key: 'wct',
+    label: 'Обводнённость',
+    color: '#72D6F7',
+    description: 'Рост или снижение обводнённости по алгоритму и лабораторным точкам.',
+    pseudocode: 'trend_pp >= wct_trend_pp\nлокальное окно wct_local_win',
+    params: [
+      { key: 'wct_trend_pp', label: 'Порог тренда обводнённости', hint: 'Минимальное изменение в процентных пунктах.', min: 1, max: 10, step: 0.5, unit: 'п.п.', defaultValue: 3 },
+      { key: 'wct_local_win', label: 'Локальное окно', hint: 'Окно локальной оценки тренда.', min: 3, max: 14, step: 1, unit: 'сут', defaultValue: 5 }
+    ]
+  },
+  {
+    key: 'gas',
+    label: 'Газовый фактор',
+    color: '#F59E0B',
+    description: 'ВГФ и тренды газового фактора.',
+    pseudocode: 'ВГФ если ГЖФ >= vgf_glf_thr\nтренд ГФ по gf_trend_frac',
+    params: [
+      { key: 'vgf_glf_thr', label: 'Порог ВГФ по ГЖФ', hint: 'Граница высокого газожидкостного фактора.', min: 40, max: 120, step: 5, unit: '', defaultValue: 70 },
+      { key: 'gf_trend_frac', label: 'Порог тренда ГФ', hint: 'Относительное изменение газового фактора.', min: 0.2, max: 0.8, step: 0.05, unit: 'доля', defaultValue: 0.4 }
+    ]
+  },
+  {
+    key: 'sppv',
+    label: 'СППВ / Подача воды',
+    color: '#8B5CF6',
+    description: 'СППВ и увеличение подачи воды по БДПВ.',
+    pseudocode: 'увеличение подачи воды если рост БДПВ >= water_supply_up_frac',
+    params: [
+      { key: 'water_supply_up_frac', label: 'Рост подачи воды', hint: 'Относительный рост БДПВ за сутки.', min: 0.1, max: 0.5, step: 0.05, unit: 'доля', defaultValue: 0.2 }
+    ]
   }
 ]
+
+const modelParamDefinitions: ModelParamDefinition[] = MODEL_RULE_SCHEMA.flatMap((category) => category.params)
+const DEFAULT_MODEL_PARAMS: ModelParams = Object.fromEntries(
+  modelParamDefinitions.map((parameter) => [parameter.key, parameter.defaultValue])
+)
+
+const modelParamDefinitionByKey = Object.fromEntries(modelParamDefinitions.map((item) => [item.key, item])) as Record<
+  ModelParamKey,
+  ModelParamDefinition
+>
+
+const modelRuleCategories: ModelRuleCategory[] = MODEL_RULE_SCHEMA.map((category) => ({
+  ...category,
+  paramKeys: category.params.map((parameter) => parameter.key)
+}))
 
 const modelQualityRows: ModelQualityRow[] = [
   { field: 'Ic', wells: 8, rows: '29.8K', pct: 51, note: 'иерархическая разметка' },
@@ -1748,11 +1852,19 @@ async function loadModelParamsFromBackend(): Promise<void> {
 }
 
 function getCurrentModelTargetId(): string {
-  return modelRunScope.value === 'well' ? selectedWell.value : modelSelectedGroupId.value
+  if (modelRunScope.value === 'well') {
+    return selectedWell.value
+  }
+
+  if (modelRunScope.value === 'field') {
+    return modelSelectedFieldId.value
+  }
+
+  return `set_${slugifyModelSetName(modelSetName.value)}`
 }
 
 function getModelTargetFieldId(targetId: string): string | null {
-  if (!targetId || targetId === 'all') {
+  if (!targetId || targetId === 'all' || targetId.startsWith('set_')) {
     return null
   }
 
@@ -1768,14 +1880,14 @@ function getInheritedModelParams(targetId: string): ModelParams {
     ...DEFAULT_MODEL_PARAMS,
     ...allOverrides,
     ...fieldOverrides
-  }
+  } as ModelParams
 }
 
 function getResolvedModelParams(targetId: string): ModelParams {
   return {
     ...getInheritedModelParams(targetId),
     ...(modelParamsByGroup.value[targetId] ?? {})
-  }
+  } as ModelParams
 }
 
 function getCurrentModelOverrides(): Partial<ModelParams> {
@@ -1783,7 +1895,7 @@ function getCurrentModelOverrides(): Partial<ModelParams> {
 }
 
 function getModelParamValue(key: ModelParamKey): number {
-  return currentModelParams.value[key]
+  return currentModelParams.value[key] ?? modelParamDefinitionByKey[key]?.defaultValue ?? 0
 }
 
 function hasModelParamOverride(key: ModelParamKey): boolean {
@@ -1791,16 +1903,19 @@ function hasModelParamOverride(key: ModelParamKey): boolean {
 }
 
 function getModelParamInheritedValue(key: ModelParamKey): number {
-  return getInheritedModelParams(getCurrentModelTargetId())[key]
+  return getInheritedModelParams(getCurrentModelTargetId())[key] ?? modelParamDefinitionByKey[key]?.defaultValue ?? 0
 }
 
 function setModelParamValue(key: ModelParamKey, value: number): void {
   const definition = modelParamDefinitionByKey[key]
+  if (!definition) {
+    return
+  }
   const roundedValue = Number(value.toFixed(definition.step < 1 ? 2 : 0))
   const nextValue = Math.min(definition.max, Math.max(definition.min, roundedValue))
   const targetId = getCurrentModelTargetId()
   const currentOverrides = modelParamsByGroup.value[targetId] ?? {}
-  const inheritedValue = getInheritedModelParams(targetId)[key]
+  const inheritedValue = getInheritedModelParams(targetId)[key] ?? definition.defaultValue
   const nextOverrides = { ...currentOverrides }
 
   if (nextValue === inheritedValue) {
@@ -1813,6 +1928,16 @@ function setModelParamValue(key: ModelParamKey, value: number): void {
     ...modelParamsByGroup.value,
     [targetId]: nextOverrides
   }
+  modelQualitySnapshot.value = null
+}
+
+function handleModelParamRangeInput(key: ModelParamKey, event: Event): void {
+  const target = event.target as HTMLInputElement | null
+  if (!target) {
+    return
+  }
+
+  setModelParamValue(key, Number(target.value))
 }
 
 function resetModelParamValue(key: ModelParamKey): void {
@@ -1823,15 +1948,24 @@ function resetModelParamValue(key: ModelParamKey): void {
     ...modelParamsByGroup.value,
     [targetId]: nextOverrides
   }
+  modelQualitySnapshot.value = null
 }
 
 function formatModelParamValue(parameter: ModelParamDefinition, value: number): string {
-  const formattedValue = parameter.step < 1 ? value.toFixed(1) : String(value)
+  const formattedValue = parameter.step < 0.01 ? value.toFixed(3) : parameter.step < 1 ? value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : String(value)
   return parameter.unit ? `${formattedValue} ${parameter.unit}` : formattedValue
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function getModelGroupLabel(groupId: string): string {
-  return modelFieldGroups.find((group) => group.value === groupId)?.label ?? groupId
+  if (groupId === 'all') {
+    return 'Все скважины'
+  }
+
+  return String(modelFieldOptions.value.find((group) => group.value === groupId)?.label ?? groupId)
 }
 
 function hasModelGroupOverrides(groupId: string): boolean {
@@ -1846,6 +1980,25 @@ function hasModelCategoryOverrides(category: ModelRuleCategory): boolean {
 function selectModelRuleCategory(categoryKey: string): void {
   modelSelectedCategoryKey.value = categoryKey
   modelPanelTab.value = 'rules'
+}
+
+function slugifyModelSetName(value: string): string {
+  const slug = value.trim().toLowerCase().replace(/[^a-zа-яё0-9]+/giu, '_').replace(/^_+|_+$/g, '')
+  return slug || 'custom'
+}
+
+function toggleWellInModelSet(wellId: string, checked: boolean): void {
+  const next = new Set(modelSetWellIds.value)
+  if (checked) {
+    next.add(wellId)
+  } else {
+    next.delete(wellId)
+  }
+  modelSetWellIds.value = Array.from(next).sort((left, right) => left.localeCompare(right, 'ru'))
+}
+
+function removeWellFromModelSet(wellId: string): void {
+  modelSetWellIds.value = modelSetWellIds.value.filter((item) => item !== wellId)
 }
 
 function showModelChanges(): void {
@@ -1915,9 +2068,14 @@ const visibleDateRange = ref<VisibleDateRange | null>(null)
 const interactionMode = ref<InteractionMode>(persistedUiState.interactionMode ?? 'navigate')
 const episodeForm = ref<EpisodeFormState>(createDefaultEpisodeForm())
 const modelSelectedGroupId = ref<string>(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE))
+const modelSelectedFieldId = ref<string>(getWellFieldCodeFromId(selectedWell.value || DEFAULT_FIELD_CODE))
 const modelSelectedCategoryKey = ref('stop')
 const modelPanelTab = ref<ModelPanelTab>('rules')
 const modelRunScope = ref<ModelRunScope>('well')
+const modelSetName = ref('Групповая модель')
+const modelSetWellIds = ref<string[]>([])
+const modelWellPickerVisible = ref(false)
+const modelWellSearch = ref('')
 const copySettingsFromGroupId = ref<WellGroupId | null>(null)
 const selectedModelFeatures = ref<string[]>([
   'base_qliq',
@@ -1936,6 +2094,8 @@ const selectedModelFeatures = ref<string[]>([
 ])
 const modelParamsByGroup = ref<Record<string, Partial<ModelParams>>>({})
 const modelQualityByGroup = ref<Record<string, number>>({})
+const modelQualitySnapshot = ref<ModelQualitySnapshot | null>(null)
+const modelQualityLoading = ref(false)
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
 const savedAnnotations = ref<SavedAnnotation[]>([])
@@ -2062,6 +2222,43 @@ const filteredWellOptions = computed(() => {
 
   return wellOptions.value.filter((option) => wellGroupAssignments.value[option.value] === navigationGroupId.value)
 })
+const modelScopeOptions: { label: string; value: ModelRunScope }[] = [
+  { label: 'Одна скважина', value: 'well' },
+  { label: 'Месторождение', value: 'field' },
+  { label: 'Групповая модель', value: 'set' }
+]
+const modelFieldOptions = computed<SelectOption[]>(() => {
+  const fieldCodes = Array.from(new Set(wellOptions.value.map((option) => getWellFieldCodeFromId(String(option.value))))).sort((left, right) =>
+    left.localeCompare(right, 'ru')
+  )
+  return fieldCodes.map((fieldCode) => ({ label: formatFieldGroupLabel(fieldCode), value: fieldCode }))
+})
+const modelSelectedFieldWellCount = computed(() =>
+  wellOptions.value.filter((option) => getWellFieldCodeFromId(String(option.value)) === modelSelectedFieldId.value).length
+)
+const modelSetFieldCount = computed(
+  () => new Set(modelSetWellIds.value.map((wellId) => getWellFieldCodeFromId(wellId))).size
+)
+const modelSetScopeCaption = computed(() =>
+  `${modelSetWellIds.value.length} скважин из ${modelSetFieldCount.value} месторождений`
+)
+const modelGroupedWellOptions = computed(() => {
+  const query = modelWellSearch.value.trim().toLowerCase()
+  const filtered = wellOptions.value.filter((option) => String(option.value).toLowerCase().includes(query))
+  const grouped = new Map<string, SelectOption[]>()
+
+  filtered.forEach((option) => {
+    const field = getWellFieldCodeFromId(String(option.value))
+    grouped.set(field, [...(grouped.get(field) ?? []), option])
+  })
+
+  return Array.from(grouped.entries())
+    .sort(([left], [right]) => left.localeCompare(right, 'ru'))
+    .map(([field, wells]) => ({
+      field,
+      wells: wells.sort((left, right) => String(left.value).localeCompare(String(right.value), 'ru'))
+    }))
+})
 const currentWellGroupId = computed<WellGroupId | null>(() => wellGroupAssignments.value[selectedWell.value] ?? null)
 const currentWellGroupLabel = computed(() => getWellGroupLabel(currentWellGroupId.value))
 const currentModelTargetId = computed(() => getCurrentModelTargetId())
@@ -2069,9 +2266,21 @@ const currentModelParams = computed(() => getResolvedModelParams(currentModelTar
 const activeModelRuleCategory = computed<ModelRuleCategory>(
   () => modelRuleCategories.find((category) => category.key === modelSelectedCategoryKey.value) ?? modelRuleCategories[0]!
 )
-const activeModelRuleParameters = computed(() =>
-  activeModelRuleCategory.value.paramKeys.map((key) => modelParamDefinitionByKey[key])
+const activeModelRuleParameters = computed<ModelParamDefinition[]>(() =>
+  activeModelRuleCategory.value.paramKeys
+    .map((key) => modelParamDefinitionByKey[key])
+    .filter((parameter): parameter is ModelParamDefinition => Boolean(parameter))
 )
+const activeModelRulePseudocode = computed(() => {
+  let text = activeModelRuleCategory.value.pseudocode
+
+  activeModelRuleParameters.value.forEach((parameter) => {
+    const currentValue = formatModelParamValue(parameter, getModelParamValue(parameter.key))
+    text = text.replace(new RegExp(`\\b${escapeRegExp(parameter.key)}\\b`, 'g'), currentValue)
+  })
+
+  return text
+})
 const modelChangedRows = computed(() =>
   modelParamDefinitions
     .filter((parameter) => hasModelParamOverride(parameter.key))
@@ -2079,13 +2288,13 @@ const modelChangedRows = computed(() =>
       key: parameter.key,
       label: parameter.label,
       defaultValue: formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)),
-      currentValue: formatModelParamValue(parameter, currentModelParams.value[parameter.key])
+      currentValue: formatModelParamValue(parameter, getModelParamValue(parameter.key))
     }))
 )
 const modelQualityBeforePct = computed(() => {
-  const row = modelQualityRows.find((item) => item.field.toLowerCase() === modelSelectedGroupId.value.toLowerCase())
+  const row = modelQualityRows.find((item) => item.field.toLowerCase() === modelSelectedFieldId.value.toLowerCase())
   const baseline =
-    modelSelectedGroupId.value === 'all'
+    modelRunScope.value === 'set'
       ? Math.round(modelQualityRows.reduce((sum, item) => sum + item.pct, 0) / modelQualityRows.length)
       : row?.pct ?? 45
 
@@ -2098,14 +2307,19 @@ const modelQualityAfterPct = computed(() => {
   return Math.max(0, Math.min(100, modelQualityBeforePct.value + Math.min(12, changedCount + categoryBoost + scopeBoost)))
 })
 const compactModelQualityRows = computed(() =>
-  modelSelectedGroupId.value === 'all'
+  modelRunScope.value === 'set'
     ? modelQualityRows
-    : modelQualityRows.filter((row) => row.field === modelSelectedGroupId.value)
+    : modelQualityRows.filter((row) => row.field === modelSelectedFieldId.value)
 )
+const displayedModelQualityBeforePct = computed(() => modelQualitySnapshot.value?.before ?? modelQualityBeforePct.value)
+const displayedModelQualityAfterPct = computed(() => modelQualitySnapshot.value?.after ?? modelQualityBeforePct.value)
+const displayedModelQualityRows = computed(() => modelQualitySnapshot.value?.rows ?? compactModelQualityRows.value)
 const modelRunScopeLabel = computed(() =>
   modelRunScope.value === 'well'
     ? `Скважина ${selectedWell.value}`
-    : `Группа ${getModelGroupLabel(modelSelectedGroupId.value)}`
+    : modelRunScope.value === 'field'
+      ? `Месторождение ${modelSelectedFieldId.value}`
+      : `Группа ${modelSetName.value || 'без названия'}`
 )
 const periodSummaryFieldOptions = computed<SelectOption[]>(() => {
   const fieldCodes = Array.from(new Set(wellOptions.value.map((option) => getWellFieldCodeFromId(option.value)))).sort((left, right) =>
@@ -2201,7 +2415,7 @@ const currentTabDescription = computed(() => {
     return 'Периодическая таблица по категориям авторазметки и изменению ключевых показателей'
   }
 
-  return 'Настройка правил авторазметки: параметры наследуются из группы «Все» и могут переопределяться по месторождению'
+  return 'Подберите параметры авторазметки, оцените качество и выгрузите для классификатора.'
 })
 const analysisDrillDown = computed<AnalysisDrillDown | null>(() => {
   if (interactionMode.value !== 'navigate' || !selectedAnalysisInterval.value) {
@@ -4201,6 +4415,7 @@ async function resetCurrentModelGroup() {
     ...modelParamsByGroup.value,
     [targetId]: {}
   }
+  modelQualitySnapshot.value = null
 
   try {
     const state = await resetModelParamsForTarget(targetId)
@@ -4228,9 +4443,102 @@ async function saveCurrentModelParams() {
   }
 }
 
-async function applyCurrentModelParams() {
+function buildModelOverridesExport() {
+  const scopes = {
+    all: modelParamsByGroup.value.all ?? {},
+    fields: {} as Record<string, Partial<ModelParams>>,
+    wells: {} as Record<string, Partial<ModelParams>>,
+    sets: {} as Record<string, { wells: string[]; params: Partial<ModelParams> }>
+  }
+
+  Object.entries(modelParamsByGroup.value).forEach(([targetId, params]) => {
+    if (!params || Object.keys(params).length === 0 || targetId === 'all') {
+      return
+    }
+
+    if (targetId.startsWith('set_')) {
+      scopes.sets[targetId] = {
+        wells: modelSetWellIds.value,
+        params
+      }
+    } else if (targetId.includes('_')) {
+      scopes.wells[targetId] = params
+    } else {
+      scopes.fields[targetId] = params
+    }
+  })
+
+  return {
+    model_version: 'episode_rules_v10_2',
+    created_at: new Date().toISOString(),
+    scopes
+  }
+}
+
+function downloadJsonFile(fileName: string, payload: unknown): void {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function saveAndExportModelOverrides() {
   await saveCurrentModelParams()
-  message.success(`Авторазметка запущена для области: ${modelRunScopeLabel.value}.`)
+  downloadJsonFile('model_overrides.json', buildModelOverridesExport())
+}
+
+function buildAutomarkQualityScope() {
+  if (modelRunScope.value === 'well') {
+    return {
+      type: 'well' as const,
+      field: getWellFieldCodeFromId(selectedWell.value),
+      well: selectedWell.value
+    }
+  }
+
+  if (modelRunScope.value === 'field') {
+    return {
+      type: 'field' as const,
+      field: modelSelectedFieldId.value
+    }
+  }
+
+  return {
+    type: 'set' as const,
+    wells: [...modelSetWellIds.value]
+  }
+}
+
+async function applyCurrentModelParams() {
+  const targetId = currentModelTargetId.value
+  const params = normalizeModelParams(modelParamsByGroup.value[targetId] ?? {})
+  modelQualityLoading.value = true
+
+  try {
+    const result = await recomputeAutomarkQuality({
+      scope: buildAutomarkQualityScope(),
+      overrides: toModelParamsPayload(params)
+    })
+    modelQualitySnapshot.value = {
+      before: Math.round(result.overall_before),
+      after: Math.round(result.overall_after),
+      rows: result.rows.map((row) => ({
+        field: row.field,
+        wells: row.wells,
+        rows: row.rows,
+        pct: Math.round(row.pct),
+        note: row.note
+      }))
+    }
+    message.success(`Качество пересчитано для области: ${modelRunScopeLabel.value}.`)
+  } catch {
+    message.error('Не удалось пересчитать качество модели.')
+  } finally {
+    modelQualityLoading.value = false
+  }
 }
 
 function getFrequencyBreakpointSourceLabel(source: FrequencyBreakpoint['source']): string {
@@ -4918,3 +5226,50 @@ onMounted(async () => {
   }, 500)
 })
 </script>
+
+<style scoped>
+.model-param-range {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+}
+
+.model-param-range:focus {
+  outline: none;
+}
+
+.model-param-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #475569);
+}
+
+.model-param-range::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  appearance: none;
+  border: 2px solid #e0f2fe;
+  border-radius: 999px;
+  background: #0f172a;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.22);
+}
+
+.model-param-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #475569);
+}
+
+.model-param-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e0f2fe;
+  border-radius: 999px;
+  background: #0f172a;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.22);
+}
+</style>

@@ -34,6 +34,32 @@ export interface ModelParamsState {
   overrides: Record<string, Record<string, number>>
 }
 
+export interface AutomarkQualityRow {
+  field: string
+  wells: number
+  rows: string
+  pct: number
+  note: string
+}
+
+export interface AutomarkRecomputeResponse {
+  overall_before: number
+  overall_after: number
+  by_category_before: Record<string, number>
+  by_category_after: Record<string, number>
+  rows: AutomarkQualityRow[]
+}
+
+export interface AutomarkRecomputeRequest {
+  scope: {
+    type: 'well' | 'field' | 'set'
+    field?: string
+    well?: string
+    wells?: string[]
+  }
+  overrides: Record<string, number>
+}
+
 export interface PeriodSummaryRow {
   field_code: string
   well_id: string
@@ -108,8 +134,13 @@ export async function fetchVspPeriods(wellId: string): Promise<VspPeriod[]> {
 }
 
 export async function fetchCandidateAutoEpisodeIntervals(wellId: string): Promise<EventInterval[]> {
-  const response = await api.get<EventInterval[]>(`/wells/${wellId}/candidate-auto-episodes`)
-  return response.data
+  try {
+    const response = await api.get<EventInterval[]>(`/wells/${wellId}/episodes`)
+    return response.data
+  } catch (error) {
+    const response = await api.get<EventInterval[]>(`/wells/${wellId}/candidate-auto-episodes`)
+    return response.data
+  }
 }
 
 export async function fetchTrMonitoring(
@@ -154,6 +185,11 @@ export async function saveModelParamsForTarget(targetId: string, params: Record<
 
 export async function resetModelParamsForTarget(targetId: string): Promise<ModelParamsState> {
   const response = await api.delete<ModelParamsState>(`/model-params/${targetId}`)
+  return response.data
+}
+
+export async function recomputeAutomarkQuality(payload: AutomarkRecomputeRequest): Promise<AutomarkRecomputeResponse> {
+  const response = await api.post<AutomarkRecomputeResponse>('/automark/recompute', payload)
   return response.data
 }
 
