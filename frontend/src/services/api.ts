@@ -100,11 +100,52 @@ export interface PeriodSummaryResponse {
 }
 
 export interface PeriodSummaryParams {
-  period?: 'week' | 'month' | 'year' | 'custom'
+  period?: 'week' | 'month' | 'quarter' | 'year' | 'custom'
   date_from?: string
   date_to?: string
   field_code?: string
   well_id?: string
+}
+
+export interface FundControlWellFactorRow {
+  well_id: string
+  field_code: string
+  vqliq_start: number | null
+  vqliq_end: number | null
+  total_delta: number | null
+  stop_rate: number | null
+  stop_gdi: number
+  frequency: number
+  periodic: number
+  complicated: number
+  water_supply: number
+  nur: number
+  kprod: number
+  reservoir_pressure: number
+  gas_factor: number
+  calibration_tr: number
+  background: number
+  balance_error: number
+}
+
+export interface FundControlFactorSummaryRow {
+  factor: string
+  total: number
+  sum_loss: number
+  sum_gain: number
+  top5_down: string
+  top5_up: string
+  action_loss: string | null
+  action_gain: string | null
+}
+
+export interface FundControlResponse {
+  period_start: string
+  period_end: string
+  rows: FundControlWellFactorRow[]
+  factors: FundControlFactorSummaryRow[]
+  max_abs_balance_error: number
+  balance_check_passed: boolean
 }
 
 export async function fetchWellTimeseries(
@@ -197,6 +238,11 @@ export async function recomputeAutomarkQuality(payload: AutomarkRecomputeRequest
 
 export async function fetchPeriodSummary(params: PeriodSummaryParams): Promise<PeriodSummaryResponse> {
   const response = await api.get<PeriodSummaryResponse>('/period-summary', { params })
+  return response.data
+}
+
+export async function fetchFundControl(params: PeriodSummaryParams): Promise<FundControlResponse> {
+  const response = await api.get<FundControlResponse>('/fund-control', { params })
   return response.data
 }
 

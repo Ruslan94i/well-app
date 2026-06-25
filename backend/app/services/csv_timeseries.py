@@ -28,8 +28,8 @@ DUPLICATED_WELL_ID_PATTERN = re.compile(r"^([A-Za-z]+_\d+)\1$")
 PREDICTED_QLIQ_WELL_COLUMNS = ("well_id", "well")
 PREDICTED_QLIQ_DATE_COLUMNS = ("date", "telemetry_date", "telemetry_time")
 PREDICTED_QLIQ_VALUE_COLUMNS = (
-    "predicted_qliq",
     "telemetry_predicted_qliq",
+    "predicted_qliq",
     "predicted_q_liquid",
     "predicted_liquid_rate",
     "qliq_pred",
@@ -504,7 +504,6 @@ def _load_aggregated_timeseries_frame_cached(
         .group_by(["well_id", "date"])
         .agg(aggregations)
         .with_columns(pl.col("qliq_wfm").alias("qliq_vfm"))
-        .with_columns(pl.coalesce(["predicted_qliq", "qliq_vfm"]).alias("predicted_qliq"))
         .sort(["well_id", "date"])
     )
     frame = add_water_cut_algorithm(frame)

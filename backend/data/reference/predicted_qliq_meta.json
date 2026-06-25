@@ -1,21 +1,15 @@
 {
-  "computed_at_utc": "2026-06-25T05:10:09.164434+00:00",
+  "computed_at_utc": "2026-06-25T08:23:52.422719+00:00",
   "computed_for_utc_date": "2026-06-25",
-  "source": "anchored-delta VFM: TR anchor with smoothed Qliq shape and stop guard",
-  "model": "anchored_delta_vfm",
-  "parameters": {
-    "gain": 0.3,
-    "tau": 0.5,
-    "smooth_days": 5,
-    "min_shape_qliq": 10.0,
-    "stop_freq_hz": 5.0,
-    "stop_active_power": 1.0
-  },
-  "rows": 25635,
-  "wells": 53,
+  "source": "external vfm_core daily output",
+  "model": "vfm_core",
+  "model_version": "vfm_core_episode_shape_v1",
+  "external_vfm_daily_path": "D:\\well-app-main\\backend\\data\\reference\\vfm_daily.csv",
+  "external_vfm_daily_mtime_ns": 1782373148479667300,
+  "rows": 25183,
+  "wells": 52,
   "anchor_source_counts": {
-    "tr": 24657,
-    "telemetry_qliq": 978
+    "vfm_core": 25183
   },
-  "stop_days": 3600
+  "stop_days": 4454
 }

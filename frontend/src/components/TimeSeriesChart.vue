@@ -596,7 +596,7 @@ const seriesConfig: Record<
     opacity: 0.9
   },
   predicted_qliq: {
-    label: 'Predicted Q liquid',
+    label: 'Virtual Q liq',
     color: '#facc15',
     axis: 'y',
     width: 2,

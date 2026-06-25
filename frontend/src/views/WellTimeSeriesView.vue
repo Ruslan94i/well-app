@@ -85,7 +85,7 @@
                     :class="isInteractionMode('periodSummary') ? 'bg-slate-700 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-100'"
                     @click="interactionMode = 'periodSummary'"
                   >
-                    Сводка периода
+                    Контроль фонда
                   </button>
                 </div>
               </div>
@@ -93,9 +93,9 @@
               <div class="text-xs text-slate-400">{{ interactionModeHint }}</div>
             </div>
 
-            <div>
+            <div v-if="interactionMode !== 'periodSummary'">
               <h1 class="text-lg font-semibold text-slate-100">{{ currentTabTitle }}</h1>
-              <p class="mt-1 text-sm leading-6 text-slate-400">{{ currentTabDescription }}</p>
+              <p v-if="currentTabDescription" class="mt-1 text-sm leading-6 text-slate-400">{{ currentTabDescription }}</p>
             </div>
           </div>
         </div>
@@ -987,14 +987,8 @@
       </section>
       <section v-else>
         <div class="panel rounded-2xl p-3">
-          <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <h2 class="text-lg font-semibold text-slate-100">Сводка авторазметки за период</h2>
-              <p class="mt-1 max-w-4xl text-sm leading-6 text-slate-400">
-                Категория попадает в таблицу, если её автоинтервал пересекает выбранный период. Для остановок и ГДИ показываются длительность, остановочный дебит и накопленные потери; для остальных категорий считается накопленный dQ по интервалу классификатора.
-              </p>
-            </div>
-            <div class="flex flex-wrap items-end gap-2">
+          <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-end">
+            <div class="flex flex-wrap items-end justify-end gap-2">
               <div>
                 <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Месторождение</label>
                 <n-select
@@ -1011,13 +1005,16 @@
                   :options="periodSummaryWellOptions"
                 />
               </div>
-              <div>
-                <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Период</label>
-                <n-select
-                  v-model:value="periodSummaryPreset"
-                  class="w-40"
-                  :options="periodSummaryPeriodOptions"
-                />
+              <div class="flex flex-wrap gap-2">
+                <n-button
+                  v-for="option in periodSummaryPeriodOptions"
+                  :key="option.value"
+                  secondary
+                  :type="periodSummaryPreset === option.value ? 'primary' : 'default'"
+                  @click="periodSummaryPreset = option.value"
+                >
+                  {{ option.label }}
+                </n-button>
               </div>
               <div v-if="periodSummaryPreset === 'custom'">
                 <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Свой период</label>
@@ -1028,13 +1025,44 @@
                   class="w-64"
                 />
               </div>
+              <n-radio-group v-model:value="fundControlViewMode" size="small">
+                <n-radio-button
+                  v-for="option in fundControlViewModeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </n-radio-button>
+              </n-radio-group>
               <n-button type="primary" :loading="periodSummaryLoading" @click="loadPeriodSummary">
                 Обновить
+              </n-button>
+              <n-button secondary :disabled="filteredPeriodSummaryRows.length === 0" @click="downloadFundControlCsv">
+                Выгрузить
               </n-button>
             </div>
           </div>
 
-          <div class="mt-3 grid gap-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3 xl:grid-cols-6">
+          <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3">
+              <div class="text-sm text-slate-400">Скважин под контролем</div>
+              <div class="mt-2 text-3xl font-semibold text-slate-100">{{ fundControlKpis.wells }}</div>
+            </div>
+            <div class="rounded-xl border border-red-900/40 bg-red-950/20 px-4 py-3">
+              <div class="text-sm text-slate-400">Снижение фонда</div>
+              <div class="mt-2 text-3xl font-semibold text-red-200">{{ formatFundControlSignedInteger(fundControlKpis.decrease) }} м³/сут</div>
+            </div>
+            <div class="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-4 py-3">
+              <div class="text-sm text-slate-400">Прирост фонда</div>
+              <div class="mt-2 text-3xl font-semibold text-emerald-200">{{ formatFundControlSignedInteger(fundControlKpis.gain) }} м³/сут</div>
+            </div>
+            <div class="rounded-xl border border-slate-700 bg-slate-900/50 px-4 py-3">
+              <div class="text-sm text-slate-400">В остановке / ГДИ</div>
+              <div class="mt-2 text-3xl font-semibold text-amber-100">{{ fundControlKpis.stopGdi }}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid gap-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3 md:grid-cols-2 xl:grid-cols-5">
             <div class="rounded-lg bg-slate-950/50 px-3 py-2">
               <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Область</div>
               <div class="mt-1 text-sm font-semibold text-slate-100">{{ periodSummaryScopeLabel }}</div>
@@ -1048,8 +1076,13 @@
               <div class="mt-1 text-sm font-semibold text-slate-100">{{ formatPeriodDate(periodSummaryMeta.period_end) }}</div>
             </div>
             <div class="rounded-lg bg-slate-950/50 px-3 py-2">
-              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Окно средних</div>
-              <div class="mt-1 text-sm font-semibold text-slate-100">{{ periodSummaryMeta.window_days }} сут.</div>
+              <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Max невязка</div>
+              <div
+                class="mt-1 text-sm font-semibold"
+                :class="periodSummaryMeta.balance_check_passed ? 'text-emerald-300' : 'text-amber-300'"
+              >
+                {{ formatPeriodSummaryCell(periodSummaryMeta.max_abs_balance_error) }} м³/сут
+              </div>
             </div>
             <div class="rounded-lg bg-slate-950/50 px-3 py-2">
               <div class="text-xs uppercase tracking-[0.18em] text-slate-500">Строк</div>
@@ -1058,8 +1091,207 @@
           </div>
 
           <div class="mt-2 rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-2 text-xs leading-5 text-slate-400">
-            Сейчас показаны только категории, которые пересекают выбранный календарный интервал. Если по области «Все»
-            отображается мало скважин, расширьте период до месяца, года или задайте свой диапазон.
+            Вклад факторов считается от Virtual Q liq. По каждой строке сумма факторов сходится с общим dQ; статус баланса:
+            <span :class="periodSummaryMeta.balance_check_passed ? 'text-emerald-300' : 'text-amber-300'">
+              {{ periodSummaryMeta.balance_check_passed ? 'пройден' : 'требует проверки' }}
+            </span>.
+          </div>
+
+          <div v-if="fundControlViewMode === 'dashboard'" class="mt-5 space-y-6">
+            <section>
+              <h3 class="text-base font-semibold text-slate-100">Топ-20 по снижению Qж — разбивка по факторам</h3>
+              <p class="mt-1 text-sm text-slate-400">Столбец = сумма факторов. Наведите на сегмент, чтобы увидеть вклад.</p>
+              <div class="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+                <div class="overflow-x-auto rounded-xl border border-slate-700 bg-slate-950/35 p-3">
+                  <svg
+                    v-if="fundControlLossChart.bars.length"
+                    :width="fundControlLossChart.width"
+                    :height="fundControlLossChart.height"
+                    class="block min-w-full overflow-visible"
+                    role="img"
+                    aria-label="Топ-20 по снижению Qж"
+                  >
+                    <line x1="72" :x2="fundControlLossChart.width - 32" :y1="fundControlLossChart.zeroY" :y2="fundControlLossChart.zeroY" stroke="#475569" />
+                    <g v-for="tick in fundControlLossChart.yTicks" :key="`loss-${tick.value}`">
+                      <line x1="72" :x2="fundControlLossChart.width - 32" :y1="tick.y" :y2="tick.y" stroke="#1f2937" />
+                      <text x="62" :y="tick.y + 4" text-anchor="end" fill="#cbd5e1" font-size="12">{{ formatFundControlAxis(tick.value) }}</text>
+                    </g>
+                    <g v-for="bar in fundControlLossChart.bars" :key="bar.wellId">
+                      <rect
+                        v-for="segment in bar.segments"
+                        :key="`${bar.wellId}-${segment.key}`"
+                        :x="segment.x"
+                        :y="segment.y"
+                        width="34"
+                        :height="segment.height"
+                        :fill="segment.color"
+                        rx="2"
+                      >
+                        <title>{{ bar.wellId }} · {{ segment.label }}: {{ formatSignedPeriodNumber(segment.value) }} м³/сут</title>
+                      </rect>
+                      <text
+                        :x="bar.x + 17"
+                        :y="bar.valueLabelY"
+                        text-anchor="middle"
+                        fill="#f8fafc"
+                        font-size="14"
+                        font-weight="800"
+                        stroke="#0f172a"
+                        stroke-width="3"
+                        paint-order="stroke"
+                      >
+                        {{ formatSignedPeriodNumber(bar.displayTotal) }}
+                      </text>
+                      <text
+                        :x="bar.x + 17"
+                        :y="fundControlLossChart.height - 34"
+                        text-anchor="end"
+                        fill="#f8fafc"
+                        font-size="13"
+                        font-weight="700"
+                        transform-origin="center"
+                        :transform="`rotate(-48 ${bar.x + 17} ${fundControlLossChart.height - 34})`"
+                      >
+                        {{ bar.wellId }}
+                      </text>
+                    </g>
+                    <text x="22" :y="fundControlLossChart.zeroY" fill="#cbd5e1" font-size="12" transform="rotate(-90 22 170)">ΔQж, м³/сут</text>
+                  </svg>
+                  <div v-else class="py-12 text-center text-sm text-slate-500">Нет скважин со снижением в выбранном периоде.</div>
+                </div>
+                <aside class="rounded-xl border border-slate-700 bg-slate-900/45 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-sm font-semibold text-slate-100">Факторы</div>
+                    <n-button size="tiny" text @click="resetFundControlChartFactors">по умолчанию</n-button>
+                  </div>
+                  <div class="mt-3 space-y-2">
+                    <button
+                      v-for="factor in fundControlFactorDefinitions"
+                      :key="factor.key"
+                      type="button"
+                      class="flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm transition"
+                      :class="fundControlChartFactorKeys.includes(factor.key)
+                        ? 'border-slate-600 bg-slate-800/80 text-slate-100'
+                        : 'border-slate-800 bg-slate-950/30 text-slate-500 opacity-60'"
+                      @click="toggleFundControlChartFactor(factor.key)"
+                    >
+                      <span class="h-3 w-3 shrink-0 rounded-sm" :style="{ backgroundColor: factor.color }" />
+                      <span class="min-w-0 truncate">{{ factor.shortLabel }}</span>
+                    </button>
+                  </div>
+                  <p class="mt-3 text-xs leading-5 text-slate-500">
+                    ГДИ/ост выключен по умолчанию: положительный вклад здесь обычно означает запуск или восстановление после остановки.
+                  </p>
+                </aside>
+              </div>
+            </section>
+
+            <section>
+              <h3 class="text-base font-semibold text-slate-100">Топ-20 по приросту Qж — разбивка по факторам</h3>
+              <div class="mt-3 overflow-x-auto rounded-xl border border-slate-700 bg-slate-950/35 p-3">
+                <svg
+                  v-if="fundControlGainChart.bars.length"
+                  :width="fundControlGainChart.width"
+                  :height="fundControlGainChart.height"
+                  class="block min-w-full overflow-visible"
+                  role="img"
+                  aria-label="Топ-20 по приросту Qж"
+                >
+                  <line x1="72" :x2="fundControlGainChart.width - 32" :y1="fundControlGainChart.zeroY" :y2="fundControlGainChart.zeroY" stroke="#475569" />
+                  <g v-for="tick in fundControlGainChart.yTicks" :key="`gain-${tick.value}`">
+                    <line x1="72" :x2="fundControlGainChart.width - 32" :y1="tick.y" :y2="tick.y" stroke="#1f2937" />
+                    <text x="62" :y="tick.y + 4" text-anchor="end" fill="#cbd5e1" font-size="12">{{ formatFundControlAxis(tick.value) }}</text>
+                  </g>
+                  <g v-for="bar in fundControlGainChart.bars" :key="bar.wellId">
+                    <rect
+                      v-for="segment in bar.segments"
+                      :key="`${bar.wellId}-${segment.key}`"
+                      :x="segment.x"
+                      :y="segment.y"
+                      width="34"
+                      :height="segment.height"
+                      :fill="segment.color"
+                      rx="2"
+                    >
+                      <title>{{ bar.wellId }} · {{ segment.label }}: {{ formatSignedPeriodNumber(segment.value) }} м³/сут</title>
+                    </rect>
+                    <text
+                      :x="bar.x + 17"
+                      :y="bar.valueLabelY"
+                      text-anchor="middle"
+                      fill="#f8fafc"
+                      font-size="14"
+                      font-weight="800"
+                      stroke="#0f172a"
+                      stroke-width="3"
+                      paint-order="stroke"
+                    >
+                      {{ formatSignedPeriodNumber(bar.displayTotal) }}
+                    </text>
+                    <text
+                      :x="bar.x + 17"
+                      :y="fundControlGainChart.height - 34"
+                      text-anchor="end"
+                      fill="#f8fafc"
+                      font-size="13"
+                      font-weight="700"
+                      :transform="`rotate(-48 ${bar.x + 17} ${fundControlGainChart.height - 34})`"
+                    >
+                      {{ bar.wellId }}
+                    </text>
+                  </g>
+                  <text x="22" :y="fundControlGainChart.zeroY" fill="#cbd5e1" font-size="12" transform="rotate(-90 22 170)">ΔQж, м³/сут</text>
+                </svg>
+                <div v-else class="py-12 text-center text-sm text-slate-500">Нет скважин с приростом в выбранном периоде.</div>
+              </div>
+            </section>
+
+            <section>
+              <h3 class="text-base font-semibold text-slate-100">Разрез по факторам — топ-5 снижение / прирост, м³/сут</h3>
+              <div class="mt-3 grid gap-3 xl:grid-cols-2">
+                <article
+                  v-for="factor in fundControlFactorCards"
+                  :key="factor.key"
+                  class="rounded-xl border border-slate-700 bg-slate-900/45 p-3"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex min-w-0 items-center gap-2">
+                      <span class="h-3 w-3 shrink-0 rounded-sm" :style="{ backgroundColor: factor.color }" />
+                      <h4 class="truncate text-base font-semibold text-slate-100">{{ factor.label }}</h4>
+                    </div>
+                    <div
+                      class="shrink-0 rounded-lg bg-slate-950/60 px-2 py-1 text-sm font-semibold"
+                      :class="factor.total < 0 ? 'text-red-300' : factor.total > 0 ? 'text-emerald-300' : 'text-slate-300'"
+                    >
+                      {{ formatSignedPeriodNumber(factor.total) }}
+                    </div>
+                  </div>
+                  <p v-if="factor.action" class="mt-3 text-sm text-slate-400">Мероприятие: {{ factor.action }}</p>
+                  <div class="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <div class="text-sm font-medium text-red-200">Снижение</div>
+                      <div v-if="factor.losses.length" class="mt-2 divide-y divide-slate-700">
+                        <div v-for="item in factor.losses" :key="`${factor.key}-loss-${item.wellId}`" class="flex items-center justify-between py-1.5 text-sm">
+                          <span class="font-medium text-sky-300">{{ item.wellId }}</span>
+                          <span class="text-red-200">{{ formatSignedPeriodNumber(item.value) }}</span>
+                        </div>
+                      </div>
+                      <div v-else class="mt-2 text-sm text-slate-500">—</div>
+                    </div>
+                    <div>
+                      <div class="text-sm font-medium text-emerald-200">Прирост</div>
+                      <div v-if="factor.gains.length" class="mt-2 divide-y divide-slate-700">
+                        <div v-for="item in factor.gains" :key="`${factor.key}-gain-${item.wellId}`" class="flex items-center justify-between py-1.5 text-sm">
+                          <span class="font-medium text-sky-300">{{ item.wellId }}</span>
+                          <span class="text-emerald-200">{{ formatSignedPeriodNumber(item.value) }}</span>
+                        </div>
+                      </div>
+                      <div v-else class="mt-2 text-sm text-slate-500">—</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
           </div>
 
           <div
@@ -1069,7 +1301,7 @@
             {{ periodSummaryError }}
           </div>
 
-          <div class="mt-3 rounded-xl border border-slate-700 bg-slate-900/45 p-3">
+          <div v-if="fundControlViewMode === 'table'" class="mt-3 rounded-xl border border-slate-700 bg-slate-900/45 p-3">
             <div class="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Фильтры по колонкам</div>
             <div class="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
               <n-input
@@ -1083,7 +1315,7 @@
             </div>
           </div>
 
-          <div class="mt-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950/35">
+          <div v-if="fundControlViewMode === 'table'" class="mt-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950/35">
             <n-data-table
               :loading="periodSummaryLoading"
               :columns="periodSummaryColumns"
@@ -1103,7 +1335,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { NButton, NCheckbox, NCheckboxGroup, NDataTable, NDatePicker, NInput, NRadio, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NCheckboxGroup, NDataTable, NDatePicker, NInput, NRadio, NRadioButton, NRadioGroup, NSelect, NSlider, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import {
@@ -1111,9 +1343,9 @@ import {
   fetchCandidateAutoEpisodeIntervals,
   buildGraphDataExportCsvUrl,
   buildManualGraphDataExportCsvUrl,
+  fetchFundControl,
   fetchMarkup,
   fetchModelParamsState,
-  fetchPeriodSummary,
   fetchTrMonitoring,
   fetchVspPeriods,
   fetchWellContext,
@@ -1124,7 +1356,7 @@ import {
   saveModelParamsForTarget,
   saveMarkup
 } from '@/services/api'
-import type { PeriodSummaryRow } from '@/services/api'
+import type { FundControlFactorSummaryRow, FundControlWellFactorRow } from '@/services/api'
 import { generateMockEventTracks as generateOldMockEventTracks } from '@/services/mockEventTracks'
 import { generateMockEventTracks as generateMockEventTracksV2 } from '@/services/mockEventTracksV2'
 import { generateMockTimeseries } from '@/services/mockTimeseries'
@@ -1202,7 +1434,7 @@ const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownField
 
 const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Дебит жидкости', value: 'qliq' },
-  { label: 'Predicted Q liquid', value: 'predicted_qliq' },
+  { label: 'Virtual Q liq', value: 'predicted_qliq' },
   { label: 'Давление буферное', value: 'buffer_pressure' },
   { label: 'Давление затрубное', value: 'casing_pressure' },
   { label: 'Загрузка', value: 'load' },
@@ -1476,12 +1708,67 @@ interface ModelQualityBaselineSnapshot {
   rows: ModelQualityRow[]
 }
 
-type PeriodSummaryPreset = 'week' | 'month' | 'year' | 'custom'
-type PeriodSummaryColumnKey = keyof PeriodSummaryRow
+type PeriodSummaryPreset = 'week' | 'month' | 'quarter' | 'year' | 'custom'
+type PeriodSummaryColumnKey = keyof FundControlWellFactorRow
+type FundControlViewMode = 'dashboard' | 'table'
+type FundControlFactorKey =
+  | 'stop_gdi'
+  | 'frequency'
+  | 'periodic'
+  | 'complicated'
+  | 'water_supply'
+  | 'nur'
+  | 'kprod'
+  | 'reservoir_pressure'
+  | 'gas_factor'
 
 interface PeriodSummaryColumnDefinition {
   key: PeriodSummaryColumnKey
   title: string
+  minWidth?: number
+}
+
+interface FundControlFactorDefinition {
+  key: FundControlFactorKey
+  label: string
+  shortLabel: string
+  color: string
+}
+
+interface FundControlBarSegment {
+  key: FundControlFactorKey
+  label: string
+  value: number
+  color: string
+  x: number
+  y: number
+  height: number
+}
+
+interface FundControlBar {
+  wellId: string
+  totalDelta: number
+  displayTotal: number
+  x: number
+  valueLabelY: number
+  positiveTotal: number
+  negativeTotal: number
+  segments: FundControlBarSegment[]
+}
+
+interface FundControlChart {
+  bars: FundControlBar[]
+  width: number
+  height: number
+  yTicks: { value: number; y: number }[]
+  zeroY: number
+}
+
+interface FundControlFactorCard extends FundControlFactorDefinition {
+  total: number
+  action: string
+  losses: { wellId: string; value: number }[]
+  gains: { wellId: string; value: number }[]
 }
 
 interface PersistedUiState {
@@ -1726,38 +2013,47 @@ const modelQualityRows: ModelQualityRow[] = [
 const periodSummaryPeriodOptions: { label: string; value: PeriodSummaryPreset }[] = [
   { label: 'Неделя', value: 'week' },
   { label: 'Месяц', value: 'month' },
+  { label: '3 месяца', value: 'quarter' },
   { label: 'Год', value: 'year' },
   { label: 'Свой период', value: 'custom' }
 ]
 
+const fundControlViewModeOptions: { label: string; value: FundControlViewMode }[] = [
+  { label: 'Дашборд', value: 'dashboard' },
+  { label: 'Таблица', value: 'table' }
+]
+
+const fundControlFactorDefinitions: FundControlFactorDefinition[] = [
+  { key: 'stop_gdi', label: 'ГДИ / остановка / пуск', shortLabel: 'ГДИ/ост/пуск', color: '#8b8b86' },
+  { key: 'frequency', label: 'Частота / РПТЧ', shortLabel: 'Частота', color: '#4f86d9' },
+  { key: 'periodic', label: 'Периодическая работа', shortLabel: 'Период.', color: '#50a37a' },
+  { key: 'complicated', label: 'Осложненный фонд', shortLabel: 'Осложн.', color: '#d0653b' },
+  { key: 'water_supply', label: 'Подача воды / СППВ', shortLabel: 'Вода', color: '#93b9e8' },
+  { key: 'nur', label: 'НУР', shortLabel: 'НУР', color: '#e5a33c' },
+  { key: 'kprod', label: 'Кпрод', shortLabel: 'Кпрод', color: '#d45a5a' },
+  { key: 'reservoir_pressure', label: 'Рпл', shortLabel: 'Рпл', color: '#8276db' },
+  { key: 'gas_factor', label: 'ГФ', shortLabel: 'ГФ', color: '#95bf67' }
+]
+
 const periodSummaryColumnDefinitions: PeriodSummaryColumnDefinition[] = [
-  { key: 'field_code', title: 'Месторождение' },
-  { key: 'well_id', title: 'Скважина' },
-  { key: 'category', title: 'Категория' },
-  { key: 'interval_start', title: 'Начало интервала' },
-  { key: 'interval_end', title: 'Конец интервала' },
-  { key: 'duration_days', title: 'Длит., сут' },
-  { key: 'stop_qliq', title: 'Остановочный Qж' },
-  { key: 'qliq_1', title: 'Qж1' },
-  { key: 'qliq_2', title: 'Qж2' },
-  { key: 'qoil_1', title: 'Qнефти1' },
-  { key: 'qoil_2', title: 'Qнефти2' },
-  { key: 'water_cut_1', title: 'Обводненность1' },
-  { key: 'water_cut_2', title: 'Обводненность2' },
-  { key: 'intake_pressure_1', title: 'Рпр1' },
-  { key: 'intake_pressure_2', title: 'Рпр2' },
-  { key: 'frequency_1', title: 'F1' },
-  { key: 'frequency_2', title: 'F2' },
-  { key: 'load_1', title: 'Загрузка1' },
-  { key: 'load_2', title: 'Загрузка2' },
-  { key: 'gas_factor_1', title: 'ГФ1' },
-  { key: 'gas_factor_2', title: 'ГФ2' },
-  { key: 'bdpv_1', title: 'БДПВ1' },
-  { key: 'bdpv_2', title: 'БДПВ2' },
-  { key: 'delta_qliq', title: 'dQж' },
-  { key: 'delta_qoil', title: 'dQн' },
-  { key: 'accumulated_qliq', title: 'Накопл. dQж' },
-  { key: 'accumulated_qoil', title: 'Накопл. dQн' }
+  { key: 'field_code', title: 'Месторождение', minWidth: 120 },
+  { key: 'well_id', title: 'Скважина', minWidth: 110 },
+  { key: 'vqliq_start', title: 'Virtual Qж начало', minWidth: 135 },
+  { key: 'vqliq_end', title: 'Virtual Qж конец', minWidth: 130 },
+  { key: 'total_delta', title: 'dQж всего', minWidth: 110 },
+  { key: 'stop_rate', title: 'Остановочный Qж', minWidth: 135 },
+  { key: 'stop_gdi', title: 'ГДИ / остановка / пуск', minWidth: 155 },
+  { key: 'frequency', title: 'Частота / РПТЧ', minWidth: 135 },
+  { key: 'periodic', title: 'Периодическая', minWidth: 125 },
+  { key: 'complicated', title: 'Осложненный фонд', minWidth: 145 },
+  { key: 'water_supply', title: 'Подача воды / СППВ', minWidth: 155 },
+  { key: 'nur', title: 'НУР', minWidth: 90 },
+  { key: 'kprod', title: 'Кпрод', minWidth: 95 },
+  { key: 'reservoir_pressure', title: 'Рпл', minWidth: 95 },
+  { key: 'gas_factor', title: 'Газовый фактор', minWidth: 130 },
+  { key: 'calibration_tr', title: 'Калибровка TR', minWidth: 135 },
+  { key: 'background', title: 'Фон', minWidth: 95 },
+  { key: 'balance_error', title: 'Невязка', minWidth: 100 }
 ]
 
 const defaultPeriodSummaryFilters = Object.fromEntries(
@@ -2179,17 +2475,23 @@ const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
 const manualGraphDataExporting = ref(false)
 const wellGraphDataExporting = ref(false)
-const periodSummaryPreset = ref<PeriodSummaryPreset>('week')
+const periodSummaryPreset = ref<PeriodSummaryPreset>('month')
 const periodSummaryFieldCode = ref<string>('all')
 const periodSummaryWellId = ref<string>('all')
 const periodSummaryDateRange = ref<[number, number] | null>(null)
-const periodSummaryRows = ref<PeriodSummaryRow[]>([])
+const fundControlViewMode = ref<FundControlViewMode>('dashboard')
+const fundControlChartFactorKeys = ref<FundControlFactorKey[]>(
+  fundControlFactorDefinitions.filter((factor) => factor.key !== 'stop_gdi').map((factor) => factor.key)
+)
+const periodSummaryRows = ref<FundControlWellFactorRow[]>([])
+const fundControlFactors = ref<FundControlFactorSummaryRow[]>([])
 const periodSummaryLoading = ref(false)
 const periodSummaryError = ref('')
 const periodSummaryMeta = ref({
   period_start: '',
   period_end: '',
-  window_days: 0
+  max_abs_balance_error: 0,
+  balance_check_passed: true
 })
 const periodSummaryFilters = ref<Record<PeriodSummaryColumnKey, string>>({ ...defaultPeriodSummaryFilters })
 const errorMessage = ref('')
@@ -2459,11 +2761,64 @@ const filteredPeriodSummaryRows = computed(() =>
     })
   )
 )
-const periodSummaryColumns = computed<DataTableColumns<PeriodSummaryRow>>(() =>
+const fundControlKpis = computed(() => {
+  const rows = filteredPeriodSummaryRows.value
+  const wells = new Set(rows.map((row) => row.well_id)).size
+  const decrease = rows.reduce((sum, row) => {
+    const value = getFiniteNumber(row.total_delta)
+    return value < 0 ? sum + value : sum
+  }, 0)
+  const gain = rows.reduce((sum, row) => {
+    const value = getFiniteNumber(row.total_delta)
+    return value > 0 ? sum + value : sum
+  }, 0)
+  const stopGdi = rows.filter((row) => Math.abs(getFundControlFactorValue(row, 'stop_gdi')) > 0.01 || getFiniteNumber(row.stop_rate) > 0).length
+
+  return { wells, decrease, gain, stopGdi }
+})
+const fundControlLossRows = computed(() =>
+  [...filteredPeriodSummaryRows.value]
+    .filter((row) => getFundControlSelectedFactorTotal(row) < -0.01)
+    .sort((left, right) => getFundControlSelectedFactorTotal(left) - getFundControlSelectedFactorTotal(right))
+    .slice(0, 20)
+)
+const fundControlGainRows = computed(() =>
+  [...filteredPeriodSummaryRows.value]
+    .filter((row) => getFundControlSelectedFactorTotal(row) > 0.01)
+    .sort((left, right) => getFundControlSelectedFactorTotal(right) - getFundControlSelectedFactorTotal(left))
+    .slice(0, 20)
+)
+const fundControlLossChart = computed(() => buildFundControlChart(fundControlLossRows.value))
+const fundControlGainChart = computed(() => buildFundControlChart(fundControlGainRows.value))
+const fundControlFactorCards = computed<FundControlFactorCard[]>(() =>
+  fundControlFactorDefinitions
+    .map((definition) => {
+      const values = filteredPeriodSummaryRows.value
+        .map((row) => ({ wellId: row.well_id, value: getFundControlFactorValue(row, definition.key) }))
+        .filter((item) => Math.abs(item.value) > 0.01)
+      const summary = getFundControlSummaryForDefinition(definition)
+
+      return {
+        ...definition,
+        total: values.reduce((sum, item) => sum + item.value, 0),
+        action: summary?.action_loss || summary?.action_gain || '',
+        losses: values
+          .filter((item) => item.value < 0)
+          .sort((left, right) => left.value - right.value)
+          .slice(0, 5),
+        gains: values
+          .filter((item) => item.value > 0)
+          .sort((left, right) => right.value - left.value)
+          .slice(0, 5)
+      }
+    })
+    .filter((card) => Math.abs(card.total) > 0.01 || card.losses.length > 0 || card.gains.length > 0)
+)
+const periodSummaryColumns = computed<DataTableColumns<FundControlWellFactorRow>>(() =>
   periodSummaryColumnDefinitions.map((column) => ({
     key: column.key,
     title: column.title,
-    minWidth: column.key === 'category' ? 170 : column.key === 'well_id' ? 110 : 96,
+    minWidth: column.minWidth ?? 110,
     sorter: (leftRow, rightRow) => comparePeriodSummaryValues(leftRow[column.key], rightRow[column.key]),
     render: (row) => formatPeriodSummaryCell(row[column.key])
   }))
@@ -2478,7 +2833,7 @@ const interactionModeHint = computed(() => {
   }
 
   if (interactionMode.value === 'periodSummary') {
-    return 'Сводка категорий авторазметки за выбранный период'
+    return 'Контроль фонда за выбранный период'
   }
 
   return 'Настройка правил авторазметки по группе'
@@ -2493,7 +2848,7 @@ const currentTabTitle = computed(() => {
   }
 
   if (interactionMode.value === 'periodSummary') {
-    return 'Сводка периода'
+    return 'Контроль фонда'
   }
 
   return 'Настройка модели'
@@ -2508,7 +2863,7 @@ const currentTabDescription = computed(() => {
   }
 
   if (interactionMode.value === 'periodSummary') {
-    return 'Периодическая таблица по категориям авторазметки и изменению ключевых показателей'
+    return ''
   }
 
   return 'Подберите параметры авторазметки, оцените качество и выгрузите для классификатора.'
@@ -4281,7 +4636,9 @@ function formatPeriodSummaryCell(value: unknown): string {
   }
 
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? value.toFixed(2) : ''
+    return Number.isFinite(value)
+      ? value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
+      : ''
   }
 
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
@@ -4289,6 +4646,151 @@ function formatPeriodSummaryCell(value: unknown): string {
   }
 
   return String(value)
+}
+
+function formatSignedPeriodNumber(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—'
+  }
+
+  const formatted = Math.abs(value).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}${formatted}`
+}
+
+function formatFundControlSignedInteger(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—'
+  }
+
+  const rounded = Math.round(value)
+  return `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded).toLocaleString('ru-RU')}`
+}
+
+function formatFundControlAxis(value: number): string {
+  const absValue = Math.abs(value)
+  if (absValue >= 1000) {
+    return `${value < 0 ? '−' : ''}${Math.round(absValue / 100) / 10}K`
+  }
+
+  return formatFundControlSignedInteger(value).replace('+', '')
+}
+
+function getFiniteNumber(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function getFundControlFactorValue(row: FundControlWellFactorRow, key: FundControlFactorKey): number {
+  return getFiniteNumber(row[key])
+}
+
+function getFundControlSelectedFactorTotal(row: FundControlWellFactorRow): number {
+  return fundControlChartFactorKeys.value.reduce((sum, key) => sum + getFundControlFactorValue(row, key), 0)
+}
+
+function resetFundControlChartFactors(): void {
+  fundControlChartFactorKeys.value = fundControlFactorDefinitions
+    .filter((factor) => factor.key !== 'stop_gdi')
+    .map((factor) => factor.key)
+}
+
+function toggleFundControlChartFactor(key: FundControlFactorKey): void {
+  if (fundControlChartFactorKeys.value.includes(key)) {
+    fundControlChartFactorKeys.value = fundControlChartFactorKeys.value.filter((factorKey) => factorKey !== key)
+    return
+  }
+
+  fundControlChartFactorKeys.value = [...fundControlChartFactorKeys.value, key]
+}
+
+function normalizeFundControlFactor(value: string): string {
+  return value.trim().replace(/ё/g, 'е').toLocaleLowerCase('ru')
+}
+
+function getFundControlSummaryForDefinition(definition: FundControlFactorDefinition): FundControlFactorSummaryRow | undefined {
+  const normalizedLabel = normalizeFundControlFactor(definition.label)
+  const normalizedShortLabel = normalizeFundControlFactor(definition.shortLabel).split('/')[0]?.trim() ?? ''
+
+  return fundControlFactors.value.find((factor) => {
+    const normalizedFactor = normalizeFundControlFactor(factor.factor)
+    return normalizedFactor === normalizedLabel || normalizedFactor.includes(normalizedShortLabel)
+  })
+}
+
+function buildFundControlChart(rows: FundControlWellFactorRow[]): FundControlChart {
+  const margin = { left: 72, right: 36, top: 54, bottom: 132 }
+  const height = 470
+  const barStep = 62
+  const plotHeight = height - margin.top - margin.bottom
+  const width = Math.max(1180, margin.left + margin.right + Math.max(rows.length, 1) * barStep)
+  const selectedFactorDefinitions = fundControlFactorDefinitions.filter((definition) =>
+    fundControlChartFactorKeys.value.includes(definition.key)
+  )
+  const factorValues = rows.map((row) =>
+    selectedFactorDefinitions.map((definition) => ({
+      definition,
+      value: getFundControlFactorValue(row, definition.key)
+    }))
+  )
+  const maxAbs = Math.max(
+    1,
+    ...rows.flatMap((row, index) => {
+      const values = factorValues[index] ?? []
+      const positiveTotal = values.reduce((sum, item) => item.value > 0 ? sum + item.value : sum, 0)
+      const negativeTotal = values.reduce((sum, item) => item.value < 0 ? sum + Math.abs(item.value) : sum, 0)
+      return [Math.abs(getFundControlSelectedFactorTotal(row)), positiveTotal, negativeTotal]
+    })
+  )
+  const zeroY = margin.top + plotHeight / 2
+  const scale = (plotHeight / 2 - 10) / maxAbs
+  const bars = rows.map((row, index): FundControlBar => {
+    const x = margin.left + index * barStep + 10
+    let positiveStack = 0
+    let negativeStack = 0
+    const segments = (factorValues[index] ?? []).flatMap(({ definition, value }): FundControlBarSegment[] => {
+      if (Math.abs(value) <= 0.01) {
+        return []
+      }
+
+      if (value > 0) {
+        const height = Math.max(1, value * scale)
+        const y = zeroY - (positiveStack + value) * scale
+        positiveStack += value
+        return [{ key: definition.key, label: definition.label, value, color: definition.color, x, y, height }]
+      }
+
+      const height = Math.max(1, Math.abs(value) * scale)
+      const y = zeroY + negativeStack * scale
+      negativeStack += Math.abs(value)
+      return [{ key: definition.key, label: definition.label, value, color: definition.color, x, y, height }]
+    })
+    const displayTotal = positiveStack - negativeStack
+    const rawValueLabelY = displayTotal >= 0
+      ? zeroY - positiveStack * scale - 10
+      : zeroY + negativeStack * scale + 20
+    const valueLabelY = Math.min(height - margin.bottom + 26, Math.max(20, rawValueLabelY))
+
+    return {
+      wellId: row.well_id,
+      totalDelta: getFiniteNumber(row.total_delta),
+      displayTotal,
+      x,
+      valueLabelY,
+      positiveTotal: positiveStack,
+      negativeTotal: negativeStack,
+      segments
+    }
+  })
+
+  return {
+    bars,
+    width,
+    height,
+    zeroY,
+    yTicks: [-maxAbs, -maxAbs / 2, 0, maxAbs / 2, maxAbs].map((value) => ({
+      value,
+      y: zeroY - value * scale
+    }))
+  }
 }
 
 function formatPeriodDate(value: string): string {
@@ -4299,29 +4801,66 @@ function formatPeriodDate(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
 }
 
+function getPeriodSummaryRequestParams() {
+  if (periodSummaryPreset.value === 'custom') {
+    const [start, end] = periodSummaryDateRange.value ?? []
+    return {
+      period: 'custom' as const,
+      date_from: toIsoDate(start),
+      date_to: toIsoDate(end)
+    }
+  }
+
+  return {
+    period: periodSummaryPreset.value,
+    date_from: undefined,
+    date_to: undefined
+  }
+}
+
+function downloadFundControlCsv(): void {
+  const headers = periodSummaryColumnDefinitions.map((column) => column.title)
+  const rows = filteredPeriodSummaryRows.value.map((row) =>
+    periodSummaryColumnDefinitions.map((column) => formatPeriodSummaryCell(row[column.key]))
+  )
+  const csv = [headers, ...rows]
+    .map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `fund_control_${periodSummaryScopeLabel.value}_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function loadPeriodSummary(): Promise<void> {
   periodSummaryLoading.value = true
   periodSummaryError.value = ''
-  const [start, end] = periodSummaryDateRange.value ?? []
+  const requestParams = getPeriodSummaryRequestParams()
   const params = {
-    period: periodSummaryPreset.value,
-    date_from: periodSummaryPreset.value === 'custom' ? toIsoDate(start) : undefined,
-    date_to: periodSummaryPreset.value === 'custom' ? toIsoDate(end) : undefined,
+    ...requestParams,
     field_code: periodSummaryFieldCode.value !== 'all' ? periodSummaryFieldCode.value : undefined,
     well_id: periodSummaryWellId.value !== 'all' ? periodSummaryWellId.value : undefined
   }
 
   try {
-    const summary = await fetchPeriodSummary(params)
+    const summary = await fetchFundControl(params)
     periodSummaryRows.value = summary.rows
+    fundControlFactors.value = summary.factors
     periodSummaryMeta.value = {
       period_start: summary.period_start,
       period_end: summary.period_end,
-      window_days: summary.window_days
+      max_abs_balance_error: summary.max_abs_balance_error,
+      balance_check_passed: summary.balance_check_passed
     }
   } catch {
     periodSummaryRows.value = []
-    periodSummaryError.value = 'Не удалось загрузить сводку авторазметки за период.'
+    fundControlFactors.value = []
+    periodSummaryError.value = 'Не удалось загрузить контроль фонда за период.'
     message.error(periodSummaryError.value)
   } finally {
     periodSummaryLoading.value = false

@@ -16,7 +16,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-INVALID_WELL_IDS = {"Da_51Da_515", "Da_515Da_515"}
+INVALID_WELL_IDS = {"Da_515", "Da_51Da_515", "Da_515Da_515"}
 DUPLICATED_WELL_ID_PATTERN = re.compile(r"^([A-Za-z]+_\d+)\1$")
 
 VFM_GAIN = 0.30
@@ -25,6 +25,8 @@ VFM_SMOOTH_DAYS = 5
 VFM_MIN_SHAPE_QLIQ = 10.0
 VFM_STOP_FREQ_HZ = 5.0
 VFM_STOP_POWER_KW = 1.0
+VFM_MODEL_VERSION = "vfm_core_episode_shape_v1"
+EXTERNAL_VFM_DAILY_PATH = settings.reference_data_path / "vfm_daily.csv"
 
 WELL_ALIASES = ("Скважина", "РЎРєРІР°Р¶РёРЅР°", "well_id", "well")
 DATE_ALIASES = ("Дата", "Р”Р°С‚Р°", "date", "telemetry_date", "telemetry_time")
@@ -58,6 +60,17 @@ def _today_utc_key() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+def _vfm_parameters() -> dict[str, float | int]:
+    return {
+        "gain": VFM_GAIN,
+        "tau": VFM_TAU,
+        "smooth_days": VFM_SMOOTH_DAYS,
+        "min_shape_qliq": VFM_MIN_SHAPE_QLIQ,
+        "stop_freq_hz": VFM_STOP_FREQ_HZ,
+        "stop_active_power": VFM_STOP_POWER_KW,
+    }
+
+
 def _read_meta(meta_path: Path) -> dict[str, Any]:
     try:
         return json.loads(meta_path.read_text(encoding="utf-8"))
@@ -78,6 +91,13 @@ def _replace_file(tmp_path: Path, output_path: Path) -> None:
     except PermissionError:
         output_path.unlink(missing_ok=True)
         tmp_path.replace(output_path)
+
+
+def _external_vfm_mtime_ns() -> int | None:
+    try:
+        return EXTERNAL_VFM_DAILY_PATH.stat().st_mtime_ns if EXTERNAL_VFM_DAILY_PATH.exists() else None
+    except OSError:
+        return None
 
 
 def _normalize_numeric(column_name: str) -> pl.Expr:
@@ -393,12 +413,80 @@ def _load_existing_predictions(path: Path) -> pl.DataFrame:
     )
 
 
+def _build_predicted_qliq_from_external_vfm(path: Path, output_path: Path, meta_path: Path) -> dict[str, Any]:
+    raw = _read_pandas_csv(path)
+    normalized = {str(column).strip().lstrip("\ufeff"): column for column in raw.columns}
+    required = {"well_id", "date", "vQliq"}
+    missing = [column for column in required if column not in normalized]
+    if missing:
+        raise ValueError(f"External VFM daily CSV has no required columns {missing}: {path}")
+
+    output = pd.DataFrame(
+        {
+            "well_id": _well_series(raw, normalized["well_id"]),
+            "date": pd.to_datetime(raw[normalized["date"]], errors="coerce").dt.floor("D"),
+            "predicted_qliq": _numeric_series(raw, normalized["vQliq"]),
+            "anchor_qliq": _numeric_series(raw, normalized.get("tr_anchor")),
+            "shape_ratio": 1.0,
+            "anchor_source": "vfm_core",
+            "stop_flag": _numeric_series(raw, normalized.get("stop")).fillna(0).astype(bool),
+            "tr_source_date": pd.to_datetime(raw[normalized.get("tr_source_date")], errors="coerce").dt.floor("D")
+            if normalized.get("tr_source_date") is not None
+            else pd.NaT,
+        }
+    )
+    output = output[
+        _valid_well_mask(output["well_id"])
+        & output["date"].notna()
+        & output["predicted_qliq"].notna()
+    ]
+    output = (
+        output.sort_values(["well_id", "date"])
+        .drop_duplicates(["well_id", "date"], keep="last")
+        .reset_index(drop=True)
+    )
+    output["predicted_qliq"] = output["predicted_qliq"].round(2)
+    output["anchor_qliq"] = output["anchor_qliq"].round(2)
+    output["date"] = pd.to_datetime(output["date"]).dt.strftime("%Y-%m-%d")
+    output["tr_source_date"] = pd.to_datetime(output["tr_source_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    output.to_csv(tmp_path, index=False)
+    _replace_file(tmp_path, output_path)
+
+    metadata = {
+        "computed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "computed_for_utc_date": _today_utc_key(),
+        "source": "external vfm_core daily output",
+        "model": "vfm_core",
+        "model_version": VFM_MODEL_VERSION,
+        "external_vfm_daily_path": str(path),
+        "external_vfm_daily_mtime_ns": path.stat().st_mtime_ns,
+        "rows": int(len(output)),
+        "wells": int(output["well_id"].nunique()),
+        "anchor_source_counts": output["anchor_source"].value_counts().to_dict(),
+        "stop_days": int(output["stop_flag"].sum()),
+    }
+    _write_meta(meta_path, metadata)
+    logger.info(
+        "Predicted Q liquid cache loaded from external VFM %s: %s rows, %s wells",
+        path,
+        metadata["rows"],
+        metadata["wells"],
+    )
+    return metadata
+
+
 def build_predicted_qliq_cache() -> dict[str, Any]:
     telemetry_path = settings.telemetry_aggregated_data_path
     measurements_path = settings.measurements_data_path
     tr_path = settings.tr_monitoring_data_path
     output_path = settings.predicted_qliq_data_path
     meta_path = settings.predicted_qliq_meta_path
+
+    if EXTERNAL_VFM_DAILY_PATH.exists():
+        return _build_predicted_qliq_from_external_vfm(EXTERNAL_VFM_DAILY_PATH, output_path, meta_path)
 
     if not telemetry_path.exists():
         raise FileNotFoundError(f"Telemetry CSV not found: {telemetry_path}")
@@ -455,14 +543,8 @@ def build_predicted_qliq_cache() -> dict[str, Any]:
         "computed_for_utc_date": _today_utc_key(),
         "source": "anchored-delta VFM: TR anchor with smoothed Qliq shape and stop guard",
         "model": "anchored_delta_vfm",
-        "parameters": {
-            "gain": VFM_GAIN,
-            "tau": VFM_TAU,
-            "smooth_days": VFM_SMOOTH_DAYS,
-            "min_shape_qliq": VFM_MIN_SHAPE_QLIQ,
-            "stop_freq_hz": VFM_STOP_FREQ_HZ,
-            "stop_active_power": VFM_STOP_POWER_KW,
-        },
+        "model_version": VFM_MODEL_VERSION,
+        "parameters": _vfm_parameters(),
         "rows": int(len(output)),
         "wells": int(output["well_id"].nunique()),
         "telemetry_day_rows": int(len(telemetry_daily)),
@@ -487,10 +569,16 @@ def ensure_predicted_qliq_cache(*, force: bool = False) -> dict[str, Any]:
     output_path = settings.predicted_qliq_data_path
     meta_path = settings.predicted_qliq_meta_path
     meta = _read_meta(meta_path)
+    external_mtime_ns = _external_vfm_mtime_ns()
     if (
         not force
         and output_path.exists()
         and meta.get("computed_for_utc_date") == _today_utc_key()
+        and meta.get("model_version") == VFM_MODEL_VERSION
+        and (
+            (external_mtime_ns is not None and meta.get("external_vfm_daily_mtime_ns") == external_mtime_ns)
+            or (external_mtime_ns is None and meta.get("parameters") == _vfm_parameters())
+        )
         and meta.get("rows", 0) > 0
     ):
         return meta
