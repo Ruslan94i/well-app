@@ -1,15 +1,29 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.services.episodes_scheduler import start_episode_scheduler, stop_episode_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    del app
+    start_episode_scheduler()
+    try:
+        yield
+    finally:
+        stop_episode_scheduler()
 
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Mock API for well time series visualization.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

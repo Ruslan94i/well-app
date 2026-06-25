@@ -20,6 +20,7 @@ AUTO_EPISODE_FILE_CANDIDATES = [
     settings.reference_data_path / "auto_episodes.csv",
 ]
 CANDIDATE_AUTO_EPISODE_FILE = settings.reference_data_path / "candidate_auto_episode_segments.csv"
+EPISODES_TABLE_FILE = settings.episodes_table_data_path
 AUTO_EPISODE_COLORS = ["#38bdf8", "#f97316", "#22c55e", "#eab308", "#ec4899", "#a855f7", "#14b8a6"]
 AUTO_EPISODE_LABEL_COLORS = {
     "\u0440\u0430\u0431\u043e\u0442\u0430": "#22c55e",
@@ -45,6 +46,7 @@ AUTO_EPISODE_LABEL_COLORS = {
     "\u0434\u0435\u043e\u043f\u0442\u0438\u043c\u0438\u0437\u0430\u0446\u0438\u044f \u044d\u0446\u043d": "#ffffff",
     "\u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0435 \u044d\u0446\u043d": "#ffffff",
     "\u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0435 \u0438\u043d\u0444\u0440\u0430\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440\u044b": "#ffffff",
+    "\u0443\u0432\u0435\u043b\u0438\u0447\u0435\u043d\u0438\u0435 \u043f\u043e\u0434\u0430\u0447\u0438 \u0432\u043e\u0434\u044b": "#a855f7",
     "\u0434\u0435\u0433\u0440\u0430\u0434\u0430\u0446\u0438\u044f \u044d\u0446\u043d": "#94a3b8",
 }
 EXCEL_EPOCH = date(1899, 12, 30)
@@ -95,6 +97,13 @@ DATE_COLUMNS = {"date", "дата", "pointdate", "датазамера"}
 CONFIDENCE_COLUMNS = {"confidence", "conf", "probability", "score", "уверенность", "вероятность"}
 
 CONFIDENCE_TIER_COLUMNS = {"confidencetier", "confidencelevel", "tier", "level", "quality"}
+EXPLANATION_COLUMNS = {"explanation", "comment", "commentary", "notes"}
+COMPUTED_AT_COLUMNS = {"computedat", "computed_at"}
+MODEL_VERSION_COLUMNS = {"modelversion", "model_version", "sourceversion", "source_version"}
+SIGNALS_COLUMNS = {"signals"}
+SIG_LABEL_COLUMNS = {"siglabel", "sig_label"}
+SIG_MARGIN_COLUMNS = {"sigmargin", "sig_margin"}
+INTERNAL_ROW_KEYS = {"normalizedWellId", "startDateTime", "endDateTime"}
 CONFIDENCE_TIER_LABELS = {
     "high": "\u0432\u044b\u0441\u043e\u043a\u0430\u044f",
     "medium": "\u0441\u0440\u0435\u0434\u043d\u044f\u044f",
@@ -293,11 +302,34 @@ def _read_csv_rows(path: Path) -> list[dict[str, str]]:
     return [dict(row) for row in reader]
 
 
+def _read_tabular_rows(path: Path) -> list[dict[str, object]]:
+    if path.suffix.casefold() != ".parquet":
+        return _read_csv_rows(path)
+
+    try:
+        import pandas as pd
+    except ImportError:
+        logger.warning("Cannot read parquet auto episodes because pandas is not installed: %s", path)
+        return []
+
+    try:
+        frame = pd.read_parquet(path)
+    except Exception:
+        logger.exception("Cannot read parquet auto episodes: %s", path)
+        return []
+
+    return frame.where(frame.notna(), "").to_dict(orient="records")
+
+
 def _get_source_path() -> Path | None:
     for path in AUTO_EPISODE_FILE_CANDIDATES:
         if path.exists():
             return path
     return None
+
+
+def _strip_internal(row: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in row.items() if key not in INTERNAL_ROW_KEYS}
 
 
 def _load_auto_episode_rows() -> list[dict[str, object]]:
@@ -329,6 +361,27 @@ def _load_candidate_auto_episode_rows() -> list[dict[str, object]]:
     ]
 
 
+def _load_episode_table_rows() -> list[dict[str, object]]:
+    if not EPISODES_TABLE_FILE.exists():
+        return []
+
+    file_stat = EPISODES_TABLE_FILE.stat()
+    source_version = f"{file_stat.st_mtime_ns}-{file_stat.st_size}"
+    return [
+        {**row, "sourceVersion": source_version}
+        for row in _load_auto_episode_rows_cached(
+            str(EPISODES_TABLE_FILE),
+            file_stat.st_mtime_ns,
+            file_stat.st_size,
+        )
+    ]
+
+
+def _get_ready_episode_rows() -> list[dict[str, object]]:
+    table_rows = _load_episode_table_rows()
+    return table_rows if table_rows else _load_candidate_auto_episode_rows()
+
+
 @lru_cache(maxsize=4)
 def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int) -> list[dict[str, object]]:
     del file_mtime_ns, file_size
@@ -337,14 +390,22 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
 
     rows: list[dict[str, object]] = []
     point_rows: list[dict[str, object]] = []
-    for index, raw_row in enumerate(_read_csv_rows(source_path), start=1):
+    for index, raw_row in enumerate(_read_tabular_rows(source_path), start=1):
         well_id = _get_cell(raw_row, WELL_ID_COLUMNS)
         start_date = _parse_temporal_value(_get_cell(raw_row, START_DATE_COLUMNS))
         end_date = _parse_temporal_value(_get_cell(raw_row, END_DATE_COLUMNS))
         point_date = _parse_date(_get_cell(raw_row, DATE_COLUMNS))
         label = _repair_mojibake(_get_cell(raw_row, LABEL_COLUMNS)) or "Автоэпизод"
         confidence = _parse_float(_get_cell(raw_row, CONFIDENCE_COLUMNS))
-        confidence_display = _format_confidence(confidence, _get_cell(raw_row, CONFIDENCE_TIER_COLUMNS))
+        confidence_tier_cell = _get_cell(raw_row, CONFIDENCE_TIER_COLUMNS)
+        confidence_display = _format_confidence(confidence, confidence_tier_cell)
+        confidence_tier_display = _format_confidence(confidence, confidence_tier_cell)
+        explanation = _repair_mojibake(_get_cell(raw_row, EXPLANATION_COLUMNS))
+        computed_at = _get_cell(raw_row, COMPUTED_AT_COLUMNS)
+        model_version = _get_cell(raw_row, MODEL_VERSION_COLUMNS)
+        signals = _repair_mojibake(_get_cell(raw_row, SIGNALS_COLUMNS))
+        sig_label = _repair_mojibake(_get_cell(raw_row, SIG_LABEL_COLUMNS))
+        sig_margin = _parse_float(_get_cell(raw_row, SIG_MARGIN_COLUMNS))
 
         if well_id and point_date is not None and start_date is None and end_date is None:
             point_rows.append(
@@ -354,6 +415,13 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
                     "date": point_date,
                     "label": label,
                     "confidence": confidence,
+                    "confidenceTier": confidence_tier_display,
+                    "explanation": explanation or None,
+                    "computedAt": computed_at or None,
+                    "modelVersion": model_version or None,
+                    "signals": signals or None,
+                    "sigLabel": sig_label or None,
+                    "sigMargin": sig_margin,
                 }
             )
             continue
@@ -376,11 +444,20 @@ def _load_auto_episode_rows_cached(path: str, file_mtime_ns: int, file_size: int
                 "id": interval_id,
                 "wellId": well_id,
                 "normalizedWellId": well_id.casefold(),
+                "startDateTime": _temporal_to_datetime(start_date),
+                "endDateTime": _temporal_to_datetime(end_date),
                 "startDate": start_value,
                 "endDate": end_value,
                 "label": label,
                 "color": color,
                 "confidence": confidence_display,
+                "confidenceTier": confidence_tier_display,
+                "explanation": explanation or None,
+                "computedAt": computed_at or None,
+                "modelVersion": model_version or None,
+                "signals": signals or None,
+                "sigLabel": sig_label or None,
+                "sigMargin": sig_margin,
             }
         )
 
@@ -429,6 +506,13 @@ def _build_intervals_from_point_rows(point_rows: list[dict[str, object]]) -> lis
                 "label": label,
                 "confidenceSum": float(confidence) if confidence is not None else 0.0,
                 "confidenceCount": confidence_count,
+                "confidenceTier": point.get("confidenceTier"),
+                "explanation": point.get("explanation"),
+                "computedAt": point.get("computedAt"),
+                "modelVersion": point.get("modelVersion"),
+                "signals": point.get("signals"),
+                "sigLabel": point.get("sigLabel"),
+                "sigMargin": point.get("sigMargin"),
             }
             continue
 
@@ -463,18 +547,27 @@ def _finalize_point_interval(interval: dict[str, object], index: int) -> dict[st
         "id": f"auto-episode-{well_id}-{start_date.isoformat()}-{index}",
         "wellId": well_id,
         "normalizedWellId": str(interval["normalizedWellId"]),
+        "startDateTime": _temporal_to_datetime(start_date),
+        "endDateTime": _temporal_to_datetime(end_date),
         "startDate": start_date.isoformat(),
         "endDate": end_date.isoformat(),
         "label": label,
         "color": _default_color(label),
         "confidence": _format_confidence(confidence),
+        "confidenceTier": interval.get("confidenceTier") or _format_confidence(confidence),
+        "explanation": interval.get("explanation"),
+        "computedAt": interval.get("computedAt"),
+        "modelVersion": interval.get("modelVersion"),
+        "signals": interval.get("signals"),
+        "sigLabel": interval.get("sigLabel"),
+        "sigMargin": interval.get("sigMargin"),
     }
 
 
 def get_well_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
     normalized_well_id = well_id.strip().casefold()
     return [
-        {key: value for key, value in row.items() if key not in {"normalizedWellId", "wellId"}}
+        _strip_internal(row)
         for row in _load_auto_episode_rows()
         if row["normalizedWellId"] == normalized_well_id
     ]
@@ -483,14 +576,76 @@ def get_well_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
 def get_well_candidate_auto_episode_intervals(well_id: str) -> list[dict[str, object]]:
     normalized_well_id = well_id.strip().casefold()
     return [
-        {key: value for key, value in row.items() if key not in {"normalizedWellId", "wellId"}}
-        for row in _load_candidate_auto_episode_rows()
+        _strip_internal(row)
+        for row in _get_ready_episode_rows()
         if row["normalizedWellId"] == normalized_well_id
     ]
 
 
 def get_candidate_auto_episode_intervals() -> list[dict[str, object]]:
-    return [
-        {key: value for key, value in row.items() if key != "normalizedWellId"}
-        for row in _load_candidate_auto_episode_rows()
-    ]
+    return [_strip_internal(row) for row in _get_ready_episode_rows()]
+
+
+def _parse_query_datetime(value: str | None) -> datetime | None:
+    parsed = _parse_temporal_value(value)
+    return _temporal_to_datetime(parsed) if parsed is not None else None
+
+
+def get_well_episode_intervals(
+    well_id: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    label: str | None = None,
+    tier: str | None = None,
+) -> list[dict[str, object]]:
+    normalized_well_id = well_id.strip().casefold()
+    start_limit = _parse_query_datetime(date_from)
+    end_limit = _parse_query_datetime(date_to)
+    normalized_label = label.strip().casefold() if label else None
+    normalized_tier = tier.strip().casefold() if tier else None
+
+    result: list[dict[str, object]] = []
+    for row in _get_ready_episode_rows():
+        if row["normalizedWellId"] != normalized_well_id:
+            continue
+
+        row_start = row.get("startDateTime")
+        row_end = row.get("endDateTime")
+        if not isinstance(row_start, datetime):
+            row_start = _parse_query_datetime(str(row.get("startDate", "")))
+        if not isinstance(row_end, datetime):
+            row_end = _parse_query_datetime(str(row.get("endDate", "")))
+        if row_start is None or row_end is None:
+            continue
+        if start_limit is not None and row_end < start_limit:
+            continue
+        if end_limit is not None and row_start > end_limit:
+            continue
+        if normalized_label and str(row.get("label", "")).casefold() != normalized_label:
+            continue
+        if normalized_tier:
+            row_tier = str(row.get("confidenceTier") or row.get("confidence") or "").casefold()
+            if row_tier != normalized_tier:
+                continue
+
+        result.append(_strip_internal(row))
+
+    return result
+
+
+def get_episodes_last_computed() -> dict[str, object]:
+    rows = _load_episode_table_rows()
+    computed_values = [str(row.get("computedAt") or "") for row in rows if row.get("computedAt")]
+    model_versions = [str(row.get("modelVersion") or "") for row in rows if row.get("modelVersion")]
+    well_ids = {str(row.get("wellId") or "") for row in rows if row.get("wellId")}
+    return {
+        "computedAt": max(computed_values) if computed_values else None,
+        "modelVersion": model_versions[-1] if model_versions else None,
+        "episodeCount": len(rows),
+        "wellCount": len(well_ids),
+        "source": str(EPISODES_TABLE_FILE) if EPISODES_TABLE_FILE.exists() else None,
+    }
+
+
+def clear_auto_episode_caches() -> None:
+    _load_auto_episode_rows_cached.cache_clear()

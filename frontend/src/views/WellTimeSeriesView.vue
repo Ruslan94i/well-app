@@ -773,93 +773,103 @@
           </div>
 
           <div class="mt-3 grid gap-3 2xl:grid-cols-[360px_minmax(0,1fr)_310px]">
-            <aside class="flex max-h-[calc(100vh-258px)] min-h-0 flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-              <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Категории</div>
-              <div class="grid gap-1.5">
-                <button
-                  v-for="category in modelRuleCategories"
-                  :key="category.key"
-                  class="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition"
-                  :class="
-                    modelSelectedCategoryKey === category.key
-                      ? 'border-sky-400 bg-slate-700/80 text-slate-100'
-                      : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800'
-                  "
-                  @click="selectModelRuleCategory(category.key)"
-                >
-                  <span class="h-3 w-3 rounded-sm" :style="{ backgroundColor: category.color }" />
-                  <span>{{ category.label }}</span>
-                  <span
-                    v-if="hasModelCategoryOverrides(category)"
-                    class="ml-auto h-2.5 w-2.5 rounded-full bg-sky-400 shadow shadow-sky-950"
-                    title="Есть переопределения в категории"
-                  />
-                </button>
-              </div>
-
-              <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700 bg-slate-800/90">
-                <div class="border-b border-slate-700 px-3 py-3">
-                  <div class="flex items-start justify-between gap-3">
-                  <div>
-                      <h3 class="text-sm font-semibold text-slate-100">{{ activeModelRuleCategory.label }}</h3>
-                      <p class="mt-1 text-xs leading-5 text-slate-400">{{ activeModelRuleCategory.description }}</p>
-                  </div>
-                    <div class="shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-right">
-                      <div class="text-[10px] uppercase tracking-[0.16em] text-slate-400">Совпадение</div>
-                      <div class="mt-1 text-xs font-semibold text-slate-100">
-                      {{ displayedModelQualityBeforePct }}% → {{ displayedModelQualityAfterPct }}%
-                      </div>
-                    </div>
-                  </div>
-
-                  <pre class="mt-3 max-h-24 overflow-auto rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-[11px] leading-5 text-slate-300">{{ activeModelRulePseudocode }}</pre>
-                </div>
-
-                <div class="max-h-[420px] overflow-y-auto px-3 py-2">
-                  <div
-                    v-for="parameter in activeModelRuleParameters"
-                    :key="parameter.key"
-                    class="grid gap-2 border-b border-slate-800 py-2.5 last:border-b-0"
+            <aside class="flex max-h-[calc(100vh-258px)] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+              <div class="shrink-0 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Категории</div>
+              <div class="model-category-scroll mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden pr-1">
+                <div v-for="category in modelRuleCategories" :key="category.key" class="min-w-0">
+                  <button
+                    class="flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition"
+                    :class="
+                      modelSelectedCategoryKey === category.key
+                        ? 'border-sky-400 bg-slate-700/80 text-slate-100'
+                        : 'border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800'
+                    "
+                    @click="selectModelRuleCategory(category.key)"
                   >
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="text-xs font-medium leading-5 text-slate-200">
-                          <span v-if="parameter.important" class="mr-1 text-sky-300">★</span>{{ parameter.label }}
+                    <span class="h-3 w-3 shrink-0 rounded-sm" :style="{ backgroundColor: category.color }" />
+                    <span class="min-w-0 flex-1 truncate">{{ category.label }}</span>
+                    <span
+                      v-if="hasModelCategoryOverrides(category)"
+                      class="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400 shadow shadow-sky-950"
+                      title="Есть переопределения в категории"
+                    />
+                  </button>
+
+                  <div
+                    v-if="modelSelectedCategoryKey === category.key"
+                    class="mt-1.5 min-w-0 rounded-xl border border-slate-700 bg-slate-800/90"
+                  >
+                    <div class="border-b border-slate-700 px-3 py-3">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <h3 class="truncate text-sm font-semibold text-slate-100">{{ activeModelRuleCategory.label }}</h3>
+                          <p class="mt-1 text-xs leading-5 text-slate-400">{{ activeModelRuleCategory.description }}</p>
                         </div>
-                        <div class="text-[11px] text-slate-500">{{ parameter.key }}</div>
-                        <div class="mt-0.5 text-[11px] text-slate-500">
-                          <span v-if="hasModelParamOverride(parameter.key)">
-                            Глобально: {{ formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)) }}
-                          </span>
-                          <span v-else>
-                            Диапазон: {{ parameter.min }}–{{ parameter.max }}{{ parameter.unit ? ` ${parameter.unit}` : '' }}
-                          </span>
+                        <div class="shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-right">
+                          <div class="text-[10px] uppercase tracking-[0.16em] text-slate-400">Совпадение</div>
+                          <div class="mt-1 whitespace-nowrap text-xs font-semibold text-slate-100">
+                            {{ displayedModelQualityBeforePct }}% → {{ displayedModelQualityAfterPct }}%
+                          </div>
                         </div>
                       </div>
-                      <div class="shrink-0 text-right">
-                        <div class="text-[10px] uppercase tracking-[0.14em] text-slate-500">После</div>
-                        <div class="text-xs font-semibold text-slate-100">
-                          {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+
+                      <pre class="mt-3 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-[11px] leading-5 text-slate-300">{{ activeModelRulePseudocode }}</pre>
+                    </div>
+
+                    <div class="px-3 py-2">
+                      <div
+                        v-for="parameter in activeModelRuleParameters"
+                        :key="parameter.key"
+                        class="grid min-w-0 gap-2 border-b border-slate-800 py-2.5 last:border-b-0"
+                      >
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <div class="truncate text-xs font-medium leading-5 text-slate-200">
+                              <span v-if="parameter.important" class="mr-1 text-sky-300">★</span>{{ parameter.label }}
+                            </div>
+                            <div class="truncate text-[11px] text-slate-500">{{ parameter.key }}</div>
+                            <div class="mt-0.5 truncate text-[11px] text-slate-500">
+                              <span v-if="hasModelParamOverride(parameter.key)">
+                                Глобально: {{ formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)) }}
+                              </span>
+                              <span v-else>
+                                Диапазон: {{ parameter.min }}–{{ parameter.max }}{{ parameter.unit ? ` ${parameter.unit}` : '' }}
+                              </span>
+                            </div>
+                          </div>
+                          <div class="shrink-0 text-right">
+                            <div class="text-[10px] uppercase tracking-[0.14em] text-slate-500">После</div>
+                            <div class="whitespace-nowrap text-xs font-semibold text-slate-100">
+                              {{ formatModelParamValue(parameter, getModelParamValue(parameter.key)) }}
+                            </div>
+                            <button
+                              v-if="hasModelParamOverride(parameter.key)"
+                              class="mt-1 text-[11px] text-sky-300 hover:text-sky-100"
+                              @click="resetModelParamValue(parameter.key)"
+                            >
+                              Сбросить
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          v-if="hasModelParamOverride(parameter.key)"
-                          class="mt-1 text-[11px] text-sky-300 hover:text-sky-100"
-                          @click="resetModelParamValue(parameter.key)"
-                        >
-                          Сбросить
-                        </button>
+                        <div class="model-param-range-wrap">
+                          <input
+                            class="model-param-range"
+                            type="range"
+                            :value="getModelParamValue(parameter.key)"
+                            :min="parameter.min"
+                            :max="parameter.max"
+                            :step="parameter.step"
+                            @input="handleModelParamRangeInput(parameter.key, $event)"
+                          >
+                          <span
+                            class="model-param-baseline-marker"
+                            :style="{ left: `${getModelParamBaselinePercent(parameter)}%` }"
+                            :title="`База: ${formatModelParamValue(parameter, getModelParamBaselineValue(parameter.key))}`"
+                          />
+                        </div>
+                        <div v-if="parameter.hint" class="truncate text-[11px] leading-4 text-slate-400">{{ parameter.hint }}</div>
                       </div>
                     </div>
-                    <input
-                      class="model-param-range"
-                      type="range"
-                      :value="getModelParamValue(parameter.key)"
-                      :min="parameter.min"
-                      :max="parameter.max"
-                      :step="parameter.step"
-                      @input="handleModelParamRangeInput(parameter.key, $event)"
-                    >
-                    <div v-if="parameter.hint" class="truncate text-[11px] leading-4 text-slate-400">{{ parameter.hint }}</div>
                   </div>
                 </div>
               </div>
@@ -903,7 +913,7 @@
               </div>
               <div class="grid gap-2">
                 <div class="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2">
-                  <div class="text-xs uppercase tracking-[0.16em] text-slate-400">До изменений</div>
+                  <div class="text-xs uppercase tracking-[0.16em] text-slate-400">Базовая модель</div>
                   <div class="mt-1 text-2xl font-semibold text-slate-100">{{ displayedModelQualityBeforePct }}%</div>
                 </div>
                 <div class="rounded-lg border border-sky-500/40 bg-sky-950/30 px-3 py-2">
@@ -1455,6 +1465,14 @@ interface ModelQualityRow {
 interface ModelQualitySnapshot {
   before: number
   after: number
+  byCategoryBefore: Record<string, number>
+  byCategoryAfter: Record<string, number>
+  rows: ModelQualityRow[]
+}
+
+interface ModelQualityBaselineSnapshot {
+  before: number
+  byCategoryBefore: Record<string, number>
   rows: ModelQualityRow[]
 }
 
@@ -1677,6 +1695,24 @@ const modelRuleCategories: ModelRuleCategory[] = MODEL_RULE_SCHEMA.map((category
   ...category,
   paramKeys: category.params.map((parameter) => parameter.key)
 }))
+
+const modelQualityLabelsByCategory: Record<string, string[]> = {
+  stop: ['Работа', 'Остановка'],
+  gdi: ['ГДИ'],
+  frequency: ['УВЧ', 'УМЧ'],
+  rptch: ['РПТЧ'],
+  periodic: ['Периодическая работа'],
+  nur: ['НУР'],
+  pressure_decline: ['Снижение Рпл'],
+  pressure_growth: ['Рост Рпл'],
+  kprod: ['Снижение Кпрод', 'Рост Кпрод'],
+  complicated: ['Осложненный фонд', 'Осложнённый фонд'],
+  degradation: ['Деградация ЭЦН'],
+  deoptimization: ['Деоптимизация'],
+  wct: ['Рост обводненности', 'Рост обводнённости', 'Снижение обводненности', 'Снижение обводнённости'],
+  gas: ['ВГФ', 'Рост ГФ', 'Снижение ГФ'],
+  sppv: ['СППВ', 'Увеличение подачи воды']
+}
 
 const modelQualityRows: ModelQualityRow[] = [
   { field: 'Ic', wells: 8, rows: '29.8K', pct: 51, note: 'иерархическая разметка' },
@@ -1906,6 +1942,20 @@ function getModelParamInheritedValue(key: ModelParamKey): number {
   return getInheritedModelParams(getCurrentModelTargetId())[key] ?? modelParamDefinitionByKey[key]?.defaultValue ?? 0
 }
 
+function getModelParamBaselineValue(key: ModelParamKey): number {
+  return DEFAULT_MODEL_PARAMS[key] ?? modelParamDefinitionByKey[key]?.defaultValue ?? 0
+}
+
+function getModelParamBaselinePercent(parameter: ModelParamDefinition): number {
+  const span = parameter.max - parameter.min
+  if (span <= 0) {
+    return 0
+  }
+
+  const value = Math.min(parameter.max, Math.max(parameter.min, getModelParamBaselineValue(parameter.key)))
+  return Math.min(100, Math.max(0, ((value - parameter.min) / span) * 100))
+}
+
 function setModelParamValue(key: ModelParamKey, value: number): void {
   const definition = modelParamDefinitionByKey[key]
   if (!definition) {
@@ -1980,6 +2030,11 @@ function hasModelCategoryOverrides(category: ModelRuleCategory): boolean {
 function selectModelRuleCategory(categoryKey: string): void {
   modelSelectedCategoryKey.value = categoryKey
   modelPanelTab.value = 'rules'
+}
+
+function clearModelQualitySnapshots(): void {
+  modelQualitySnapshot.value = null
+  modelQualityBaselineSnapshot.value = null
 }
 
 function slugifyModelSetName(value: string): string {
@@ -2095,6 +2150,7 @@ const selectedModelFeatures = ref<string[]>([
 const modelParamsByGroup = ref<Record<string, Partial<ModelParams>>>({})
 const modelQualityByGroup = ref<Record<string, number>>({})
 const modelQualitySnapshot = ref<ModelQualitySnapshot | null>(null)
+const modelQualityBaselineSnapshot = ref<ModelQualityBaselineSnapshot | null>(null)
 const modelQualityLoading = ref(false)
 const wellGroupOptions = ref(baseWellGroupOptions)
 const wellGroupAssignments = ref<Record<string, WellGroupId | null>>({})
@@ -2283,11 +2339,11 @@ const activeModelRulePseudocode = computed(() => {
 })
 const modelChangedRows = computed(() =>
   modelParamDefinitions
-    .filter((parameter) => hasModelParamOverride(parameter.key))
+    .filter((parameter) => getModelParamValue(parameter.key) !== getModelParamBaselineValue(parameter.key))
     .map((parameter) => ({
       key: parameter.key,
       label: parameter.label,
-      defaultValue: formatModelParamValue(parameter, getModelParamInheritedValue(parameter.key)),
+      defaultValue: formatModelParamValue(parameter, getModelParamBaselineValue(parameter.key)),
       currentValue: formatModelParamValue(parameter, getModelParamValue(parameter.key))
     }))
 )
@@ -2311,9 +2367,49 @@ const compactModelQualityRows = computed(() =>
     ? modelQualityRows
     : modelQualityRows.filter((row) => row.field === modelSelectedFieldId.value)
 )
-const displayedModelQualityBeforePct = computed(() => modelQualitySnapshot.value?.before ?? modelQualityBeforePct.value)
-const displayedModelQualityAfterPct = computed(() => modelQualitySnapshot.value?.after ?? modelQualityBeforePct.value)
-const displayedModelQualityRows = computed(() => modelQualitySnapshot.value?.rows ?? compactModelQualityRows.value)
+
+function normalizeModelQualityLabel(value: string): string {
+  return value.trim().replace(/ё/g, 'е').toLowerCase()
+}
+
+function getModelCategoryQualityPct(
+  source: Record<string, number> | undefined,
+  category: ModelRuleCategory
+): number | null {
+  if (!source) {
+    return null
+  }
+
+  const normalizedSource = new Map(
+    Object.entries(source).map(([label, pct]) => [normalizeModelQualityLabel(label), pct])
+  )
+  const labels = [...(modelQualityLabelsByCategory[category.key] ?? []), category.label]
+  const values = labels
+    .map((label) => normalizedSource.get(normalizeModelQualityLabel(label)))
+    .filter((pct): pct is number => typeof pct === 'number' && Number.isFinite(pct))
+
+  if (values.length === 0) {
+    return null
+  }
+
+  return Math.round(values.reduce((sum, pct) => sum + pct, 0) / values.length)
+}
+
+const displayedModelQualityBeforePct = computed(() =>
+  getModelCategoryQualityPct(modelQualityBaselineSnapshot.value?.byCategoryBefore, activeModelRuleCategory.value) ??
+  modelQualityBaselineSnapshot.value?.before ??
+  getModelCategoryQualityPct(modelQualitySnapshot.value?.byCategoryBefore, activeModelRuleCategory.value) ??
+  modelQualitySnapshot.value?.before ??
+  modelQualityBeforePct.value
+)
+const displayedModelQualityAfterPct = computed(() =>
+  getModelCategoryQualityPct(modelQualitySnapshot.value?.byCategoryAfter, activeModelRuleCategory.value) ??
+  modelQualitySnapshot.value?.after ??
+  displayedModelQualityBeforePct.value
+)
+const displayedModelQualityRows = computed(
+  () => modelQualitySnapshot.value?.rows ?? modelQualityBaselineSnapshot.value?.rows ?? compactModelQualityRows.value
+)
 const modelRunScopeLabel = computed(() =>
   modelRunScope.value === 'well'
     ? `Скважина ${selectedWell.value}`
@@ -4495,26 +4591,29 @@ function buildAutomarkQualityScope() {
     return {
       type: 'well' as const,
       field: getWellFieldCodeFromId(selectedWell.value),
-      well: selectedWell.value
+      well: selectedWell.value,
+      preview_well: selectedWell.value
     }
   }
 
   if (modelRunScope.value === 'field') {
     return {
       type: 'field' as const,
-      field: modelSelectedFieldId.value
+      field: modelSelectedFieldId.value,
+      preview_well: selectedWell.value
     }
   }
 
   return {
     type: 'set' as const,
-    wells: [...modelSetWellIds.value]
+    wells: [...modelSetWellIds.value],
+    preview_well: selectedWell.value
   }
 }
 
 async function applyCurrentModelParams() {
   const targetId = currentModelTargetId.value
-  const params = normalizeModelParams(modelParamsByGroup.value[targetId] ?? {})
+  const params = normalizeModelParams(getResolvedModelParams(targetId))
   modelQualityLoading.value = true
 
   try {
@@ -4525,6 +4624,8 @@ async function applyCurrentModelParams() {
     modelQualitySnapshot.value = {
       before: Math.round(result.overall_before),
       after: Math.round(result.overall_after),
+      byCategoryBefore: result.by_category_before ?? {},
+      byCategoryAfter: result.by_category_after ?? {},
       rows: result.rows.map((row) => ({
         field: row.field,
         wells: row.wells,
@@ -4533,6 +4634,12 @@ async function applyCurrentModelParams() {
         note: row.note
       }))
     }
+    modelQualityBaselineSnapshot.value = {
+      before: modelQualitySnapshot.value.before,
+      byCategoryBefore: modelQualitySnapshot.value.byCategoryBefore,
+      rows: modelQualitySnapshot.value.rows
+    }
+    candidateAutoEpisodeIntervals.value = result.preview_intervals
     message.success(`Качество пересчитано для области: ${modelRunScopeLabel.value}.`)
   } catch {
     message.error('Не удалось пересчитать качество модели.')
@@ -5173,6 +5280,13 @@ watch(
   { immediate: true }
 )
 
+watch(
+  [currentModelTargetId, modelRunScope, modelSelectedFieldId, selectedWell],
+  () => {
+    clearModelQualitySnapshots()
+  }
+)
+
 watch(interactionMode, (nextMode, previousMode) => {
   if (previousMode === 'annotate' && nextMode === 'navigate') {
     resetAnnotationSelection()
@@ -5228,13 +5342,34 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.model-param-range-wrap {
+  position: relative;
+  min-width: 0;
+  padding-top: 2px;
+}
+
 .model-param-range {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 22px;
   margin: 0;
   appearance: none;
   cursor: pointer;
   background: transparent;
+}
+
+.model-param-baseline-marker {
+  position: absolute;
+  top: 2px;
+  z-index: 2;
+  width: 2px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.46);
+  box-shadow: 0 0 0 3px rgba(226, 232, 240, 0.08);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .model-param-range:focus {
@@ -5271,5 +5406,23 @@ onMounted(async () => {
   border-radius: 999px;
   background: #0f172a;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.22);
+}
+
+.model-category-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+.model-category-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.model-category-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.model-category-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #475569;
 }
 </style>

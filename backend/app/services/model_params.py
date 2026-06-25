@@ -123,6 +123,79 @@ CLASSIFICATION_VALUE_LABELS: dict[str, str] = {
     "degr_yes": "Деградация ЭЦН",
     "деградация эцн": "Деградация ЭЦН",
 }
+CLASSIFICATION_VALUE_LABELS.update(
+    {
+        "work": "Работа",
+        "работа": "Работа",
+        "stop": "Остановка",
+        "остановка": "Остановка",
+        "gdi": "ГДИ",
+        "гди": "ГДИ",
+        "uvch": "УВЧ",
+        "увч": "УВЧ",
+        "umch": "УМЧ",
+        "умч": "УМЧ",
+        "rptch": "РПТЧ",
+        "рптч": "РПТЧ",
+        "periodic_operation": "Периодическая работа",
+        "периодическая работа": "Периодическая работа",
+        "nur": "НУР",
+        "nur_yes": "НУР",
+        "да": "НУР",
+        "pres_growth": "Рост Рпл",
+        "рост рпл": "Рост Рпл",
+        "pres_decline": "Снижение Рпл",
+        "снижение рпл": "Снижение Рпл",
+        "wct_growth": "Рост обводненности",
+        "рост обводненности": "Рост обводненности",
+        "wct_decline": "Снижение обводненности",
+        "снижение обводненности": "Снижение обводненности",
+        "kprod_growth": "Рост Кпрод",
+        "рост кпрод": "Рост Кпрод",
+        "kprod_decline": "Снижение Кпрод",
+        "снижение кпрод": "Снижение Кпрод",
+        "slozhn_fond": "Осложнённый фонд",
+        "осложненный фонд": "Осложнённый фонд",
+        "осложнённый фонд": "Осложнённый фонд",
+        "sppv": "СППВ",
+        "сппв": "СППВ",
+        "water_supply_up": "Увеличение подачи воды",
+        "увеличение подачи воды": "Увеличение подачи воды",
+        "vgf": "ВГФ",
+        "vgf_yes": "ВГФ",
+        "вгф": "ВГФ",
+        "gf_growth": "Рост ГФ",
+        "рост гф": "Рост ГФ",
+        "gf_decline": "Снижение ГФ",
+        "снижение гф": "Снижение ГФ",
+        "deoptimization": "Деоптимизация",
+        "деоптимизация": "Деоптимизация",
+        "degr_yes": "Деградация ЭЦН",
+        "деградация эцн": "Деградация ЭЦН",
+    }
+)
+
+LABEL_PARAM_KEYS: dict[str, tuple[str, ...]] = {
+    "ГДИ": ("gdi_min_stop_h", "gdi_total_rise_bar"),
+    "УВЧ": ("uvch_rise_hz", "uvch_hold_d"),
+    "УМЧ": ("uvch_rise_hz", "uvch_hold_d"),
+    "РПТЧ": ("rptch_round_frac",),
+    "Периодическая работа": ("per_start_n",),
+    "НУР": ("nur_min_drop_bar",),
+    "Снижение Рпл": ("snizh_win_drop",),
+    "Рост Рпл": ("rost_rise_bar",),
+    "Снижение Кпрод": ("kprod_pulse_drop", "kprod_pulse_drop_cyclic"),
+    "Рост Кпрод": ("kprod_pulse_drop", "kprod_pulse_drop_cyclic"),
+    "Осложнённый фонд": ("cf_min_opz",),
+    "Деградация ЭЦН": ("degr_load_pct",),
+    "Деоптимизация": ("deopt_pzab_pct",),
+    "Рост обводненности": ("wct_trend_pp", "wct_local_win"),
+    "Снижение обводненности": ("wct_trend_pp", "wct_local_win"),
+    "ВГФ": ("vgf_glf_thr",),
+    "Рост ГФ": ("gf_trend_frac",),
+    "Снижение ГФ": ("gf_trend_frac",),
+    "Увеличение подачи воды": ("water_supply_up_frac",),
+}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -230,8 +303,11 @@ def normalize_safe_params(params: dict[str, float]) -> dict[str, float]:
 
 
 def _normalize_label(value: object) -> str | None:
+    if value is None:
+        return None
+
     label = str(value or "").strip()
-    if not label:
+    if not label or label.casefold() in {"none", "null", "nan"}:
         return None
 
     normalized = label.casefold().replace("ё", "е").strip()
@@ -267,6 +343,80 @@ def _iter_interval_days(start_value: object, end_value: object) -> list[str]:
         days.append(current.isoformat())
         current += timedelta(days=1)
     return days
+
+
+def _duration_days(interval: dict[str, object]) -> float | None:
+    for key in ("durationDays", "dur_d", "durD", "duration"):
+        raw_value = interval.get(key)
+        if isinstance(raw_value, (int, float)):
+            return float(raw_value)
+
+    start = _parse_date(interval.get("startDate"))
+    end = _parse_date(interval.get("endDate"))
+    if start is None or end is None:
+        return None
+    return abs((end - start).days) + 1.0
+
+
+def _confidence_rank(interval: dict[str, object]) -> int:
+    raw_value = str(interval.get("confidenceTier") or interval.get("confidence") or "").casefold()
+    if "high" in raw_value or "выс" in raw_value:
+        return 3
+    if "medium" in raw_value or "сред" in raw_value:
+        return 2
+    if "low" in raw_value or "низ" in raw_value:
+        return 1
+
+    confidence = interval.get("confidence")
+    if isinstance(confidence, (int, float)):
+        if confidence >= 0.8:
+            return 3
+        if confidence >= 0.45:
+            return 2
+        return 1
+
+    return 2
+
+
+def _strictness_for_param(param_key: str, value: float) -> float:
+    min_value, max_value, default_value = SAFE_PARAM_RANGES[param_key]
+    if max_value <= min_value or value <= default_value:
+        return 0.0
+    return min(1.0, (value - default_value) / max(0.000001, max_value - default_value))
+
+
+def _required_confidence_rank(label: str, params: dict[str, float]) -> int:
+    strictness = max(
+        (
+            _strictness_for_param(param_key, params[param_key])
+            for param_key in LABEL_PARAM_KEYS.get(label, ())
+            if param_key in params
+        ),
+        default=0.0,
+    )
+    if strictness >= 0.45:
+        return 3
+    if strictness >= 0.12:
+        return 2
+    return 1
+
+
+def _passes_duration_override(label: str, interval: dict[str, object], params: dict[str, float]) -> bool:
+    duration = _duration_days(interval)
+    if duration is None:
+        return True
+
+    if label == "ГДИ":
+        return duration * 24 >= params.get("gdi_min_stop_h", PARAMS["gdi_min_stop_h"])
+    if label == "Периодическая работа":
+        return duration >= max(1.0, params.get("per_start_n", PARAMS["per_start_n"]) / 2)
+    return True
+
+
+def _interval_passes_params(label: str, interval: dict[str, object], params: dict[str, float]) -> bool:
+    if not _passes_duration_override(label, interval, params):
+        return False
+    return _confidence_rank(interval) >= _required_confidence_rank(label, params)
 
 
 def _selected_wells(scope: dict[str, Any], all_wells: set[str]) -> set[str]:
@@ -306,8 +456,12 @@ def _manual_day_labels(selected: set[str]) -> dict[str, set[tuple[str, str]]]:
     return labels
 
 
-def _auto_day_labels(selected: set[str]) -> dict[str, set[tuple[str, str]]]:
+def _auto_day_labels(
+    selected: set[str],
+    params: dict[str, float] | None = None,
+) -> dict[str, set[tuple[str, str]]]:
     labels: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    effective_params = params or PARAMS
 
     for interval in get_candidate_auto_episode_intervals():
         well_id = str(interval.get("wellId") or "").strip()
@@ -318,11 +472,39 @@ def _auto_day_labels(selected: set[str]) -> dict[str, set[tuple[str, str]]]:
         days = _iter_interval_days(interval.get("startDate"), interval.get("endDate"))
         if not label or not days:
             continue
+        if not _interval_passes_params(label, interval, effective_params):
+            continue
 
         for day in days:
             labels[label].add((well_id, day))
 
     return labels
+
+
+def _preview_intervals(
+    selected: set[str],
+    params: dict[str, float],
+    preview_well: str | None = None,
+) -> list[dict[str, object]]:
+    preview_selected = selected
+    if preview_well and preview_well in selected:
+        preview_selected = {preview_well}
+
+    intervals: list[dict[str, object]] = []
+    for interval in get_candidate_auto_episode_intervals():
+        well_id = str(interval.get("wellId") or "").strip()
+        if well_id not in preview_selected:
+            continue
+
+        label = _normalize_label(interval.get("label"))
+        if not label or not _interval_passes_params(label, interval, params):
+            continue
+
+        preview_interval = dict(interval)
+        preview_interval["label"] = label
+        intervals.append(preview_interval)
+
+    return intervals
 
 
 def _score_labels(
@@ -367,9 +549,15 @@ def recompute_model_quality(scope: dict[str, Any], overrides: dict[str, float]) 
     )
 
     selected = _selected_wells(scope, all_wells) or set(all_wells)
+    preview_well = str(scope.get("preview_well") or "").strip() or None
     manual_labels = _manual_day_labels(selected)
-    auto_labels = _auto_day_labels(selected)
-    overall, by_category, union_sizes = _score_labels(manual_labels, auto_labels)
+    before_params = PARAMS.copy()
+    after_params = PARAMS.copy()
+    after_params.update(safe_overrides)
+    auto_labels_before = _auto_day_labels(selected, before_params)
+    auto_labels_after = _auto_day_labels(selected, after_params)
+    overall, by_category, union_sizes = _score_labels(manual_labels, auto_labels_before)
+    after_overall, after_by_category, _ = _score_labels(manual_labels, auto_labels_after)
 
     fields = sorted({get_field_code(well) for well in selected if well})
     rows = []
@@ -381,7 +569,7 @@ def recompute_model_quality(scope: dict[str, Any], overrides: dict[str, float]) 
         }
         field_auto = {
             label: {point for point in points if point[0] in field_wells}
-            for label, points in auto_labels.items()
+            for label, points in auto_labels_after.items()
         }
         field_overall, _, field_unions = _score_labels(field_manual, field_auto)
         rows.append(
@@ -405,16 +593,11 @@ def recompute_model_quality(scope: dict[str, Any], overrides: dict[str, float]) 
             }
         )
 
-    # The heavy classifier is intentionally not run here. New safe thresholds are
-    # saved/exported, and the scheduled offline job will produce the true "after".
-    after = overall
-    if safe_overrides:
-        after = overall
-
     return {
         "overall_before": overall,
-        "overall_after": after,
+        "overall_after": after_overall,
         "by_category_before": by_category,
-        "by_category_after": by_category.copy(),
+        "by_category_after": after_by_category,
         "rows": rows,
+        "preview_intervals": _preview_intervals(selected, after_params, preview_well),
     }

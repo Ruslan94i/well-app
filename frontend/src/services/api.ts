@@ -48,6 +48,7 @@ export interface AutomarkRecomputeResponse {
   by_category_before: Record<string, number>
   by_category_after: Record<string, number>
   rows: AutomarkQualityRow[]
+  preview_intervals: EventInterval[]
 }
 
 export interface AutomarkRecomputeRequest {
@@ -55,6 +56,7 @@ export interface AutomarkRecomputeRequest {
     type: 'well' | 'field' | 'set'
     field?: string
     well?: string
+    preview_well?: string
     wells?: string[]
   }
   overrides: Record<string, number>
