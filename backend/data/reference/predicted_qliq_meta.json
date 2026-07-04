@@ -1,11 +1,11 @@
 {
-  "computed_at_utc": "2026-06-25T08:23:52.422719+00:00",
-  "computed_for_utc_date": "2026-06-25",
+  "computed_at_utc": "2026-06-26T02:42:05.700114+00:00",
+  "computed_for_utc_date": "2026-06-26",
   "source": "external vfm_core daily output",
   "model": "vfm_core",
   "model_version": "vfm_core_episode_shape_v1",
-  "external_vfm_daily_path": "D:\\well-app-main\\backend\\data\\reference\\vfm_daily.csv",
-  "external_vfm_daily_mtime_ns": 1782373148479667300,
+  "external_vfm_daily_path": "backend/data/reference/vfm_daily.csv",
+  "external_vfm_daily_mtime_ns": 1782429993493611500,
   "rows": 25183,
   "wells": 52,
   "anchor_source_counts": {

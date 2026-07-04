@@ -557,6 +557,14 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         logger.warning("CSV file %s produced no valid well rows", CSV_FILE_PATH)
         return pl.DataFrame(schema=FRAME_SCHEMA)
 
+    # The primary CSV (well_metrics_v9.csv) has no HAL water-cut column, so merge
+    # the standalone HAL points here as well — otherwise HAL water-cut points are
+    # missing whenever the app runs without the aggregated telemetry sources.
+    if WATER_CUT_HAL_FILE_PATH.exists():
+        hal_rows = _load_water_cut_hal_rows(str(WATER_CUT_HAL_FILE_PATH))
+        if hal_rows:
+            rows.extend(hal_rows)
+
     frame = add_water_cut_algorithm(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
     logger.info(
         "Loaded %s rows for %s unique wells from %s%s",

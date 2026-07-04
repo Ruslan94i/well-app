@@ -18,6 +18,7 @@ AUTO_EPISODE_FILE_CANDIDATES = [
     settings.reference_data_path / "claude_episode_segments.csv",
     settings.reference_data_path / "claude_auto_episodes.csv",
     settings.reference_data_path / "auto_episodes.csv",
+    settings.reference_data_path / "auto_episode_segments.csv",
 ]
 CANDIDATE_AUTO_EPISODE_FILE = settings.reference_data_path / "candidate_auto_episode_segments.csv"
 EPISODES_TABLE_FILE = settings.episodes_table_data_path

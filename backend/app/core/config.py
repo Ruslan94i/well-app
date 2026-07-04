@@ -3,14 +3,28 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_REFERENCE_DIR = _PROJECT_ROOT / "backend" / "data" / "reference"
+
+# High-resolution telemetry source used only for re-aggregation / VFM rebuild.
+# On the original authoring machine it lives on an external disk; on any other
+# machine (e.g. when running from the distributed pack) that path is absent, so
+# fall back to the bundled reference dir. Can be overridden via the
+# TELEMETRY_DATA_PATH environment variable.
+_EXTERNAL_TELEMETRY_DIR = Path(r"D:\1 Ирито\5 WellInsight\telemetry")
+_TELEMETRY_DATA_DEFAULT = (
+    _EXTERNAL_TELEMETRY_DIR if _EXTERNAL_TELEMETRY_DIR.exists() else _REFERENCE_DIR
+)
+
+
 class Settings(BaseSettings):
     app_name: str = "Анализ скважинной динамики API"
     app_version: str = "0.1.0"
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
-    csv_data_path: Path = Path(__file__).resolve().parents[3] / "well_metrics_v9.csv"
-    telemetry_data_path: Path = Path(r"D:\1 Ирито\5 WellInsight\telemetry")
-    aggregated_telemetry_data_path: Path = telemetry_data_path / "aggregated"
+    csv_data_path: Path = _PROJECT_ROOT / "well_metrics_v9.csv"
+    telemetry_data_path: Path = _TELEMETRY_DATA_DEFAULT
+    aggregated_telemetry_data_path: Path = _TELEMETRY_DATA_DEFAULT / "aggregated"
     telemetry_aggregated_data_path: Path = aggregated_telemetry_data_path / "telemetry.csv"
     telemetry_10_data_path: Path = aggregated_telemetry_data_path / "telemetry_10.csv"
     measurements_data_path: Path = aggregated_telemetry_data_path / "measurements.csv"

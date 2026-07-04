@@ -1149,7 +1149,6 @@
                         fill="#f8fafc"
                         font-size="13"
                         font-weight="700"
-                        transform-origin="center"
                         :transform="`rotate(-48 ${bar.x + 17} ${fundControlLossChart.height - 34})`"
                       >
                         {{ bar.wellId }}
@@ -1267,7 +1266,7 @@
                     </div>
                   </div>
                   <p v-if="factor.action" class="mt-3 text-sm text-slate-400">Мероприятие: {{ factor.action }}</p>
-                  <div class="mt-3 grid gap-4 sm:grid-cols-2">
+                  <div class="mt-3 grid gap-4" :class="factor.key === 'nur' ? '' : 'sm:grid-cols-2'">
                     <div>
                       <div class="text-sm font-medium text-red-200">Снижение</div>
                       <div v-if="factor.losses.length" class="mt-2 divide-y divide-slate-700">
@@ -1278,7 +1277,7 @@
                       </div>
                       <div v-else class="mt-2 text-sm text-slate-500">—</div>
                     </div>
-                    <div>
+                    <div v-if="factor.key !== 'nur'">
                       <div class="text-sm font-medium text-emerald-200">Прирост</div>
                       <div v-if="factor.gains.length" class="mt-2 divide-y divide-slate-700">
                         <div v-for="item in factor.gains" :key="`${factor.key}-gain-${item.wellId}`" class="flex items-center justify-between py-1.5 text-sm">
@@ -2553,8 +2552,21 @@ function buildContextTracks(context: WellContext | null): Pick<HierarchicalEvent
   }
 }
 
+const emptyEventTracks = (): ReturnType<typeof generateMockEventTracksV2> => ({
+  installedEspPeriods: [],
+  dailyCauses: [],
+  opzEvents: [],
+  espWashEvents: [],
+  gtmEvents: [],
+  gdiEvents: [],
+  candidateModelEventIntervals: []
+})
+
 const eventTracks = computed(() => {
-  const tracks = useMockEvents ? generateOldMockEventTracks(chartData.value) : generateMockEventTracksV2(chartData.value)
+  // In real-data mode the markup/context layers come from the API (manual
+  // annotations, /episodes, /candidate-auto-episodes, well context, installed
+  // ESP). The mock generator is only used when VITE_USE_MOCK_EVENTS=true.
+  const tracks = useMockEvents ? generateOldMockEventTracks(chartData.value) : emptyEventTracks()
   const contextTracks = buildContextTracks(wellContext.value)
   const hasCurrentContext = wellContext.value?.wellId === selectedWell.value
 

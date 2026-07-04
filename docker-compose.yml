@@ -21,8 +21,8 @@ services:
     environment:
       FRONTEND_PORT: ${FRONTEND_PORT:-5173}
       VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
-      VITE_USE_MOCK_TELEMETRY: ${VITE_USE_MOCK_TELEMETRY:-true}
-      VITE_USE_MOCK_EVENTS: ${VITE_USE_MOCK_EVENTS:-true}
+      VITE_USE_MOCK_TELEMETRY: ${VITE_USE_MOCK_TELEMETRY:-false}
+      VITE_USE_MOCK_EVENTS: ${VITE_USE_MOCK_EVENTS:-false}
     ports:
       - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
     depends_on:
