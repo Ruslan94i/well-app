@@ -100,6 +100,14 @@ def _external_vfm_mtime_ns() -> int | None:
         return None
 
 
+def _portable_path(path: Path) -> str:
+    project_root = Path(__file__).resolve().parents[3]
+    try:
+        return str(path.resolve().relative_to(project_root)).replace("\\", "/")
+    except (OSError, ValueError):
+        return str(path)
+
+
 def _normalize_numeric(column_name: str) -> pl.Expr:
     return (
         pl.col(column_name)
@@ -461,7 +469,7 @@ def _build_predicted_qliq_from_external_vfm(path: Path, output_path: Path, meta_
         "source": "external vfm_core daily output",
         "model": "vfm_core",
         "model_version": VFM_MODEL_VERSION,
-        "external_vfm_daily_path": str(path),
+        "external_vfm_daily_path": _portable_path(path),
         "external_vfm_daily_mtime_ns": path.stat().st_mtime_ns,
         "rows": int(len(output)),
         "wells": int(output["well_id"].nunique()),

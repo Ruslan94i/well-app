@@ -9,7 +9,15 @@ import type {
   WellContext
 } from '@/types/timeseries'
 
-const backendBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+function getDefaultBackendBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'http://127.0.0.1:8000'
+  }
+  const hostname = window.location.hostname || '127.0.0.1'
+  return `${window.location.protocol}//${hostname}:8000`
+}
+
+const backendBaseUrl = import.meta.env.VITE_API_BASE_URL || getDefaultBackendBaseUrl()
 
 const api = axios.create({
   baseURL: `${backendBaseUrl}/api`

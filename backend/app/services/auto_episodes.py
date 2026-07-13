@@ -119,6 +119,13 @@ def _clean_cell(value: object) -> str:
 
 def _repair_mojibake(value: object) -> str:
     cleaned = _clean_cell(value)
+    if cleaned and any(marker in cleaned for marker in ("\u00d0", "\u00d1")):
+        try:
+            repaired_latin = cleaned.encode("latin1").decode("utf-8")
+        except UnicodeError:
+            repaired_latin = cleaned
+        if repaired_latin and repaired_latin != cleaned:
+            return repaired_latin
     if cleaned and any(marker in cleaned for marker in ("Ð", "Ñ")):
         try:
             repaired_latin = cleaned.encode("latin1").decode("utf-8")

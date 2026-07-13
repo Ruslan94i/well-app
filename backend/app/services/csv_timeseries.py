@@ -299,8 +299,12 @@ def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
     return row
 
 
+def _use_aggregated_sources() -> bool:
+    return settings.telemetry_data_path != settings.reference_data_path
+
+
 def _load_timeseries_frame() -> pl.DataFrame:
-    if TELEMETRY_FILE_PATH.exists() and MEASUREMENTS_FILE_PATH.exists() and POWER_DAILY_FILE_PATH.exists():
+    if _use_aggregated_sources() and TELEMETRY_FILE_PATH.exists() and MEASUREMENTS_FILE_PATH.exists() and POWER_DAILY_FILE_PATH.exists():
         try:
             ensure_predicted_qliq_cache()
         except Exception as exc:
@@ -557,13 +561,27 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         logger.warning("CSV file %s produced no valid well rows", CSV_FILE_PATH)
         return pl.DataFrame(schema=FRAME_SCHEMA)
 
+    base_well_ids = {str(row["well_id"]) for row in rows if row.get("well_id")}
+
     # The primary CSV (well_metrics_v9.csv) has no HAL water-cut column, so merge
     # the standalone HAL points here as well — otherwise HAL water-cut points are
     # missing whenever the app runs without the aggregated telemetry sources.
     if WATER_CUT_HAL_FILE_PATH.exists():
-        hal_rows = _load_water_cut_hal_rows(str(WATER_CUT_HAL_FILE_PATH))
+        hal_rows = [
+            row
+            for row in _load_water_cut_hal_rows(str(WATER_CUT_HAL_FILE_PATH))
+            if str(row.get("well_id") or "") in base_well_ids
+        ]
         if hal_rows:
             rows.extend(hal_rows)
+    if PREDICTED_QLIQ_FILE_PATH.exists():
+        predicted_rows = [
+            row
+            for row in _load_predicted_qliq_rows(str(PREDICTED_QLIQ_FILE_PATH))
+            if str(row.get("well_id") or "") in base_well_ids
+        ]
+        if predicted_rows:
+            rows.extend(predicted_rows)
 
     frame = add_water_cut_algorithm(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
     logger.info(
@@ -620,7 +638,7 @@ def get_available_well_ids() -> list[str]:
             _source_signature(POWER_DAILY_FILE_PATH),
         )
         if signature is not None
-    )
+    ) if _use_aggregated_sources() else ()
     if source_signatures:
         well_ids = list(_load_available_well_ids_cached(source_signatures))
         if well_ids:
