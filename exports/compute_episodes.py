@@ -12,7 +12,7 @@ compute_episodes.py — суточный батч-пересчёт автора�
         --telem well_graph_data_all_full_2026-06-18.csv \
         --wct   full_inference_water_cut.csv \
         --out   episodes.parquet \
-        --model-version episode_rules_v10_2
+        --model-version episode_rules_v10_5
 
 CLI коды возврата: 0 — успех; 1 — фатальная ошибка загрузки.
 """
@@ -25,7 +25,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-import episode_rules_v10_2 as er   # сам алгоритм; интерфейс run_all(tele, vsp) -> DataFrame
+import episode_rules_v10_5 as er   # сам алгоритм; интерфейс run_all(tele, vsp) -> DataFrame
 
 log = logging.getLogger("compute_episodes")
 
@@ -230,7 +230,7 @@ def main(argv=None):
     ap.add_argument("--telem", required=True, help="CSV телеметрии (well_graph_data_all_full_*.csv)")
     ap.add_argument("--wct", default=None, help="CSV прогноза обводнённости (full_inference_water_cut.csv)")
     ap.add_argument("--out", required=True, help="выходной файл (.parquet или .csv)")
-    ap.add_argument("--model-version", default=getattr(er, "MODEL_VERSION", "episode_rules_v10_2"))
+    ap.add_argument("--model-version", default=getattr(er, "MODEL_VERSION", "episode_rules_v10_5"))
     ap.add_argument("--wells", default=None, help="подмножество скважин через запятую (опц.)")
     ap.add_argument("--enrich", default=None, help="доп. выход: телеметрия + построчные auto_target_* (+ kprod_calc) для чарта/экспорта приложения")
     ap.add_argument("--kprod", default=None, help="доп. выход: суточный расчётный Кпрод (well_id,date,kprod_calc) для линии Кпрод_алгоритм")

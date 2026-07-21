@@ -798,6 +798,8 @@ const candidateAutoLabelToLevelKey: Record<string, string> = {
   'снижение гф': 'gas_factor_trend',
   'рост гф': 'gas_factor_trend',
   деоптимизация: 'deoptimization',
+  'неопт. режим': 'deoptimization',
+  'неоптимальный режим': 'deoptimization',
   'деоптимизация эцн': 'deoptimization',
   'ограничение эцн': 'deoptimization',
   'ограничение инфраструктуры': 'deoptimization',
@@ -826,6 +828,8 @@ const candidateAutoLabelToLevelValue: Record<string, string> = {
   'снижение гф': 'GF_decline',
   'рост гф': 'GF_growth',
   деоптимизация: 'deoptimization',
+  'неопт. режим': 'deoptimization',
+  'неоптимальный режим': 'deoptimization',
   'деоптимизация эцн': 'deoptimization',
   'ограничение эцн': 'deoptimization',
   'ограничение инфраструктуры': 'deoptimization',
@@ -907,7 +911,7 @@ function getCompactClassificationLevelLabel(level: AnnotationClassificationLevel
     esp_degradation: '12. Дегр.',
     vgf: '13. ВГФ',
     gas_factor_trend: '14. ГФ',
-    deoptimization: '15. Деопт.'
+    deoptimization: '15. Неопт.'
   }
 
   return labels[level.key] ?? level.label.replace(/^Уровень\s+/i, '')

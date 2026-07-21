@@ -128,6 +128,15 @@
               <n-button
                 secondary
                 size="small"
+                :disabled="!selectedNavigationFieldCode"
+                :loading="fieldGraphDataExporting"
+                @click="downloadCurrentFieldGraphDataExport"
+              >
+                Выгрузить месторождение
+              </n-button>
+              <n-button
+                secondary
+                size="small"
                 :loading="manualGraphDataExporting"
                 @click="downloadManualGraphDataExport"
               >
@@ -1580,9 +1589,9 @@ const DEFAULT_CLASSIFICATION_LEVELS: AnnotationClassificationLevel[] = [
   },
   {
     key: 'deoptimization',
-    label: 'Уровень 15. Деоптимизация',
+    label: 'Уровень 15. Неопт. режим',
     options: [
-      { label: 'Деоптимизация', value: 'deoptimization' }
+      { label: 'Неопт. режим', value: 'deoptimization' }
     ]
   }
 ]
@@ -1925,10 +1934,10 @@ const MODEL_RULE_SCHEMA: Array<Omit<ModelRuleCategory, 'paramKeys'> & { params: 
   },
   {
     key: 'deoptimization',
-    label: 'Деоптимизация',
+    label: 'Неопт. режим',
     color: '#F8FAFC',
     description: 'Ограничение режима работы при стабильном или ухудшающемся дебите.',
-    pseudocode: 'если изменение Рзаб >= deopt_pzab_pct\nи режим похож на ограничение → Деоптимизация',
+    pseudocode: 'если изменение Рзаб >= deopt_pzab_pct\nи режим похож на ограничение → Неопт. режим',
     params: [
       { key: 'deopt_pzab_pct', label: 'Изменение Рзаб', hint: 'Относительный порог изменения забойного давления.', min: 0.01, max: 0.1, step: 0.005, unit: 'доля', defaultValue: 0.03 }
     ]
@@ -1994,7 +2003,7 @@ const modelQualityLabelsByCategory: Record<string, string[]> = {
   kprod: ['Снижение Кпрод', 'Рост Кпрод'],
   complicated: ['Осложненный фонд', 'Осложнённый фонд'],
   degradation: ['Деградация ЭЦН'],
-  deoptimization: ['Деоптимизация'],
+  deoptimization: ['Деоптимизация', 'Неопт. режим'],
   wct: ['Рост обводненности', 'Рост обводнённости', 'Снижение обводненности', 'Снижение обводнённости'],
   gas: ['ВГФ', 'Рост ГФ', 'Снижение ГФ'],
   sppv: ['СППВ', 'Увеличение подачи воды']
@@ -2472,6 +2481,7 @@ const newEventActionName = ref('')
 const loading = ref(false)
 const initialDataLoaded = ref(false)
 const graphDataExporting = ref(false)
+const fieldGraphDataExporting = ref(false)
 const manualGraphDataExporting = ref(false)
 const wellGraphDataExporting = ref(false)
 const periodSummaryPreset = ref<PeriodSummaryPreset>('month')
@@ -2591,6 +2601,15 @@ const filteredWellOptions = computed(() => {
   }
 
   return wellOptions.value.filter((option) => wellGroupAssignments.value[option.value] === navigationGroupId.value)
+})
+const selectedNavigationFieldCode = computed(() => {
+  const groupId = navigationGroupId.value
+  if (!groupId) {
+    return null
+  }
+
+  const fieldCodes = Array.from(new Set(wellOptions.value.map((option) => getWellFieldCodeFromId(String(option.value)))))
+  return fieldCodes.find((fieldCode) => getFieldGroupId(fieldCode) === groupId) ?? null
 })
 const modelScopeOptions: { label: string; value: ModelRunScope }[] = [
   { label: 'Одна скважина', value: 'well' },
@@ -4410,6 +4429,27 @@ async function downloadGraphDataExport(): Promise<void> {
   }
 }
 
+async function downloadCurrentFieldGraphDataExport(): Promise<void> {
+  const fieldCode = selectedNavigationFieldCode.value
+  if (!fieldCode) {
+    message.warning('Выберите месторождение слева.')
+    return
+  }
+
+  fieldGraphDataExporting.value = true
+
+  try {
+    triggerCsvDownload(buildGraphDataExportCsvUrl({ field_code: fieldCode }))
+    message.success(`CSV-выгрузка месторождения ${fieldCode} запущена.`)
+  } catch {
+    message.error('Не удалось сформировать CSV-выгрузку по месторождению.')
+  } finally {
+    window.setTimeout(() => {
+      fieldGraphDataExporting.value = false
+    }, 800)
+  }
+}
+
 async function downloadManualGraphDataExport(): Promise<void> {
   manualGraphDataExporting.value = true
 
@@ -5116,7 +5156,7 @@ function buildModelOverridesExport() {
   })
 
   return {
-    model_version: 'episode_rules_v10_2',
+    model_version: 'episode_rules_v10_5',
     created_at: new Date().toISOString(),
     scopes
   }
