@@ -459,6 +459,11 @@ const TIME_PAN_SLIDER_HEIGHT = 24
 const TIME_PAN_AXIS_LABEL_GAP_PX = 26
 const TIME_PAN_TRACK_GAP_PX = 10
 const MS_PER_DAY = 86400000
+// Fallback "nearest value" lookups (used by the hover tooltip for sparse series)
+// must not reach across long stop periods and mislabel a far-away point with the
+// hovered date. These caps bound how stale a fallback value is allowed to be.
+const NEAREST_TELEMETRY_VALUE_MAX_GAP_MS = 2 * MS_PER_DAY
+const NEAREST_WATER_CUT_HAL_MAX_GAP_MS = 30 * MS_PER_DAY
 const MIN_VISIBLE_RANGE_MS = 15 * 60 * 1000
 const X_AXIS_ZOOM_FACTOR = 0.82
 const TIME_PAN_SLIDER_MAX = 1000
@@ -608,7 +613,7 @@ const seriesConfig: Record<
   load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 0.85, markerSize: 2 },
   water_cut: { label: 'Обводненность_АГЗУ', color: '#7dd3fc', axis: 'y2', width: 1.6 },
   water_cut_hal: { label: 'Обводненность ХАЛ', color: '#7dd3fc', axis: 'y2', chartType: 'markers', markerSize: 7 },
-  water_cut_algorithm: { label: 'Обв_алгоритм', color: '#22d3ee', axis: 'y2', width: 2.4 },
+  water_cut_algo: { label: 'Обв_алгоритм', color: '#38bdf8', axis: 'y2', width: 1.2 },
   intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
   esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 0.85, markerSize: 2 },
   active_power: { label: 'Активная мощность', color: '#a3e635', axis: 'y14', width: 0.85, markerSize: 2 },
@@ -647,6 +652,7 @@ const seriesConfig: Record<
   },
   gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
   gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
+  free_gas_pct: { label: 'Свободный газ на приёме, %', color: '#fb7185', axis: 'y2', width: 1.7 },
   qliq_wfm: { label: 'Дебит жидкости (в.расходомер)', color: '#9ca3af', axis: 'y', width: 2, dash: 'dot' },
   tr_reservoir_pressure: { label: 'ТР: Р пл', color: '#fca5a5', axis: 'y3', width: 1.5, dash: 'dash', source: 'tr', shape: 'hv' },
   tr_dynamic_level: { label: 'ТР: Н д', color: '#c084fc', axis: 'y16', width: 1.45, dash: 'dash', source: 'tr', shape: 'hv' },
@@ -1376,7 +1382,7 @@ function toCalendarDayStart(value: string): string {
 }
 
 function buildDailyFiniteSeriesPoints(seriesX: string[], seriesY: (number | null)[]) {
-  const pointsByDay = new Map<string, { date: string; value: number }>()
+  const valueByDay = new Map<string, number>()
 
   seriesX.forEach((date, index) => {
     const value = seriesY[index]
@@ -1385,12 +1391,52 @@ function buildDailyFiniteSeriesPoints(seriesX: string[], seriesY: (number | null
     }
 
     const day = toCalendarDayStart(date)
-    if (!pointsByDay.has(day)) {
-      pointsByDay.set(day, { date: day, value: Number(value) })
+    if (!valueByDay.has(day)) {
+      valueByDay.set(day, Number(value))
     }
   })
 
-  return Array.from(pointsByDay.values()).sort((left, right) => left.date.localeCompare(right.date))
+  if (valueByDay.size === 0) {
+    return []
+  }
+
+  // Emit one entry per calendar day across the full covered range, with an
+  // explicit null on days without a value. Skipping absent days outright would
+  // let Plotly draw a straight line between whatever real points remain, no
+  // matter how far apart in time — connectgaps:false only breaks the line at
+  // actual null entries, not at gaps in the array itself.
+  // Day arithmetic stays in UTC-labeled integers (not local Date parsing) so it
+  // matches the plain slice(0, 10) reading toCalendarDayStart uses for real values.
+  const parseDayMs = (day: string) => {
+    const parts = day.slice(0, 10).split('-').map(Number)
+    const year = parts[0] ?? 1970
+    const month = parts[1] ?? 1
+    const dayOfMonth = parts[2] ?? 1
+    return Date.UTC(year, month - 1, dayOfMonth)
+  }
+  const formatDayMs = (ms: number) => {
+    const date = new Date(ms)
+    const year = date.getUTCFullYear()
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const dayOfMonth = String(date.getUTCDate()).padStart(2, '0')
+    return `${year}-${month}-${dayOfMonth}T00:00:00`
+  }
+
+  const days = Array.from(valueByDay.keys()).sort()
+  const firstDay = days[0]
+  const lastDay = days[days.length - 1]
+  if (!firstDay || !lastDay) {
+    return []
+  }
+  const startMs = parseDayMs(firstDay)
+  const endMs = parseDayMs(lastDay)
+  const points: { date: string; value: number | null }[] = []
+  for (let ms = startMs; ms <= endMs; ms += MS_PER_DAY) {
+    const day = formatDayMs(ms)
+    points.push({ date: day, value: valueByDay.get(day) ?? null })
+  }
+
+  return points
 }
 
 function buildMainTraces() {
@@ -1406,32 +1452,24 @@ function buildMainTraces() {
       ? props.trMonitoringData.map((item) => item[seriesKey])
       : props.data.map((item) => item[seriesKey])
 
-    if (seriesKey === 'water_cut_algorithm') {
+    if (seriesKey === 'water_cut_algo') {
       const dailyPoints = buildDailyFiniteSeriesPoints(seriesX, seriesY)
 
       return {
         x: dailyPoints.map((point) => point.date),
         y: dailyPoints.map((point) => point.value),
         type: 'scatter',
-        mode: 'lines+markers',
+        mode: 'lines',
         name: config.label,
         yaxis: config.axis,
         connectgaps: false,
         line: {
           color: config.color,
-          width: config.width ?? 2,
+          width: config.width ?? 1.2,
           dash: config.dash ?? 'solid',
           shape: config.shape ?? 'linear'
         },
-        marker: {
-          color: config.color,
-          size: config.markerSize ?? 4,
-          line: {
-            color: '#0f172a',
-            width: 0.6
-          }
-        },
-        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
+        hovertemplate: '%{x}<br>%{y:.2f}%<extra>' + config.label + '</extra>'
       }
     }
 
@@ -1478,7 +1516,7 @@ function buildMainTraces() {
             width: 1.8
           }
         },
-        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + config.label + '</extra>'
+        hovertemplate: '%{x}<br>%{y:.2f}%<extra>' + config.label + '</extra>'
       }
     }
 
@@ -2998,7 +3036,7 @@ function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): 
     }
   }
 
-  return nearestValue
+  return nearestDistance <= NEAREST_TELEMETRY_VALUE_MAX_GAP_MS ? nearestValue : null
 }
 
 function getNearestWaterCutHalValueByDate(date: string): number | null {
@@ -3028,13 +3066,19 @@ function getNearestWaterCutHalValueByDate(date: string): number | null {
 
   if (!nextPoint || !previousPoint) {
     const fallbackPoint = nextPoint ?? previousPoint
-    return fallbackPoint ? Number(fallbackPoint.value) : null
+    if (!fallbackPoint) {
+      return null
+    }
+    const fallbackDistance = Math.abs(fallbackPoint.time - targetMs)
+    return fallbackDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS ? Number(fallbackPoint.value) : null
   }
 
   const nextDistance = Math.abs(nextPoint.time - targetMs)
   const previousDistance = Math.abs(previousPoint.time - targetMs)
+  const closestPoint = previousDistance <= nextDistance ? previousPoint : nextPoint
+  const closestDistance = Math.min(previousDistance, nextDistance)
 
-  return Number(previousDistance <= nextDistance ? previousPoint.value : nextPoint.value)
+  return closestDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS ? Number(closestPoint.value) : null
 }
 
 function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
@@ -3757,9 +3801,10 @@ function renderChart() {
   const lastDate = props.data[props.data.length - 1]?.date
   const mainAxisConfig = buildNiceAxis(getPrimaryAxisValues(), 6)
   const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
-  const percentAxisConfig = buildNiceAxis([
+  const hasFreeGasSeries = props.activeSeries.includes('free_gas_pct')
+  const percentAxisConfig = hasFreeGasSeries ? { range: [0, 100], tick0: 0, dtick: 20 } : buildNiceAxis([
     ...getSeriesValues('water_cut'),
-    ...getSeriesValues('water_cut_algorithm'),
+    ...getSeriesValues('water_cut_algo'),
     ...getSeriesValues('load'),
     ...getActiveSeriesValues(['tr_water_cut'])
   ], 5)
@@ -3811,6 +3856,21 @@ function renderChart() {
       },
       layer: 'below'
     },
+    ...(hasFreeGasSeries ? [12, 30].map((level) => ({
+      type: 'line',
+      xref: 'paper',
+      yref: 'y2',
+      x0: 0,
+      x1: 1,
+      y0: level,
+      y1: level,
+      line: {
+        color: level === 30 ? 'rgba(248,113,113,0.72)' : 'rgba(251,113,133,0.58)',
+        width: 1.2,
+        dash: 'dot'
+      },
+      layer: 'above'
+    })) : []),
     ...trackLayout.separatorYs.map((y) => ({
       type: 'line',
       xref: 'paper',
@@ -3888,7 +3948,7 @@ function renderChart() {
       zeroline: false
     },
     yaxis2: {
-      title: 'Обводненность / загрузка',
+      title: hasFreeGasSeries ? 'Свободный газ на приёме, %' : 'Обводненность / загрузка',
       overlaying: 'y',
       side: 'right',
       position: 0.91,

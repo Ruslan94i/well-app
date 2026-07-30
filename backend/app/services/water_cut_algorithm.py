@@ -1,10 +1,6 @@
 from __future__ import annotations
 
 import logging
-import math
-import os
-import sys
-import warnings
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -12,132 +8,24 @@ from typing import Any
 import polars as pl
 
 from app.core.config import settings
+from app.services.adaptive_water_cut import build_water_cut_line
 
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = settings.water_cut_algorithm_model_path
-os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
+# Canonical "well is running" gate reused from this pipeline's pre-existing
+# determination (do not invent a second independent running/stop definition).
+RUNNING_FREQ_MIN_HZ = 10.0
+RUNNING_POWER_MIN_KW = 2.0
 
-FEATURE_SOURCE_COLUMNS = {
-    "telemetry_buffer_pressure": "buffer_pressure",
-    "telemetry_casing_pressure": "casing_pressure",
-    "telemetry_intake_pressure": "intake_pressure",
-    "telemetry_load": "load",
-    "telemetry_esp_frequency": "esp_frequency",
-    "telemetry_active_power": "active_power",
-    "telemetry_qliq": "qliq",
-    "telemetry_qoil": "qoil",
-    "telemetry_water_cut": "water_cut",
-    "tr_bottomhole_pressure": None,
-    "tr_oil_rate": None,
-    "tr_liquid_rate": None,
-    "tr_water_cut": None,
-}
-
-DAILY_MEAN_FEATURE_COLUMNS = {
-    "buffer_pressure": "telemetry_buffer_pressure_mean",
-    "casing_pressure": "telemetry_casing_pressure_mean",
-    "intake_pressure": "telemetry_intake_pressure_mean",
-    "load": "telemetry_load_mean",
-    "esp_frequency": "telemetry_esp_frequency_mean",
-    "active_power": "telemetry_active_power_mean",
-    "qliq": "telemetry_qliq_mean",
-    "qoil": "telemetry_qoil_mean",
-    "water_cut": "telemetry_water_cut_mean",
-}
-
-DAILY_STD_FEATURE_COLUMNS = {
-    "buffer_pressure": "telemetry_buffer_pressure_std",
-    "casing_pressure": "telemetry_casing_pressure_std",
-    "intake_pressure": "telemetry_intake_pressure_std",
-    "load": "telemetry_load_std",
-    "esp_frequency": "telemetry_esp_frequency_std",
-}
-
-TELEMETRY_RECORD_COLUMNS = [
-    "buffer_pressure",
-    "casing_pressure",
-    "intake_pressure",
-    "load",
-    "esp_frequency",
-    "active_power",
-]
+# Field names always exposed by add_water_cut_algorithm, even when there is no
+# HAL data at all for a well/frame (as all-null columns, never omitted).
+_FLOAT_FIELD_NAMES = ("water_cut_hal_daily", "water_cut_algo")
+_STRING_FIELD_NAMES = ("water_cut_mode",)
 
 
-def _implied_water_cut_expr() -> pl.Expr:
-    return (
-        pl.when((pl.col("qliq") > 0) & pl.col("qoil").is_not_null())
-        .then((100.0 * (1.0 - (pl.col("qoil") / (pl.col("qliq") * 0.82)))).clip(0.0, 100.0))
-        .otherwise(None)
-    )
-
-
-def _with_fallback_water_cut_algorithm(frame: pl.DataFrame) -> pl.DataFrame:
-    daily_pdf = _build_daily_feature_frame(frame, [])
-    if daily_pdf.empty:
-        return _apply_daily_predictions(frame, [])
-
-    values = daily_pdf["water_cut_algorithm_fallback"].tolist()
-    return _apply_daily_predictions(frame, values)
-
-
-def _patch_sklearn_loss_module() -> None:
-    try:
-        import sklearn._loss as loss  # type: ignore
-
-        if not hasattr(loss, "CyHalfSquaredError") and hasattr(loss, "HalfSquaredError"):
-            loss.CyHalfSquaredError = loss.HalfSquaredError
-        sys.modules["_loss"] = loss
-    except Exception:
-        return
-
-
-@lru_cache(maxsize=1)
-def _load_model_bundle(model_path: str, model_mtime_ns: int, model_size: int) -> tuple[Any, list[str]] | None:
-    path = Path(model_path)
-    if not path.exists() or model_size <= 0:
-        return None
-
-    try:
-        _patch_sklearn_loss_module()
-        import joblib  # type: ignore
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            bundle = joblib.load(path)
-
-        if isinstance(bundle, dict):
-            model = bundle.get("model")
-            features = bundle.get("features") or getattr(model, "feature_names_in_", None)
-        else:
-            model = bundle
-            features = getattr(model, "feature_names_in_", None)
-
-        if model is None or not features:
-            logger.warning("Water cut algorithm model %s has no model/features payload", path)
-            return None
-
-        return model, [str(feature) for feature in features]
-    except Exception as exc:
-        logger.warning("Cannot load water cut algorithm model %s: %s", path, exc)
-        return None
-
-
-def _get_model_bundle() -> tuple[Any, list[str]] | None:
-    if not MODEL_PATH.exists():
-        return None
-
-    model_stat = MODEL_PATH.stat()
-    return _load_model_bundle(str(MODEL_PATH), model_stat.st_mtime_ns, model_stat.st_size)
-
-
-def _as_numeric_series(pdf: Any, source_column: str | None) -> Any:
-    import pandas as pd  # type: ignore
-
-    if source_column is None or source_column not in pdf:
-        return pd.Series(math.nan, index=pdf.index, dtype="float64")
-    return pd.to_numeric(pdf[source_column], errors="coerce")
+def _empty_daily_fields() -> tuple[dict[str, dict], dict[str, dict]]:
+    return {name: {} for name in _FLOAT_FIELD_NAMES}, {name: {} for name in _STRING_FIELD_NAMES}
 
 
 def _path_cache_key(path: Path) -> tuple[str, int, int]:
@@ -148,53 +36,18 @@ def _path_cache_key(path: Path) -> tuple[str, int, int]:
 
 
 @lru_cache(maxsize=4)
-def _load_tr_daily_frame(path: str, path_mtime_ns: int, path_size: int) -> Any:
+def _load_hal_raw_frame(path: str, path_mtime_ns: int, path_size: int) -> Any:
+    """Raw (well_id, timestamp, value) ХАЛ measurements — intentionally NOT
+    pre-aggregated to daily here, because the running-time gate must be applied
+    per measurement before daily aggregation, not after."""
     import pandas as pd  # type: ignore
 
     if path_size <= 0:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["well_id", "timestamp", "hal_value"])
 
     source = Path(path)
     if not source.exists():
-        return pd.DataFrame()
-
-    tr = pd.read_csv(source)
-    required = {"well_id", "date", "bottomhole_pressure", "oil_rate", "liquid_rate", "water_cut"}
-    if not required.issubset(tr.columns):
-        logger.warning("TR monitoring file %s has no required columns: %s", source, sorted(required - set(tr.columns)))
-        return pd.DataFrame()
-
-    tr = tr[["well_id", "date", "bottomhole_pressure", "oil_rate", "liquid_rate", "water_cut"]].copy()
-    tr["well_id"] = tr["well_id"].astype(str)
-    tr["_tr_date"] = pd.to_datetime(tr["date"], errors="coerce").dt.floor("D")
-    tr = tr.dropna(subset=["well_id", "_tr_date"])
-    for column in ("bottomhole_pressure", "oil_rate", "liquid_rate", "water_cut"):
-        tr[column] = pd.to_numeric(tr[column], errors="coerce")
-
-    tr = (
-        tr.groupby(["well_id", "_tr_date"], as_index=False)
-        .agg(
-            tr_bottomhole_pressure_mean=("bottomhole_pressure", "mean"),
-            tr_oil_rate_mean=("oil_rate", "mean"),
-            tr_liquid_rate_mean=("liquid_rate", "mean"),
-            tr_water_cut_mean=("water_cut", "mean"),
-        )
-        .sort_values(["well_id", "_tr_date"])
-        .reset_index(drop=True)
-    )
-    return tr
-
-
-@lru_cache(maxsize=4)
-def _load_hal_daily_frame(path: str, path_mtime_ns: int, path_size: int) -> Any:
-    import pandas as pd  # type: ignore
-
-    if path_size <= 0:
-        return pd.DataFrame()
-
-    source = Path(path)
-    if not source.exists():
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["well_id", "timestamp", "hal_value"])
 
     hal = pd.read_csv(source, sep=";")
     if len(hal.columns) == 1:
@@ -203,273 +56,174 @@ def _load_hal_daily_frame(path: str, path_mtime_ns: int, path_size: int) -> Any:
     value_column = "water_cut_hal" if "water_cut_hal" in hal.columns else "hal" if "hal" in hal.columns else None
     if "well_id" not in hal.columns or "date" not in hal.columns or value_column is None:
         logger.warning("HAL water cut file %s has no required columns", source)
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["well_id", "timestamp", "hal_value"])
 
     hal = hal[["well_id", "date", value_column]].copy()
     hal["well_id"] = hal["well_id"].astype(str)
-    hal["_hal_date"] = pd.to_datetime(hal["date"], errors="coerce").dt.floor("D")
+    hal["timestamp"] = pd.to_datetime(hal["date"], errors="coerce")
     hal["hal_value"] = pd.to_numeric(hal[value_column], errors="coerce")
-    hal = hal.dropna(subset=["well_id", "_hal_date", "hal_value"])
-    return (
-        hal.groupby(["well_id", "_hal_date"], as_index=False)["hal_value"]
-        .mean()
-        .sort_values(["well_id", "_hal_date"])
-        .reset_index(drop=True)
+    hal = hal.dropna(subset=["well_id", "timestamp", "hal_value"])
+    hal = hal[hal["hal_value"].between(0.0, 100.0)]
+    return hal[["well_id", "timestamp", "hal_value"]].sort_values(["well_id", "timestamp"]).reset_index(drop=True)
+
+
+def _build_daily_running_flag(pdf: Any) -> Any:
+    """Per (well_id, calendar day): True if the well was running that day, based on
+    a 7-day centered rolling median of esp_frequency/active_power (mirrors the
+    running gate this pipeline already used before this rewrite)."""
+    import pandas as pd  # type: ignore
+
+    has_signal = "esp_frequency" in pdf.columns and "active_power" in pdf.columns
+    if not has_signal:
+        return None
+
+    daily = (
+        pdf.groupby(["well_id", "_day"], sort=True)
+        .agg(esp_frequency=("esp_frequency", "median"), active_power=("active_power", "median"))
+        .reset_index()
     )
 
-
-def _merge_tr_features(daily: Any) -> Any:
-    import pandas as pd  # type: ignore
-
-    tr_feature_columns = [
-        "tr_bottomhole_pressure_mean",
-        "tr_oil_rate_mean",
-        "tr_liquid_rate_mean",
-        "tr_water_cut_mean",
-    ]
-    tr = _load_tr_daily_frame(*_path_cache_key(settings.tr_monitoring_data_path))
-    if tr.empty:
-        for feature_name in tr_feature_columns:
-            daily[feature_name] = math.nan
-        return daily
-
-    merged_parts = []
+    parts = []
     for well_id, well_daily in daily.groupby("well_id", sort=False):
-        well_daily = well_daily.sort_values("_water_cut_day").copy()
-        well_tr = tr[tr["well_id"] == str(well_id)].sort_values("_tr_date")
-        if well_tr.empty:
-            for feature_name in tr_feature_columns:
-                well_daily[feature_name] = math.nan
-            merged_parts.append(well_daily)
-            continue
+        well_daily = well_daily.sort_values("_day").copy()
+        freq_med = well_daily["esp_frequency"].rolling(7, min_periods=1, center=True).median()
+        power_med = well_daily["active_power"].rolling(7, min_periods=1, center=True).median()
+        well_daily["running"] = freq_med.ge(RUNNING_FREQ_MIN_HZ) & power_med.ge(RUNNING_POWER_MIN_KW)
+        parts.append(well_daily[["well_id", "_day", "running"]])
 
-        merged = pd.merge_asof(
-            well_daily,
-            well_tr[["_tr_date", *tr_feature_columns]],
-            left_on="_water_cut_day",
-            right_on="_tr_date",
-            direction="backward",
-        ).drop(columns=["_tr_date"])
-        merged_parts.append(merged)
-
-    return pd.concat(merged_parts, ignore_index=True).sort_values(["well_id", "_water_cut_day"]).reset_index(drop=True)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["well_id", "_day", "running"])
 
 
-def _merge_hal_features(daily: Any, raw_pdf: Any) -> Any:
+def _with_adaptive_water_cut_algorithm(frame: pl.DataFrame) -> pl.DataFrame:
+    """'Обв. алгоритм' sourced exclusively from ХАЛ lab измерений
+    (water_cut_hal_data_path), single stateful filter (see adaptive_water_cut.py —
+    algorithm as supplied, not modified: no rolling windows, no separate
+    fast/slow blend, no hold-aware carry-over). No fallback to telemetry_water_cut
+    (АГЗУ), Qж/Qн back-calculation, TR, СППВ, zero-filling, or interpolation of
+    missing days."""
     import pandas as pd  # type: ignore
 
-    hal = _load_hal_daily_frame(*_path_cache_key(settings.water_cut_hal_data_path))
-    if hal.empty and "water_cut_hal" in raw_pdf:
-        fallback = raw_pdf[["well_id", "_water_cut_day", "water_cut_hal"]].copy()
-        fallback["hal_value"] = pd.to_numeric(fallback["water_cut_hal"], errors="coerce")
-        fallback = fallback.dropna(subset=["well_id", "_water_cut_day", "hal_value"])
-        hal = (
-            fallback.groupby(["well_id", "_water_cut_day"], as_index=False)["hal_value"]
-            .mean()
-            .rename(columns={"_water_cut_day": "_hal_date"})
-            .sort_values(["well_id", "_hal_date"])
-            .reset_index(drop=True)
-        )
+    if frame.is_empty():
+        return _apply_daily_fields(frame, *_empty_daily_fields())
 
-    daily["hal_last"] = math.nan
-    daily["hal_days_since"] = math.nan
-    daily["hal_mean30"] = math.nan
-    if hal.empty:
-        return daily
+    hal_raw = _load_hal_raw_frame(*_path_cache_key(settings.water_cut_hal_data_path))
+    if hal_raw.empty:
+        return _apply_daily_fields(frame, *_empty_daily_fields())
 
-    merged_parts = []
-    for well_id, well_daily in daily.groupby("well_id", sort=False):
-        well_daily = well_daily.sort_values("_water_cut_day").copy()
-        well_hal = hal[hal["well_id"] == str(well_id)].sort_values("_hal_date")
-        if well_hal.empty:
-            merged_parts.append(well_daily)
-            continue
+    selected = [c for c in ("well_id", "date", "esp_frequency", "active_power") if c in frame.columns]
+    pdf = pd.DataFrame(frame.select(selected).to_dicts())
+    if pdf.empty or "well_id" not in pdf.columns or "date" not in pdf.columns:
+        return _apply_daily_fields(frame, *_empty_daily_fields())
 
-        merged = pd.merge_asof(
-            well_daily.drop(columns=["hal_last", "hal_days_since", "hal_mean30"]),
-            well_hal[["_hal_date", "hal_value"]].rename(columns={"hal_value": "hal_last"}),
-            left_on="_water_cut_day",
-            right_on="_hal_date",
-            direction="backward",
-        )
-        merged["hal_days_since"] = (merged["_water_cut_day"] - merged["_hal_date"]).dt.total_seconds() / 86400.0
-
-        hal_series = well_hal.set_index("_hal_date")["hal_value"].sort_index()
-        merged["hal_mean30"] = merged["_water_cut_day"].map(
-            lambda day: hal_series[(hal_series.index <= day) & (hal_series.index > day - pd.Timedelta(days=30))].mean()
-        )
-        merged = merged.drop(columns=["_hal_date"])
-        merged_parts.append(merged)
-
-    return pd.concat(merged_parts, ignore_index=True).sort_values(["well_id", "_water_cut_day"]).reset_index(drop=True)
-
-
-def _rolling_mean(series: Any, well_ids: Any, window: int) -> Any:
-    return series.groupby(well_ids).transform(lambda values: values.rolling(window, min_periods=1).mean())
-
-
-def _rolling_std(series: Any, well_ids: Any, window: int) -> Any:
-    return series.groupby(well_ids).transform(lambda values: values.rolling(window, min_periods=2).std()).fillna(0.0)
-
-
-def _build_daily_feature_frame(frame: pl.DataFrame, features: list[str]) -> Any:
-    import pandas as pd  # type: ignore
-
-    selected_columns = ["well_id", "date", *[column for column in frame.columns if column not in {"well_id", "date"}]]
-    pdf = pd.DataFrame(frame.select(selected_columns).to_dicts())
-    if pdf.empty:
-        return pd.DataFrame(columns=features)
-
+    pdf["well_id"] = pdf["well_id"].astype(str)
     pdf["date"] = pd.to_datetime(pdf["date"], errors="coerce")
     pdf = pdf.dropna(subset=["well_id", "date"]).copy()
-    pdf["_water_cut_day"] = pdf["date"].dt.floor("D")
-    grouped = pdf.groupby(["well_id", "_water_cut_day"], sort=True, dropna=False)
+    pdf["_day"] = pdf["date"].dt.floor("D")
 
-    daily = grouped.size().rename("_raw_rows").reset_index()
-    daily["telem_records"] = daily["_raw_rows"]
+    running_daily = _build_daily_running_flag(pdf)
 
-    for source_column, feature_name in DAILY_MEAN_FEATURE_COLUMNS.items():
-        if source_column in pdf:
-            values = grouped[source_column].mean().rename(feature_name).reset_index()
-            daily = daily.merge(values, on=["well_id", "_water_cut_day"], how="left")
-        else:
-            daily[feature_name] = math.nan
+    hal_daily_predictions: dict[tuple[str, Any], float] = {}
+    algo_predictions: dict[tuple[str, Any], float] = {}
+    mode_predictions: dict[tuple[str, Any], str] = {}
 
-    for source_column, feature_name in DAILY_STD_FEATURE_COLUMNS.items():
-        if source_column in pdf:
-            values = grouped[source_column].std().rename(feature_name).reset_index()
-            daily = daily.merge(values, on=["well_id", "_water_cut_day"], how="left")
-        else:
-            daily[feature_name] = math.nan
+    for well_id, well_hal in hal_raw.groupby("well_id", sort=False):
+        well_hal = well_hal.sort_values("timestamp").copy()
+        well_hal["_day"] = well_hal["timestamp"].dt.floor("D")
 
-    daily = daily.sort_values(["well_id", "_water_cut_day"]).reset_index(drop=True)
-    if daily.duplicated(["well_id", "_water_cut_day"]).any():
-        raise ValueError("Water cut daily feature frame must contain exactly one row per well/day")
+        well_running = None
+        if running_daily is not None:
+            well_running = running_daily[running_daily["well_id"] == well_id].set_index("_day")["running"]
+            running_by_point = well_hal["_day"].map(well_running).fillna(False)
+            well_hal = well_hal[running_by_point.to_numpy()]
 
-    daily = _merge_tr_features(daily)
-    daily = _merge_hal_features(daily, pdf)
-
-    qliq = daily["telemetry_qliq_mean"]
-    qoil = daily["telemetry_qoil_mean"]
-    tr_liquid = daily["tr_liquid_rate_mean"]
-    tr_oil = daily["tr_oil_rate_mean"]
-    daily["implied_wct_scada"] = (100.0 * (qliq - qoil) / qliq).where(qliq > 0).clip(0.0, 100.0)
-    daily["implied_wct_tr"] = (100.0 * (tr_liquid - tr_oil) / tr_liquid).where(tr_liquid > 0).clip(0.0, 100.0)
-
-    daily["water_cut_algorithm_fallback"] = (
-        daily[["hal_last", "telemetry_water_cut_mean", "implied_wct_scada"]]
-        .bfill(axis=1)
-        .iloc[:, 0]
-        .clip(0.0, 100.0)
-    )
-    daily["water_cut_algorithm_fallback"] = daily.groupby("well_id")["water_cut_algorithm_fallback"].transform(
-        lambda values: values.ffill().bfill()
-    )
-
-    feature_values: dict[str, Any] = {}
-    well_ids = daily["well_id"]
-
-    for feature in features:
-        if feature == "telem_records":
-            feature_values[feature] = daily["telem_records"]
+        if well_hal.empty:
             continue
 
-        source_key = feature
-        rolling_window: int | None = None
-        if source_key.endswith("_r3"):
-            rolling_window = 3
-            source_key = source_key[:-3]
-        elif source_key.endswith("_r7"):
-            rolling_window = 7
-            source_key = source_key[:-3]
+        daily_median = well_hal.groupby("_day")["hal_value"].median()
+        if daily_median.empty:
+            continue
 
-        if rolling_window is not None:
-            series = pd.to_numeric(daily[source_key], errors="coerce") if source_key in daily else pd.Series(math.nan, index=daily.index)
-            feature_values[feature] = _rolling_mean(series, well_ids, rolling_window)
-        elif source_key in daily:
-            feature_values[feature] = pd.to_numeric(daily[source_key], errors="coerce")
-        else:
-            feature_values[feature] = pd.Series(math.nan, index=daily.index, dtype="float64")
+        result = build_water_cut_line(hal_daily=daily_median, running_daily=well_running)
+        if result.empty:
+            continue
 
-    result = pd.DataFrame(feature_values, columns=features)
-    result.insert(0, "_water_cut_day", daily["_water_cut_day"])
-    result.insert(0, "well_id", daily["well_id"])
-    result["water_cut_algorithm_fallback"] = daily["water_cut_algorithm_fallback"]
-    return result.replace([math.inf, -math.inf], math.nan)
+        for day, row in result.iterrows():
+            key = (well_id, day.to_pydatetime())
+            hal_value = row.get("water_cut_hal_daily")
+            if pd.notna(hal_value):
+                hal_daily_predictions[key] = float(hal_value)
+            algo_value = row.get("water_cut_algo")
+            if pd.notna(algo_value):
+                algo_predictions[key] = float(algo_value)
+            mode_value = row.get("water_cut_mode")
+            if isinstance(mode_value, str) and mode_value:
+                mode_predictions[key] = mode_value
 
-
-def _apply_daily_predictions(frame: pl.DataFrame, predictions: list[float | None]) -> pl.DataFrame:
-    daily_pdf = _build_daily_feature_frame(frame, [])
-    if daily_pdf.empty:
-        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("water_cut_algorithm"))
-
-    if predictions:
-        if len(predictions) != len(daily_pdf):
-            raise ValueError(
-                "Water cut prediction count must match daily well/day rows "
-                f"({len(predictions)} predictions for {len(daily_pdf)} daily rows)"
-            )
-        values = predictions
-    else:
-        values = [
-            float(value) if value is not None and math.isfinite(float(value)) else None
-            for value in daily_pdf["water_cut_algorithm_fallback"].tolist()
-        ]
-
-    daily_predictions = pl.DataFrame(
-        {
-            "well_id": daily_pdf["well_id"].astype(str).tolist(),
-            "_water_cut_day": daily_pdf["_water_cut_day"].dt.to_pydatetime().tolist(),
-            "_water_cut_algorithm_daily": values,
-        },
-        schema={
-            "well_id": pl.Utf8,
-            "_water_cut_day": pl.Datetime,
-            "_water_cut_algorithm_daily": pl.Float64,
-        },
-        strict=False,
+    return _apply_daily_fields(
+        frame,
+        {"water_cut_hal_daily": hal_daily_predictions, "water_cut_algo": algo_predictions},
+        {"water_cut_mode": mode_predictions},
     )
 
-    return (
+
+def _apply_daily_fields(
+    frame: pl.DataFrame,
+    float_fields: dict[str, dict[tuple[str, Any], float]],
+    string_fields: dict[str, dict[tuple[str, Any], str]],
+) -> pl.DataFrame:
+    """Attach one or more daily (well_id, day) -> value maps to `frame`, placing
+    each value on the FIRST record of that calendar day only (never replicated
+    across every raw telemetry row of the day, never fabricated for other rows)."""
+    all_keys: set[tuple[str, Any]] = set()
+    for values in float_fields.values():
+        all_keys.update(values.keys())
+    for values in string_fields.values():
+        all_keys.update(values.keys())
+
+    field_names = list(float_fields) + list(string_fields)
+
+    if not all_keys:
+        out = frame
+        for name in float_fields:
+            out = out.with_columns(pl.lit(None, dtype=pl.Float64).alias(name))
+        for name in string_fields:
+            out = out.with_columns(pl.lit(None, dtype=pl.Utf8).alias(name))
+        return out
+
+    keys = sorted(all_keys)
+    columns: dict[str, list] = {
+        "well_id": [k[0] for k in keys],
+        "_water_cut_day": [k[1] for k in keys],
+    }
+    schema: dict[str, pl.DataType] = {"well_id": pl.Utf8, "_water_cut_day": pl.Datetime}
+    for name, values in float_fields.items():
+        columns[f"_src_{name}"] = [values.get(k) for k in keys]
+        schema[f"_src_{name}"] = pl.Float64
+    for name, values in string_fields.items():
+        columns[f"_src_{name}"] = [values.get(k) for k in keys]
+        schema[f"_src_{name}"] = pl.Utf8
+
+    daily = pl.DataFrame(columns, schema=schema, strict=False)
+
+    joined = (
         frame.with_row_index("_water_cut_row")
         .with_columns(pl.col("date").dt.truncate("1d").alias("_water_cut_day"))
-        .join(daily_predictions, on=["well_id", "_water_cut_day"], how="left")
-        .with_columns(
-            pl.when(
-                pl.col("_water_cut_row")
-                == pl.col("_water_cut_row").min().over(["well_id", "_water_cut_day"])
-            )
-            .then(pl.col("_water_cut_algorithm_daily"))
-            .otherwise(None)
-            .cast(pl.Float64)
-            .alias("water_cut_algorithm")
-        )
-        .drop(["_water_cut_row", "_water_cut_day", "_water_cut_algorithm_daily"])
+        .join(daily, on=["well_id", "_water_cut_day"], how="left")
     )
+    is_first_of_day = pl.col("_water_cut_row") == pl.col("_water_cut_row").min().over(["well_id", "_water_cut_day"])
+
+    exprs = []
+    drop_cols = ["_water_cut_row", "_water_cut_day"] + [f"_src_{name}" for name in field_names]
+    for name in float_fields:
+        exprs.append(pl.when(is_first_of_day).then(pl.col(f"_src_{name}")).otherwise(None).cast(pl.Float64).alias(name))
+    for name in string_fields:
+        exprs.append(pl.when(is_first_of_day).then(pl.col(f"_src_{name}")).otherwise(None).cast(pl.Utf8).alias(name))
+
+    return joined.with_columns(exprs).drop(drop_cols)
 
 
 def add_water_cut_algorithm(frame: pl.DataFrame) -> pl.DataFrame:
     if frame.is_empty():
-        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("water_cut_algorithm"))
+        return _apply_daily_fields(frame, *_empty_daily_fields())
 
-    model_bundle = _get_model_bundle()
-    if model_bundle is None:
-        return _with_fallback_water_cut_algorithm(frame)
-
-    model, features = model_bundle
-    try:
-        feature_frame = _build_daily_feature_frame(frame, features)
-        if feature_frame.duplicated(["well_id", "_water_cut_day"]).any():
-            raise ValueError("Water cut model features must be unique by well/day")
-        prediction_features = feature_frame.reindex(columns=features)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            predictions = model.predict(prediction_features)
-        clean_predictions = [
-            float(min(100.0, max(0.0, value))) if value is not None and math.isfinite(float(value)) else None
-            for value in predictions
-        ]
-        return _apply_daily_predictions(frame, clean_predictions)
-    except Exception as exc:
-        logger.warning("Water cut algorithm prediction failed; using fallback values: %s", exc)
-        return _with_fallback_water_cut_algorithm(frame)
+    return _with_adaptive_water_cut_algorithm(frame)

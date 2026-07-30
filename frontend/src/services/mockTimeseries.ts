@@ -340,7 +340,9 @@ export function generateMockTimeseries(
       load: round(load),
       water_cut: round(waterCut),
       water_cut_hal: null,
-      water_cut_algorithm: round(waterCut),
+      water_cut_hal_daily: null,
+      water_cut_algo: round(waterCut),
+      water_cut_mode: null,
       intake_pressure: intakePressure,
       esp_frequency: round(espFrequency),
       active_power: round(activePower),
@@ -352,6 +354,7 @@ export function generateMockTimeseries(
       qgas: round(qgas),
       gas_factor: round(gasFactor),
       gas_liquid_factor: round(gasLiquidFactor),
+      free_gas_pct: null,
       qliq_wfm: round(qliqWfm),
       qliq_vfm: round(qliqVfm)
     }

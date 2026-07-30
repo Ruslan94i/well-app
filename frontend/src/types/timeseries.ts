@@ -7,7 +7,9 @@ export interface TimeSeriesPoint {
   load: number | null
   water_cut: number | null
   water_cut_hal: number | null
-  water_cut_algorithm: number | null
+  water_cut_hal_daily: number | null
+  water_cut_algo: number | null
+  water_cut_mode: string | null
   intake_pressure: number | null
   esp_frequency: number | null
   active_power: number | null
@@ -19,6 +21,7 @@ export interface TimeSeriesPoint {
   qgas: number | null
   gas_factor: number | null
   gas_liquid_factor: number | null
+  free_gas_pct: number | null
   qliq_wfm: number | null
   qliq_vfm: number | null
 }
@@ -31,7 +34,7 @@ export type TelemetrySeriesKey =
   | 'load'
   | 'water_cut'
   | 'water_cut_hal'
-  | 'water_cut_algorithm'
+  | 'water_cut_algo'
   | 'intake_pressure'
   | 'esp_frequency'
   | 'active_power'
@@ -43,6 +46,7 @@ export type TelemetrySeriesKey =
   | 'qgas'
   | 'gas_factor'
   | 'gas_liquid_factor'
+  | 'free_gas_pct'
   | 'qliq_wfm'
 
 export type TrMonitoringSeriesKey =

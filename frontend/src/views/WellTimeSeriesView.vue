@@ -1448,7 +1448,7 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Загрузка', value: 'load' },
   { label: 'Обводненность_АГЗУ', value: 'water_cut' },
   { label: 'Обводненность ХАЛ', value: 'water_cut_hal' },
-  { label: 'Обв_алгоритм', value: 'water_cut_algorithm' },
+  { label: 'Обв_алгоритм', value: 'water_cut_algo' },
   { label: 'Р на приеме насоса', value: 'intake_pressure' },
   { label: 'Частота вращения двиг.', value: 'esp_frequency' },
   { label: 'Активная мощность', value: 'active_power' },
@@ -1460,6 +1460,7 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Расход нефти', value: 'qoil' },
   { label: 'Газовый фактор', value: 'gas_factor' },
   { label: 'Газожидкостный фактор', value: 'gas_liquid_factor' },
+  { label: 'Свободный газ на приёме, %', value: 'free_gas_pct' },
   { label: 'Дебит жидкости (в.расходомер)', value: 'qliq_wfm' },
   { label: 'ТР: Р пл', value: 'tr_reservoir_pressure' },
   { label: 'ТР: Н д', value: 'tr_dynamic_level' },
@@ -2408,7 +2409,7 @@ const defaultActiveSeries: SeriesKey[] = [
   'qliq',
   'predicted_qliq',
   'load',
-  'water_cut_algorithm',
+  'water_cut_algo',
   'water_cut_hal',
   'intake_pressure',
   'esp_frequency',
@@ -4419,9 +4420,9 @@ async function downloadGraphDataExport(): Promise<void> {
 
   try {
     triggerCsvDownload(buildGraphDataExportCsvUrl())
-    message.success('CSV-выгрузка всех скважин запущена.')
+    message.success('ZIP-выгрузка всех скважин запущена.')
   } catch {
-    message.error('Не удалось сформировать CSV-выгрузку.')
+    message.error('Не удалось сформировать выгрузку.')
   } finally {
     window.setTimeout(() => {
       graphDataExporting.value = false
@@ -4440,9 +4441,9 @@ async function downloadCurrentFieldGraphDataExport(): Promise<void> {
 
   try {
     triggerCsvDownload(buildGraphDataExportCsvUrl({ field_code: fieldCode }))
-    message.success(`CSV-выгрузка месторождения ${fieldCode} запущена.`)
+    message.success(`ZIP-выгрузка месторождения ${fieldCode} запущена.`)
   } catch {
-    message.error('Не удалось сформировать CSV-выгрузку по месторождению.')
+    message.error('Не удалось сформировать выгрузку по месторождению.')
   } finally {
     window.setTimeout(() => {
       fieldGraphDataExporting.value = false
@@ -4455,9 +4456,9 @@ async function downloadManualGraphDataExport(): Promise<void> {
 
   try {
     triggerCsvDownload(buildManualGraphDataExportCsvUrl())
-    message.success('CSV-выгрузка скважин с ручной разметкой запущена.')
+    message.success('ZIP-выгрузка скважин с ручной разметкой запущена.')
   } catch {
-    message.error('Не удалось сформировать CSV-выгрузку ручной разметки.')
+    message.error('Не удалось сформировать выгрузку ручной разметки.')
   } finally {
     window.setTimeout(() => {
       manualGraphDataExporting.value = false
@@ -4470,9 +4471,9 @@ async function downloadCurrentWellGraphDataExport(): Promise<void> {
 
   try {
     triggerCsvDownload(buildGraphDataExportCsvUrl({ well_id: selectedWell.value }))
-    message.success(`CSV-выгрузка ${selectedWell.value} запущена.`)
+    message.success(`ZIP-выгрузка ${selectedWell.value} запущена.`)
   } catch {
-    message.error('Не удалось сформировать CSV-выгрузку по скважине.')
+    message.error('Не удалось сформировать выгрузку по скважине.')
   } finally {
     window.setTimeout(() => {
       wellGraphDataExporting.value = false
@@ -5156,7 +5157,7 @@ function buildModelOverridesExport() {
   })
 
   return {
-    model_version: 'episode_rules_v10_5',
+    model_version: 'episode_rules_v13_5',
     created_at: new Date().toISOString(),
     scopes
   }

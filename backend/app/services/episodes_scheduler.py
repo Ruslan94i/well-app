@@ -41,8 +41,10 @@ def run_episode_recompute_once(wells: str | None = None) -> bool:
         settings.episodes_model_version,
     ]
 
-    if settings.episodes_compute_wct_data_path.exists():
-        command.extend(["--wct", str(settings.episodes_compute_wct_data_path)])
+    if settings.water_cut_hal_data_path.exists():
+        command.extend(["--hal", str(settings.water_cut_hal_data_path)])
+    if settings.episodes_compute_pvt_data_path.exists():
+        command.extend(["--pvt", str(settings.episodes_compute_pvt_data_path)])
     if settings.episodes_compute_enriched_data_path:
         command.extend(["--enrich", str(settings.episodes_compute_enriched_data_path)])
     if settings.episodes_compute_kprod_data_path:

@@ -7,6 +7,8 @@ from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import polars as pl
 
 from app.core.config import settings
@@ -36,6 +38,38 @@ PREDICTED_QLIQ_VALUE_COLUMNS = (
     "q_liq_pred",
     "pred_qliq",
 )
+FULL_TIMESERIES_COLUMN_MAPPING = {
+    "well_id": "well_id",
+    "date": "telemetry_time",
+    "qliq": "telemetry_qliq",
+    "predicted_qliq": "telemetry_predicted_qliq",
+    "buffer_pressure": "telemetry_buffer_pressure",
+    "casing_pressure": "telemetry_casing_pressure",
+    "load": "telemetry_load",
+    "water_cut": "telemetry_water_cut",
+    "intake_pressure": "telemetry_intake_pressure",
+    "esp_frequency": "telemetry_esp_frequency",
+    "active_power": "telemetry_active_power",
+    "bdpv_volume_rate": "telemetry_bdpv_volume_rate",
+    "bdpv_water_flow": "telemetry_bdpv_water_flow",
+    "collector_pressure": "telemetry_collector_pressure",
+    "full_power": "telemetry_full_power",
+    "qoil": "telemetry_qoil",
+    "qgas": "telemetry_qgas",
+    "gas_factor": "telemetry_gas_factor",
+    "gas_liquid_factor": "telemetry_gas_liquid_factor",
+    "qliq_wfm": "telemetry_qliq_wfm",
+    "qliq_vfm": "telemetry_qliq_vfm",
+}
+PVT_REQUIRED_COLUMNS = {
+    "field": "Field short",
+    "pressure": "Давление, бар",
+    "oil_density": "Плотность нефти при давлении, кг/м3",
+    "rs": "Газосодержание, м3/м3",
+    "bg": "Объемный коэффициент газа, безр",
+    "gas_density": "Плотность газа при давлении, кг/м3",
+    "bo": "Объемный коэффициент нефти, безр",
+}
 COLUMN_MAPPING = {
     "well_id": "Скважина",
     "date": "Дата",
@@ -65,7 +99,8 @@ NUMERIC_COLUMNS = [
     "load",
     "water_cut",
     "water_cut_hal",
-    "water_cut_algorithm",
+    "water_cut_hal_daily",
+    "water_cut_algo",
     "intake_pressure",
     "esp_frequency",
     "active_power",
@@ -77,6 +112,7 @@ NUMERIC_COLUMNS = [
     "qoil",
     "gas_factor",
     "gas_liquid_factor",
+    "free_gas_pct",
     "qliq_wfm",
 ]
 TELEMETRY_COLUMNS = [
@@ -108,7 +144,9 @@ RESPONSE_COLUMNS = [
     "load",
     "water_cut",
     "water_cut_hal",
-    "water_cut_algorithm",
+    "water_cut_hal_daily",
+    "water_cut_algo",
+    "water_cut_mode",
     "intake_pressure",
     "esp_frequency",
     "active_power",
@@ -120,6 +158,7 @@ RESPONSE_COLUMNS = [
     "qgas",
     "gas_factor",
     "gas_liquid_factor",
+    "free_gas_pct",
     "qliq_wfm",
     "qliq_vfm",
 ]
@@ -133,7 +172,9 @@ FRAME_SCHEMA = {
     "load": pl.Float64,
     "water_cut": pl.Float64,
     "water_cut_hal": pl.Float64,
-    "water_cut_algorithm": pl.Float64,
+    "water_cut_hal_daily": pl.Float64,
+    "water_cut_algo": pl.Float64,
+    "water_cut_mode": pl.Utf8,
     "intake_pressure": pl.Float64,
     "esp_frequency": pl.Float64,
     "active_power": pl.Float64,
@@ -145,6 +186,7 @@ FRAME_SCHEMA = {
     "qgas": pl.Float64,
     "gas_factor": pl.Float64,
     "gas_liquid_factor": pl.Float64,
+    "free_gas_pct": pl.Float64,
     "qliq_wfm": pl.Float64,
     "qliq_vfm": pl.Float64,
 }
@@ -217,6 +259,243 @@ def _parse_float(value: str | None) -> float | None:
         return None
 
 
+def _is_finite_number(value: object) -> bool:
+    return isinstance(value, (int, float, np.integer, np.floating)) and np.isfinite(float(value))
+
+
+def _well_pvt_key(well_id: object) -> str:
+    prefix = str(well_id or "").split("_", 1)[0].strip()
+    return "AZ" if prefix == "Az" else prefix
+
+
+@lru_cache(maxsize=4)
+def _load_pvt_curves_cached(pvt_path: str, mtime_ns: int, size: int) -> dict[str, dict[str, np.ndarray]]:
+    path = Path(pvt_path)
+    if not path.exists():
+        logger.warning("PVT workbook is unavailable at %s; free_gas_pct will be empty", path)
+        return {}
+
+    try:
+        pvt = pd.read_excel(path, sheet_name=0, engine="openpyxl")
+    except Exception as exc:
+        logger.warning("Failed to load PVT workbook %s; free_gas_pct will be empty: %s", path, exc)
+        return {}
+
+    missing = [column for column in PVT_REQUIRED_COLUMNS.values() if column not in pvt.columns]
+    if missing:
+        logger.warning("PVT workbook %s is missing columns %s; free_gas_pct will be empty", path, missing)
+        return {}
+
+    pvt = pvt.rename(
+        columns={
+            PVT_REQUIRED_COLUMNS["field"]: "field",
+            PVT_REQUIRED_COLUMNS["pressure"]: "pressure_bar",
+            PVT_REQUIRED_COLUMNS["oil_density"]: "rho_o_p",
+            PVT_REQUIRED_COLUMNS["rs"]: "Rs",
+            PVT_REQUIRED_COLUMNS["bg"]: "Bg",
+            PVT_REQUIRED_COLUMNS["gas_density"]: "rho_g_p",
+            PVT_REQUIRED_COLUMNS["bo"]: "Bo",
+        }
+    )
+    pvt["pvt_key"] = pvt["field"].map(lambda value: "AZ" if str(value).strip() == "Az" else str(value).strip())
+    for column in ("pressure_bar", "rho_o_p", "Rs", "Bg", "rho_g_p", "Bo"):
+        pvt[column] = pd.to_numeric(pvt[column], errors="coerce")
+
+    curves: dict[str, dict[str, np.ndarray]] = {}
+    for key, group in pvt[pvt["pvt_key"].ne("")].groupby("pvt_key", sort=True):
+        curve = (
+            group.groupby("pressure_bar", as_index=False)
+            .agg(
+                Rs=("Rs", "median"),
+                Bg=("Bg", "median"),
+                Bo=("Bo", "median"),
+                rho_o_p=("rho_o_p", "median"),
+                rho_g_p=("rho_g_p", "median"),
+            )
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna()
+            .sort_values("pressure_bar")
+        )
+        if len(curve) < 2:
+            continue
+        curves[str(key)] = {
+            column: curve[column].to_numpy(dtype=float)
+            for column in ("pressure_bar", "Rs", "Bg", "Bo", "rho_o_p", "rho_g_p")
+        }
+
+    if not curves:
+        logger.warning("PVT workbook %s has no usable curves; free_gas_pct will be empty", path)
+        return {}
+
+    logger.info("Loaded %s PVT curves from %s for free gas calculation", len(curves), path)
+    return curves
+
+
+def _load_pvt_curves() -> dict[str, dict[str, np.ndarray]]:
+    path = settings.episodes_compute_pvt_data_path
+    if not path.exists():
+        return _load_pvt_curves_cached(str(path), 0, 0)
+    stat = path.stat()
+    return _load_pvt_curves_cached(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def _interpolate_pvt(curve: dict[str, np.ndarray], pressure_bar: object) -> dict[str, float] | None:
+    if not _is_finite_number(pressure_bar):
+        return None
+    pressure = float(pressure_bar)
+    pressure_grid = curve["pressure_bar"]
+    if pressure < float(pressure_grid[0]) or pressure > float(pressure_grid[-1]):
+        return None
+    return {
+        column: float(np.interp(pressure, pressure_grid, curve[column]))
+        for column in ("Rs", "Bg", "Bo", "rho_o_p", "rho_g_p")
+    }
+
+
+def _select_water_cut_pct(row: dict[str, object]) -> float | None:
+    for column in ("water_cut_algo", "water_cut"):
+        value = row.get(column)
+        if _is_finite_number(value):
+            water_cut = float(value)
+            if 0.0 <= water_cut <= 100.0:
+                return water_cut
+    return None
+
+
+def _calculate_free_gas_pct(
+    row: dict[str, object],
+    gas_liquid_factor: float,
+    curves: dict[str, dict[str, np.ndarray]],
+) -> float | None:
+    if gas_liquid_factor < 0:
+        return None
+
+    curve = curves.get(_well_pvt_key(row.get("well_id")))
+    if curve is None:
+        return None
+
+    pvt = _interpolate_pvt(curve, row.get("intake_pressure"))
+    water_cut = _select_water_cut_pct(row)
+    if pvt is None or water_cut is None:
+        return None
+
+    oil_fraction = 1.0 - water_cut / 100.0
+    rho_g_std = pvt["rho_g_p"] * pvt["Bg"]
+    rho_o_std = pvt["rho_o_p"] * pvt["Bo"] - pvt["Rs"] * rho_g_std
+    r_total = gas_liquid_factor * rho_o_std / 1000.0
+    tolerance = max(10.0, 0.10 * r_total)
+    r_free = max(r_total - pvt["Rs"] - tolerance, 0.0)
+    gas = r_free * oil_fraction * pvt["Bg"]
+    liquid = oil_fraction * pvt["Bo"] + (1.0 - oil_fraction) * 1.0
+    denominator = gas + liquid
+    if denominator <= 0:
+        return None
+
+    gvf = gas / denominator
+    if not (650.0 <= rho_o_std <= 1000.0):
+        return None
+    if not (0.3 <= rho_g_std <= 2.0):
+        return None
+    if not (0.0 <= gvf <= 1.0):
+        return None
+
+    return round(100.0 * gvf, 2)
+
+
+def _add_free_gas_pct(frame: pl.DataFrame) -> pl.DataFrame:
+    if frame.is_empty():
+        return frame
+
+    curves = _load_pvt_curves()
+    if not curves:
+        return frame.with_columns(pl.lit(None).cast(pl.Float64).alias("free_gas_pct"))
+
+    rows = frame.select(
+        [
+            pl.int_range(pl.len(), dtype=pl.UInt32).alias("_row_index"),
+            "well_id",
+            "date",
+            "intake_pressure",
+            "gas_liquid_factor",
+            "water_cut",
+            "water_cut_algo",
+        ]
+    ).iter_rows(named=True)
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (str(row.get("well_id") or ""), row.get("date") or datetime.min, row["_row_index"]),
+    )
+    values: list[float | None] = [None] * frame.height
+
+    current_well: str | None = None
+    current_group: list[dict[str, object]] = []
+    for row in sorted_rows:
+        well_id = str(row.get("well_id") or "")
+        if current_well is None:
+            current_well = well_id
+        if well_id != current_well:
+            _fill_free_gas_values_for_well(current_group, values, curves)
+            current_group = []
+            current_well = well_id
+        current_group.append(row)
+    if current_group:
+        _fill_free_gas_values_for_well(current_group, values, curves)
+
+    return frame.with_columns(pl.Series("free_gas_pct", values, dtype=pl.Float64))
+
+
+def _with_derived_gas_factor(frame: pl.DataFrame) -> pl.DataFrame:
+    if frame.is_empty() or "qgas" not in frame.columns or "qoil" not in frame.columns:
+        return frame
+
+    gas_factor_expr = (
+        pl.when((pl.col("qgas") >= 0) & (pl.col("qoil") > 0))
+        .then(pl.col("qgas") / pl.col("qoil"))
+        .otherwise(pl.col("gas_factor"))
+        .round(6)
+        .alias("gas_factor")
+    )
+    gas_liquid_factor_expr = (
+        pl.when((pl.col("qgas") >= 0) & (pl.col("qliq") > 0))
+        .then(pl.col("qgas") / pl.col("qliq"))
+        .otherwise(pl.col("gas_liquid_factor"))
+        .round(6)
+        .alias("gas_liquid_factor")
+    )
+    return frame.with_columns(gas_factor_expr, gas_liquid_factor_expr)
+
+
+def _fill_free_gas_values_for_well(
+    rows: list[dict[str, object]],
+    values: list[float | None],
+    curves: dict[str, dict[str, np.ndarray]],
+) -> None:
+    last_glf: float | None = None
+    last_glf_date: datetime | None = None
+
+    for row in rows:
+        row_index = int(row["_row_index"])
+        row_date = row.get("date")
+        if isinstance(row_date, date) and not isinstance(row_date, datetime):
+            row_date = datetime.combine(row_date, datetime.min.time())
+        if not isinstance(row_date, datetime):
+            continue
+
+        current_glf = row.get("gas_liquid_factor")
+        if _is_finite_number(current_glf) and float(current_glf) >= 0:
+            last_glf = float(current_glf)
+            last_glf_date = row_date
+
+        if last_glf is None or last_glf_date is None:
+            continue
+
+        glf_age_days = (row_date - last_glf_date).total_seconds() / 86400.0
+        if glf_age_days < 0 or glf_age_days > 5:
+            continue
+
+        values[row_index] = _calculate_free_gas_pct(row, last_glf, curves)
+
+
 def _normalize_csv_header(value: str | None) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", _clean_cell(value).lower()).strip("_")
 
@@ -274,7 +553,6 @@ def _fill_numeric_values(
 
 
 def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
-    qliq = row["qliq"]
     qoil = row["qoil"]
     qgas = row["qgas"]
 
@@ -282,16 +560,8 @@ def _finalize_timeseries_row(row: dict[str, object]) -> dict[str, object]:
         row["qgas"] = round(qoil * row["gas_factor"], 2)
         qgas = row["qgas"]
 
-    if not isinstance(row["gas_factor"], float) and isinstance(qgas, float) and isinstance(qoil, float) and qoil:
+    if isinstance(qgas, float) and isinstance(qoil, float) and qoil:
         row["gas_factor"] = round(qgas / qoil, 6)
-
-    if (
-        not isinstance(row["gas_liquid_factor"], float)
-        and isinstance(qgas, float)
-        and isinstance(qliq, float)
-        and qliq
-    ):
-        row["gas_liquid_factor"] = round(qgas / qliq, 6)
 
     row["qliq_vfm"] = row["qliq_wfm"]
     if not isinstance(row["predicted_qliq"], float) and isinstance(row["qliq_vfm"], float):
@@ -325,6 +595,23 @@ def _load_timeseries_frame() -> pl.DataFrame:
             str(POWER_DAILY_FILE_PATH),
             power_daily_stat.st_mtime_ns,
             power_daily_stat.st_size,
+            str(WATER_CUT_HAL_FILE_PATH) if water_cut_hal_stat else "",
+            water_cut_hal_stat.st_mtime_ns if water_cut_hal_stat else 0,
+            water_cut_hal_stat.st_size if water_cut_hal_stat else 0,
+            str(PREDICTED_QLIQ_FILE_PATH) if predicted_qliq_stat else "",
+            predicted_qliq_stat.st_mtime_ns if predicted_qliq_stat else 0,
+            predicted_qliq_stat.st_size if predicted_qliq_stat else 0,
+        )
+
+    full_timeseries_path = settings.episodes_compute_enriched_data_path
+    if full_timeseries_path.exists():
+        full_stat = full_timeseries_path.stat()
+        water_cut_hal_stat = WATER_CUT_HAL_FILE_PATH.stat() if WATER_CUT_HAL_FILE_PATH.exists() else None
+        predicted_qliq_stat = PREDICTED_QLIQ_FILE_PATH.stat() if PREDICTED_QLIQ_FILE_PATH.exists() else None
+        return _load_full_timeseries_frame_cached(
+            str(full_timeseries_path),
+            full_stat.st_mtime_ns,
+            full_stat.st_size,
             str(WATER_CUT_HAL_FILE_PATH) if water_cut_hal_stat else "",
             water_cut_hal_stat.st_mtime_ns if water_cut_hal_stat else 0,
             water_cut_hal_stat.st_size if water_cut_hal_stat else 0,
@@ -457,6 +744,85 @@ def _load_predicted_qliq_rows(csv_path: str) -> list[dict[str, object]]:
 
 
 @lru_cache(maxsize=2)
+def _load_full_timeseries_frame_cached(
+    csv_path: str,
+    csv_mtime_ns: int,
+    csv_size: int,
+    water_cut_hal_path: str,
+    water_cut_hal_mtime_ns: int,
+    water_cut_hal_size: int,
+    predicted_qliq_path: str,
+    predicted_qliq_mtime_ns: int,
+    predicted_qliq_size: int,
+) -> pl.DataFrame:
+    path = Path(csv_path)
+    logger.info("Loading full telemetry from %s", path)
+    with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        header = next(csv.reader(csv_file), [])
+
+    source_columns = [
+        source
+        for target, source in FULL_TIMESERIES_COLUMN_MAPPING.items()
+        if source in header and target in FRAME_SCHEMA
+    ]
+    if "well_id" not in source_columns or "telemetry_time" not in source_columns:
+        logger.warning("Full telemetry CSV %s is missing well_id/telemetry_time", path)
+        return pl.DataFrame(schema=FRAME_SCHEMA)
+
+    source_to_target = {source: target for target, source in FULL_TIMESERIES_COLUMN_MAPPING.items()}
+    raw = pl.read_csv(
+        path,
+        columns=source_columns,
+        infer_schema_length=1000,
+        null_values=list(NULL_TOKENS),
+        encoding="utf8-lossy",
+    )
+    expressions: list[pl.Expr] = []
+    for source in source_columns:
+        target = source_to_target[source]
+        if target == "well_id":
+            expressions.append(pl.col(source).cast(pl.Utf8, strict=False).str.strip_chars().alias(target))
+        elif target == "date":
+            expressions.append(pl.col(source).cast(pl.Utf8, strict=False).str.strptime(pl.Datetime, strict=False).alias(target))
+        else:
+            expressions.append(pl.col(source).cast(pl.Float64, strict=False).alias(target))
+
+    frame = raw.select(expressions)
+    missing_columns = [column for column in FRAME_SCHEMA if column not in frame.columns]
+    if missing_columns:
+        frame = frame.with_columns([pl.lit(None, dtype=FRAME_SCHEMA[column]).alias(column) for column in missing_columns])
+
+    frame = (
+        frame.select(list(FRAME_SCHEMA))
+        .filter(
+            pl.col("well_id").map_elements(_is_valid_well_id, return_dtype=pl.Boolean)
+            & pl.col("date").is_not_null()
+        )
+        .with_columns(
+            pl.coalesce([pl.col("qliq_vfm"), pl.col("qliq_wfm")]).alias("qliq_vfm"),
+            pl.coalesce([pl.col("predicted_qliq"), pl.col("qliq_vfm"), pl.col("qliq_wfm")]).alias("predicted_qliq"),
+        )
+    )
+
+    extra_rows = [
+        *(_load_water_cut_hal_rows(water_cut_hal_path) if water_cut_hal_path else []),
+        *(_load_predicted_qliq_rows(predicted_qliq_path) if predicted_qliq_path else []),
+    ]
+    if extra_rows:
+        frame = pl.concat([frame, pl.DataFrame(extra_rows, schema=FRAME_SCHEMA, strict=False)], how="vertical_relaxed")
+
+    frame = _with_derived_gas_factor(frame)
+    frame = add_water_cut_algorithm(frame)
+    frame = _add_free_gas_pct(frame.sort(["well_id", "date"]))
+    logger.info(
+        "Loaded %s full telemetry rows for %s unique wells",
+        frame.height,
+        frame.select("well_id").n_unique(),
+    )
+    return frame
+
+
+@lru_cache(maxsize=2)
 def _load_aggregated_timeseries_frame_cached(
     telemetry_path: str,
     telemetry_mtime_ns: int,
@@ -510,7 +876,9 @@ def _load_aggregated_timeseries_frame_cached(
         .with_columns(pl.col("qliq_wfm").alias("qliq_vfm"))
         .sort(["well_id", "date"])
     )
+    frame = _with_derived_gas_factor(frame)
     frame = add_water_cut_algorithm(frame)
+    frame = _add_free_gas_pct(frame)
     logger.info(
         "Loaded %s aggregated rows for %s unique wells",
         frame.height,
@@ -583,7 +951,9 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         if predicted_rows:
             rows.extend(predicted_rows)
 
-    frame = add_water_cut_algorithm(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
+    frame = _with_derived_gas_factor(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
+    frame = add_water_cut_algorithm(frame)
+    frame = _add_free_gas_pct(frame)
     logger.info(
         "Loaded %s rows for %s unique wells from %s%s",
         frame.height,
@@ -629,7 +999,54 @@ def _load_available_well_ids_cached(source_signatures: tuple[tuple[str, int, int
     return tuple(sorted(well_ids))
 
 
+# Matches the minimum telemetry-row threshold episode_rules_v12_8.py's compute()
+# uses to skip a well ("a['telemetry_time'].notna().sum() < 20") — a well with fewer
+# rows than this has no meaningful telemetry, even if it has a stray water_cut_hal/
+# predicted_qliq row merged in for display purposes elsewhere.
+MIN_TELEMETRY_ROWS_FOR_WELL = 20
+
+
+@lru_cache(maxsize=2)
+def _load_enriched_well_ids_cached(path: str, path_mtime_ns: int, path_size: int) -> tuple[str, ...]:
+    if path_size <= 0:
+        return ()
+
+    source = Path(path)
+    if not source.exists():
+        return ()
+
+    try:
+        frame = pl.read_csv(source, columns=["well_id", "telemetry_time"], infer_schema_length=1000)
+    except Exception:
+        logger.exception("Failed to read well ids from enriched telemetry %s", source)
+        return ()
+
+    counts = (
+        frame.filter(pl.col("telemetry_time").is_not_null())
+        .group_by("well_id")
+        .agg(pl.len().alias("telemetry_rows"))
+        .filter(pl.col("telemetry_rows") >= MIN_TELEMETRY_ROWS_FOR_WELL)
+    )
+    well_ids = {
+        value
+        for value in counts.get_column("well_id").drop_nulls().cast(pl.Utf8).str.strip_chars().to_list()
+        if _is_valid_well_id(value)
+    }
+    return tuple(sorted(well_ids))
+
+
 def get_available_well_ids() -> list[str]:
+    # Prefer the enriched telemetry CSV directly: it is the ONLY source that
+    # distinguishes wells with real telemetry from wells that merely have a
+    # water_cut_hal/predicted_qliq row merged into the display frame elsewhere.
+    enriched_path = settings.episodes_compute_enriched_data_path
+    if enriched_path.exists():
+        stat = enriched_path.stat()
+        well_ids = list(_load_enriched_well_ids_cached(str(enriched_path), stat.st_mtime_ns, stat.st_size))
+        if well_ids:
+            logger.info("Returning %s unique well ids with real telemetry from %s", len(well_ids), enriched_path)
+            return well_ids
+
     source_signatures = tuple(
         signature
         for signature in (

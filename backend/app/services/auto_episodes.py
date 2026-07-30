@@ -341,6 +341,10 @@ def _strip_internal(row: dict[str, object]) -> dict[str, object]:
 
 
 def _load_auto_episode_rows() -> list[dict[str, object]]:
+    table_rows = _load_episode_table_rows()
+    if table_rows:
+        return table_rows
+
     source_path = _get_source_path()
     if source_path is None:
         return []

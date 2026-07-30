@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
+import tempfile
 import time
+import zipfile
 from datetime import date, datetime, timedelta
-from io import StringIO
+from io import StringIO, TextIOWrapper
+from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
 from app.schemas.markup import AutoEpisodeReview, FrequencyBreakpoint, FrequencyBreakpointSuppression, SavedAnnotation
 from app.services.artificial_lift import get_well_artificial_lift_periods
 from app.services.auto_episodes import get_well_candidate_auto_episode_intervals
@@ -22,6 +27,52 @@ FREQUENCY_CHANGE_THRESHOLD = 0.1
 CSV_STREAM_CHUNK_ROWS = 1000
 AUTO_ANNOTATION_ID_PREFIXES = ("auto-", "auto-inference-")
 logger = logging.getLogger(__name__)
+RAW_TELEMETRY_COLUMNS = [
+    "well_id",
+    "telemetry_time",
+    "telemetry_esp_frequency",
+    "telemetry_intake_pressure",
+    "telemetry_load",
+    "telemetry_active_power",
+    "telemetry_qliq",
+    "telemetry_water_cut",
+    "telemetry_casing_pressure",
+    "telemetry_buffer_pressure",
+    "telemetry_bdpv_volume_rate",
+    "telemetry_gas_liquid_factor",
+    "tr_reservoir_pressure",
+    "tr_liquid_rate",
+    "tr_productivity",
+    "esp_id",
+    "vsp_status",
+    "vsp_start_time",
+    "vsp_end_time",
+    "opz_ids",
+]
+EPISODES_PROD_COLUMNS = [
+    "well_id",
+    "label",
+    "start",
+    "end",
+    "confidence",
+    "confidence_tier",
+    "explanation",
+    "model_version",
+]
+WATER_CUT_HAL_EXPORT_COLUMNS = ["well_id", "date", "water_cut_hal"]
+MANUAL_EPISODE_COLUMNS = [
+    "well_id",
+    "id",
+    "label",
+    "start",
+    "end",
+    "duration_days",
+    "confidence",
+    "event_type",
+    "comment",
+    "actions",
+    "classification",
+]
 CLASSIFICATION_TO_TARGET = {
     "well_state=work": ("target_well_state", "Работа"),
     "well_state=stop": ("target_well_state", "Остановка"),
@@ -112,6 +163,7 @@ TELEMETRY_COLUMNS = [
     "qgas",
     "gas_factor",
     "gas_liquid_factor",
+    "free_gas_pct",
     "qliq_wfm",
     "qliq_vfm",
 ]
@@ -973,3 +1025,250 @@ def iter_manual_graph_data_export_csv(field_code: str | None = None):
 
 def build_manual_graph_data_export_csv(field_code: str | None = None) -> str:
     return "".join(iter_manual_graph_data_export_csv(field_code=field_code))
+
+
+def _resolve_prod_telemetry_source() -> Path:
+    candidates = [
+        settings.episodes_compute_telemetry_data_path,
+        settings.reference_data_path / "well_graph_data_all_full.csv",
+        Path(__file__).resolve().parents[3] / "exports" / "well_graph_data_all_full_2026-06-18.csv",
+    ]
+    exports_dir = Path(__file__).resolve().parents[3] / "exports"
+    if exports_dir.exists():
+        candidates.extend(sorted(exports_dir.glob("well_graph_data_all_full*.csv"), key=lambda item: item.stat().st_mtime, reverse=True))
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError("Prod telemetry source well_graph_data_all_full*.csv was not found")
+
+
+def _normalize_raw_timestamp(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return ""
+    if "T" in cleaned:
+        return cleaned[:19]
+    if len(cleaned) >= 19 and cleaned[10] == " ":
+        return f"{cleaned[:10]}T{cleaned[11:19]}"
+    return cleaned
+
+
+def _export_scope_wells(field_code: str | None = None, well_id: str | None = None, manual_only: bool = False) -> set[str] | None:
+    requested_well_ids = _normalize_well_ids(well_id)
+    field_codes = _normalize_field_codes(field_code)
+    manual_well_ids: set[str] | None = None
+
+    if manual_only:
+        markup = load_markup_state()
+        manual_well_ids = {annotation.wellId for annotation in markup.annotations if _is_manual_annotation(annotation)}
+
+    if requested_well_ids:
+        wells = set(requested_well_ids)
+    else:
+        wells = set(get_available_well_ids())
+
+    if field_codes:
+        wells = {item for item in wells if _well_field_code(item) in field_codes}
+    if manual_well_ids is not None:
+        wells = wells & manual_well_ids
+
+    return wells
+
+
+def _read_raw_source_rows(source_path: Path, well_ids: set[str] | None) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    with source_path.open("r", encoding="utf-8-sig", newline="") as source:
+        reader = csv.DictReader(source)
+        for row in reader:
+            row_well_id = str(row.get("well_id") or "").strip()
+            if well_ids is not None and row_well_id not in well_ids:
+                continue
+            rows.append(row)
+    rows.sort(key=lambda item: (str(item.get("well_id") or ""), _normalize_raw_timestamp(str(item.get("telemetry_time") or ""))))
+    return rows
+
+
+def _write_telemetry_raw_csv(zip_file: zipfile.ZipFile, source_path: Path, well_ids: set[str] | None) -> int:
+    rows = _read_raw_source_rows(source_path, well_ids)
+    with zip_file.open("telemetry_raw.csv", "w") as handle:
+        text = TextIOWrapper(handle, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=RAW_TELEMETRY_COLUMNS, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            output_row = {column: row.get(column, "") for column in RAW_TELEMETRY_COLUMNS}
+            output_row["telemetry_time"] = _normalize_raw_timestamp(output_row["telemetry_time"])
+            writer.writerow(output_row)
+        text.flush()
+    return len(rows)
+
+
+def _write_episodes_prod_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | None) -> int:
+    episodes_path = settings.episodes_table_data_path
+    if not episodes_path.exists():
+        with zip_file.open("episodes_prod.csv", "w") as handle:
+            text = TextIOWrapper(handle, encoding="utf-8", newline="")
+            csv.DictWriter(text, fieldnames=EPISODES_PROD_COLUMNS, lineterminator="\n").writeheader()
+            text.flush()
+        return 0
+
+    rows: list[dict[str, str]] = []
+    with episodes_path.open("r", encoding="utf-8-sig", newline="") as source:
+        reader = csv.DictReader(source)
+        for row in reader:
+            row_well_id = str(row.get("well_id") or "").strip()
+            if well_ids is not None and row_well_id not in well_ids:
+                continue
+            rows.append(row)
+    rows.sort(key=lambda item: (str(item.get("well_id") or ""), str(item.get("start") or ""), str(item.get("end") or ""), str(item.get("label") or "")))
+
+    with zip_file.open("episodes_prod.csv", "w") as handle:
+        text = TextIOWrapper(handle, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=EPISODES_PROD_COLUMNS, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({column: row.get(column, "") for column in EPISODES_PROD_COLUMNS})
+        text.flush()
+    return len(rows)
+
+
+def _manual_annotation_label(annotation: SavedAnnotation) -> str:
+    labels: list[str] = []
+    for level in annotation.classification.values():
+        if level:
+            labels.append(str(level))
+    return " | ".join(labels) or annotation.eventType
+
+
+def _write_manual_episodes_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | None) -> int:
+    markup = load_markup_state()
+    annotations = [
+        annotation
+        for annotation in markup.annotations
+        if _is_manual_annotation(annotation)
+        and (well_ids is None or annotation.wellId in well_ids)
+    ]
+    annotations.sort(key=lambda item: (item.wellId, item.startDate, item.endDate, item.id))
+
+    with zip_file.open("manual_episodes.csv", "w") as handle:
+        text = TextIOWrapper(handle, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=MANUAL_EPISODE_COLUMNS, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for annotation in annotations:
+            writer.writerow(
+                {
+                    "well_id": annotation.wellId,
+                    "id": annotation.id,
+                    "label": _manual_annotation_label(annotation),
+                    "start": annotation.startDate,
+                    "end": annotation.endDate,
+                    "duration_days": annotation.durationDays,
+                    "confidence": annotation.confidenceEvent,
+                    "event_type": annotation.eventType,
+                    "comment": annotation.comment,
+                    "actions": "|".join(annotation.actions),
+                    "classification": json.dumps(annotation.classification, ensure_ascii=False, separators=(",", ":")),
+                }
+            )
+        text.flush()
+    return len(annotations)
+
+
+def _write_water_cut_hal_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | None) -> int:
+    """Raw ХАЛ measurements (the sole source of 'Обв. алгоритм' / water_cut_5d),
+    for debugging the algorithm against its actual input. Not the algorithm output
+    itself - see episodes_prod.csv for the resulting Рост/Снижение обводненности
+    episodes and their explanations."""
+    hal_path = settings.water_cut_hal_data_path
+
+    rows: list[dict[str, str]] = []
+    if hal_path.exists():
+        with hal_path.open("r", encoding="utf-8-sig", newline="") as source:
+            reader = csv.DictReader(source, delimiter=";")
+            if reader.fieldnames and len(reader.fieldnames) == 1:
+                source.seek(0)
+                reader = csv.DictReader(source)
+            for row in reader:
+                row_well_id = str(row.get("well_id") or "").strip()
+                if well_ids is not None and row_well_id not in well_ids:
+                    continue
+                rows.append({
+                    "well_id": row_well_id,
+                    "date": row.get("date", ""),
+                    "water_cut_hal": row.get("water_cut_hal", row.get("hal", "")),
+                })
+    rows.sort(key=lambda item: (item["well_id"], item["date"]))
+
+    with zip_file.open("water_cut_hal.csv", "w") as handle:
+        text = TextIOWrapper(handle, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=WATER_CUT_HAL_EXPORT_COLUMNS, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        text.flush()
+    return len(rows)
+
+
+def _write_raw_export_manifest(
+    zip_file: zipfile.ZipFile,
+    source_path: Path,
+    well_ids: set[str] | None,
+    telemetry_rows: int,
+    episode_rows: int,
+    manual_episode_rows: int,
+    water_cut_hal_rows: int,
+) -> None:
+    selected_wells = sorted(well_ids) if well_ids is not None else "all"
+    content = (
+        "raw_episode_debug_export\n"
+        f"telemetry_source={source_path}\n"
+        "source_aggregation=none in export; rows are read from the prod episode_rules input CSV\n"
+        "sorting=well_id,telemetry_time only\n"
+        f"selected_wells={selected_wells}\n"
+        f"telemetry_raw_rows={telemetry_rows}\n"
+        f"episodes_prod_rows={episode_rows}\n"
+        f"manual_episodes_rows={manual_episode_rows}\n"
+        f"water_cut_hal_rows={water_cut_hal_rows}\n"
+        "water_cut_hal.csv=RAW HAL measurements (sole source of Обв. алгоритм / water_cut_5d); "
+        "not the algorithm output itself\n"
+    )
+    zip_file.writestr("README_export.txt", content.encode("utf-8"))
+
+
+def build_raw_episode_debug_export_zip(
+    field_code: str | None = None,
+    well_id: str | None = None,
+    manual_only: bool = False,
+) -> tuple[Path, str]:
+    source_path = _resolve_prod_telemetry_source()
+    well_ids = _export_scope_wells(field_code=field_code, well_id=well_id, manual_only=manual_only)
+    today = date.today().isoformat()
+    suffix = "manual" if manual_only else "all"
+    if field_code:
+        suffix = "field_" + "_".join(sorted(_normalize_field_codes(field_code)))
+    if well_id:
+        requested = sorted(_normalize_well_ids(well_id))
+        suffix = "well_" + "_".join(requested[:5])
+        if len(requested) > 5:
+            suffix += f"_plus_{len(requested) - 5}"
+
+    temp_file = tempfile.NamedTemporaryFile(prefix="well_raw_export_", suffix=".zip", delete=False)
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+
+    with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+        telemetry_rows = _write_telemetry_raw_csv(zip_file, source_path, well_ids)
+        episode_rows = _write_episodes_prod_csv(zip_file, well_ids)
+        manual_episode_rows = _write_manual_episodes_csv(zip_file, well_ids)
+        water_cut_hal_rows = _write_water_cut_hal_csv(zip_file, well_ids)
+        _write_raw_export_manifest(
+            zip_file,
+            source_path,
+            well_ids,
+            telemetry_rows,
+            episode_rows,
+            manual_episode_rows,
+            water_cut_hal_rows,
+        )
+
+    return temp_path, f"episode_debug_export_{suffix}_{today}.zip"
