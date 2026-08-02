@@ -17,6 +17,9 @@ from app.services.artificial_lift import get_well_artificial_lift_periods
 from app.services.auto_episodes import get_well_candidate_auto_episode_intervals
 from app.services.csv_timeseries import get_available_well_ids, get_well_timeseries
 from app.services.json_markup import load_markup_state
+from app.services.ozna import RAW_COLUMNS as OZNA_RAW_COLUMNS
+from app.services.ozna import SESSION_COLUMNS as OZNA_SESSION_COLUMNS
+from app.services.ozna import iter_ozna_raw_rows, iter_ozna_session_rows
 from app.services.tr_monitoring import get_well_tr_monitoring
 from app.services.vsp import get_well_vsp_periods
 from app.services.xlsx_reference import get_well_context
@@ -59,7 +62,7 @@ EPISODES_PROD_COLUMNS = [
     "explanation",
     "model_version",
 ]
-WATER_CUT_HAL_EXPORT_COLUMNS = ["well_id", "date", "water_cut_hal"]
+WATER_CUT_HAL_EXPORT_COLUMNS = ["well_id", "date", "water_cut_hal", "water_cut_hal_density"]
 MANUAL_EPISODE_COLUMNS = [
     "well_id",
     "id",
@@ -166,6 +169,20 @@ TELEMETRY_COLUMNS = [
     "free_gas_pct",
     "qliq_wfm",
     "qliq_vfm",
+    "ozna_qliq",
+    "ozna_qliq_p10",
+    "ozna_qliq_p90",
+    "ozna_qliq_cv_pct",
+    "ozna_qoil",
+    "ozna_qoil_p10",
+    "ozna_qoil_p90",
+    "ozna_qoil_cv_pct",
+    "ozna_qgas",
+    "ozna_qgas_p10",
+    "ozna_qgas_p90",
+    "ozna_qgas_cv_pct",
+    "ozna_duration_min",
+    "ozna_n_points",
 ]
 TR_COLUMNS = [
     "reservoir_pressure",
@@ -186,6 +203,9 @@ EXPORT_COLUMNS = [
     "seconds_since_prev",
     "telemetry_date",
     *[f"telemetry_{column}" for column in TELEMETRY_COLUMNS],
+    "telemetry_ozna_session_id",
+    "telemetry_ozna_quality_flags",
+    "telemetry_ozna_source_files",
     *[f"tr_{column}" for column in TR_COLUMNS],
     "tr_source_date",
     "esp_id",
@@ -883,6 +903,9 @@ def _build_export_rows_for_well(
 
         for column in TELEMETRY_COLUMNS:
             row[f"telemetry_{column}"] = telemetry.get(column)
+        row["telemetry_ozna_session_id"] = telemetry.get("ozna_session_id")
+        row["telemetry_ozna_quality_flags"] = telemetry.get("ozna_quality_flags")
+        row["telemetry_ozna_source_files"] = telemetry.get("ozna_source_files")
 
         active_tr_row = tr_cursor.active_at(parsed_point_date)
         if active_tr_row:
@@ -1196,6 +1219,7 @@ def _write_water_cut_hal_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | Non
                     "well_id": row_well_id,
                     "date": row.get("date", ""),
                     "water_cut_hal": row.get("water_cut_hal", row.get("hal", "")),
+                    "water_cut_hal_density": row.get("water_cut_hal_density", row.get("water_density", "")),
                 })
     rows.sort(key=lambda item: (item["well_id"], item["date"]))
 
@@ -1209,6 +1233,31 @@ def _write_water_cut_hal_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | Non
     return len(rows)
 
 
+def _write_ozna_rows_csv(
+    zip_file: zipfile.ZipFile,
+    file_name: str,
+    fieldnames: list[str],
+    rows: list[dict[str, str]],
+) -> int:
+    rows.sort(key=lambda item: (str(item.get("well_code") or ""), str(item.get("measured_at") or item.get("started_at") or "")))
+    with zip_file.open(file_name, "w") as handle:
+        text = TextIOWrapper(handle, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({column: row.get(column, "") for column in fieldnames})
+        text.flush()
+    return len(rows)
+
+
+def _write_ozna_raw_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | None) -> int:
+    return _write_ozna_rows_csv(zip_file, "ozna_raw.csv", OZNA_RAW_COLUMNS, list(iter_ozna_raw_rows(well_ids)))
+
+
+def _write_ozna_sessions_csv(zip_file: zipfile.ZipFile, well_ids: set[str] | None) -> int:
+    return _write_ozna_rows_csv(zip_file, "ozna_sessions.csv", OZNA_SESSION_COLUMNS, list(iter_ozna_session_rows(well_ids)))
+
+
 def _write_raw_export_manifest(
     zip_file: zipfile.ZipFile,
     source_path: Path,
@@ -1217,6 +1266,8 @@ def _write_raw_export_manifest(
     episode_rows: int,
     manual_episode_rows: int,
     water_cut_hal_rows: int,
+    ozna_raw_rows: int,
+    ozna_sessions_rows: int,
 ) -> None:
     selected_wells = sorted(well_ids) if well_ids is not None else "all"
     content = (
@@ -1229,8 +1280,12 @@ def _write_raw_export_manifest(
         f"episodes_prod_rows={episode_rows}\n"
         f"manual_episodes_rows={manual_episode_rows}\n"
         f"water_cut_hal_rows={water_cut_hal_rows}\n"
+        f"ozna_raw_rows={ozna_raw_rows}\n"
+        f"ozna_sessions_rows={ozna_sessions_rows}\n"
         "water_cut_hal.csv=RAW HAL measurements (sole source of Обв. алгоритм / water_cut_5d); "
         "not the algorithm output itself\n"
+        "ozna_sessions.csv=OZNA metering-unit session summaries; not a continuous telemetry row\n"
+        "ozna_raw.csv=normalized raw OZNA minute measurements for selected wells\n"
     )
     zip_file.writestr("README_export.txt", content.encode("utf-8"))
 
@@ -1261,6 +1316,8 @@ def build_raw_episode_debug_export_zip(
         episode_rows = _write_episodes_prod_csv(zip_file, well_ids)
         manual_episode_rows = _write_manual_episodes_csv(zip_file, well_ids)
         water_cut_hal_rows = _write_water_cut_hal_csv(zip_file, well_ids)
+        ozna_sessions_rows = _write_ozna_sessions_csv(zip_file, well_ids)
+        ozna_raw_rows = _write_ozna_raw_csv(zip_file, well_ids)
         _write_raw_export_manifest(
             zip_file,
             source_path,
@@ -1269,6 +1326,8 @@ def build_raw_episode_debug_export_zip(
             episode_rows,
             manual_episode_rows,
             water_cut_hal_rows,
+            ozna_raw_rows,
+            ozna_sessions_rows,
         )
 
     return temp_path, f"episode_debug_export_{suffix}_{today}.zip"

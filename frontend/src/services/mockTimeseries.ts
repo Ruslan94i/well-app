@@ -340,6 +340,7 @@ export function generateMockTimeseries(
       load: round(load),
       water_cut: round(waterCut),
       water_cut_hal: null,
+      water_cut_hal_density: null,
       water_cut_hal_daily: null,
       water_cut_algo: round(waterCut),
       water_cut_mode: null,
@@ -356,7 +357,24 @@ export function generateMockTimeseries(
       gas_liquid_factor: round(gasLiquidFactor),
       free_gas_pct: null,
       qliq_wfm: round(qliqWfm),
-      qliq_vfm: round(qliqVfm)
+      qliq_vfm: round(qliqVfm),
+      ozna_session_id: null,
+      ozna_duration_min: null,
+      ozna_n_points: null,
+      ozna_quality_flags: null,
+      ozna_source_files: null,
+      ozna_qliq: null,
+      ozna_qliq_p10: null,
+      ozna_qliq_p90: null,
+      ozna_qliq_cv_pct: null,
+      ozna_qoil: null,
+      ozna_qoil_p10: null,
+      ozna_qoil_p90: null,
+      ozna_qoil_cv_pct: null,
+      ozna_qgas: null,
+      ozna_qgas_p10: null,
+      ozna_qgas_p90: null,
+      ozna_qgas_cv_pct: null
     }
   })
 }

@@ -425,7 +425,7 @@ interface TrackHoverTooltip {
 }
 
 interface HoverGuideMetric {
-  key: SeriesKey
+  key: SeriesKey | 'water_cut_hal_density'
   label: string
   color: string
   value: string
@@ -455,6 +455,7 @@ const CHART_MARGIN_LEFT = 132
 const CHART_MARGIN_RIGHT = 104
 const CHART_MARGIN_TOP = 44
 const CHART_MARGIN_BOTTOM = 42
+const OZNA_MIN_BAR_WIDTH_PX = 6
 const TIME_PAN_SLIDER_HEIGHT = 24
 const TIME_PAN_AXIS_LABEL_GAP_PX = 26
 const TIME_PAN_TRACK_GAP_PX = 10
@@ -514,7 +515,8 @@ const waterCutHalPoints = computed(() =>
     .map((point) => ({
       date: point.date,
       time: parseIsoDateMs(point.date) ?? Number.NaN,
-      value: point.water_cut_hal
+      value: point.water_cut_hal,
+      density: point.water_cut_hal_density
     }))
     .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
 )
@@ -600,6 +602,15 @@ const seriesConfig: Record<
     markerLineColor: 'rgba(226,232,240,0.62)',
     opacity: 0.9
   },
+  ozna_qliq: {
+    label: 'Дебит жидкости ОЗНА',
+    color: '#475569',
+    axis: 'y',
+    chartType: 'bar',
+    barOffsetDays: -0.08,
+    markerLineColor: 'rgba(226,232,240,0.78)',
+    opacity: 0.58
+  },
   predicted_qliq: {
     label: 'Virtual Q liq',
     color: '#facc15',
@@ -612,7 +623,7 @@ const seriesConfig: Record<
   casing_pressure: { label: 'Давление затрубное', color: '#f59e0b', axis: 'y3', width: 1.35 },
   load: { label: 'Загрузка', color: '#16a34a', axis: 'y2', width: 0.85, markerSize: 2 },
   water_cut: { label: 'Обводненность_АГЗУ', color: '#7dd3fc', axis: 'y2', width: 1.6 },
-  water_cut_hal: { label: 'Обводненность ХАЛ', color: '#7dd3fc', axis: 'y2', chartType: 'markers', markerSize: 7 },
+  water_cut_hal: { label: 'Обводненность ХАЛ', color: '#bae6fd', axis: 'y2', chartType: 'markers', markerSize: 12 },
   water_cut_algo: { label: 'Обв_алгоритм', color: '#38bdf8', axis: 'y2', width: 1.2 },
   intake_pressure: { label: 'Р на приеме насоса', color: '#f87171', axis: 'y3', width: 1.4 },
   esp_frequency: { label: 'Частота вращения двиг.', color: '#2563eb', axis: 'y4', width: 0.85, markerSize: 2 },
@@ -640,6 +651,13 @@ const seriesConfig: Record<
   collector_pressure: { label: 'Давление в коллекторе', color: '#facc15', axis: 'y3', width: 1.35 },
   full_power: { label: 'Полная мощность', color: '#14b8a6', axis: 'y14', width: 0.85, markerSize: 2 },
   qgas: { label: 'Расход газа на сутки', color: '#fdba74', axis: 'y12', width: 2.1 },
+  ozna_qgas: {
+    label: 'Расход газа за сутки ОЗНА',
+    color: '#f97316',
+    axis: 'y12',
+    width: 1.8,
+    markerSize: 6
+  },
   qoil: {
     label: 'Расход нефти',
     color: '#92400e',
@@ -649,6 +667,15 @@ const seriesConfig: Record<
     barOffsetDays: 0.3,
     markerLineColor: '#451a03',
     opacity: 0.82
+  },
+  ozna_qoil: {
+    label: 'Расход нефти ОЗНА',
+    color: '#b45309',
+    axis: 'y',
+    chartType: 'bar',
+    barOffsetDays: 0.58,
+    markerLineColor: '#fed7aa',
+    opacity: 0.58
   },
   gas_factor: { label: 'Газовый фактор', color: '#a78bfa', axis: 'y13', width: 1.4 },
   gas_liquid_factor: { label: 'Газожидкостный фактор', color: '#f472b6', axis: 'y13', width: 1.4 },
@@ -1209,6 +1236,7 @@ function getPrimaryAxisValues(): Array<number | null> {
     ...getSeriesValues('qliq'),
     ...getSeriesValues('qoil'),
     ...getSeriesValues('qliq_wfm'),
+    ...getActiveSeriesValues(['ozna_qliq', 'ozna_qoil']),
     ...getActiveSeriesValues([
       'tr_liquid_rate',
       'tr_oil_rate',
@@ -1439,11 +1467,78 @@ function buildDailyFiniteSeriesPoints(seriesX: string[], seriesY: (number | null
   return points
 }
 
-function buildMainTraces() {
+function isOznaSeriesKey(seriesKey: SeriesKey): seriesKey is 'ozna_qliq' | 'ozna_qoil' | 'ozna_qgas' {
+  return seriesKey === 'ozna_qliq' || seriesKey === 'ozna_qoil' || seriesKey === 'ozna_qgas'
+}
+
+function getOznaP10(seriesKey: 'ozna_qliq' | 'ozna_qoil' | 'ozna_qgas', item: TimeSeriesPoint): number | null {
+  if (seriesKey === 'ozna_qliq') return item.ozna_qliq_p10
+  if (seriesKey === 'ozna_qoil') return item.ozna_qoil_p10
+  return item.ozna_qgas_p10
+}
+
+function getOznaP90(seriesKey: 'ozna_qliq' | 'ozna_qoil' | 'ozna_qgas', item: TimeSeriesPoint): number | null {
+  if (seriesKey === 'ozna_qliq') return item.ozna_qliq_p90
+  if (seriesKey === 'ozna_qoil') return item.ozna_qoil_p90
+  return item.ozna_qgas_p90
+}
+
+function getOznaCv(seriesKey: 'ozna_qliq' | 'ozna_qoil' | 'ozna_qgas', item: TimeSeriesPoint): number | null {
+  if (seriesKey === 'ozna_qliq') return item.ozna_qliq_cv_pct
+  if (seriesKey === 'ozna_qoil') return item.ozna_qoil_cv_pct
+  return item.ozna_qgas_cv_pct
+}
+
+function buildOznaPoints(seriesKey: 'ozna_qliq' | 'ozna_qoil' | 'ozna_qgas') {
+  return props.data
+    .map((item) => ({
+      date: item.date,
+      time: parseIsoDateMs(item.date) ?? Number.NaN,
+      value: item[seriesKey],
+      p10: getOznaP10(seriesKey, item),
+      p90: getOznaP90(seriesKey, item),
+      cv: getOznaCv(seriesKey, item),
+      durationMin: item.ozna_duration_min,
+      nPoints: item.ozna_n_points,
+      qualityFlags: item.ozna_quality_flags || '-',
+      sourceFiles: item.ozna_source_files || '-',
+      sessionId: item.ozna_session_id || '-'
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+}
+
+function buildOznaCustomData(points: ReturnType<typeof buildOznaPoints>) {
+  return points.map((point) => ({
+    p10p90:
+      Number.isFinite(point.p10) && Number.isFinite(point.p90)
+        ? `${formatMarkerNumber(point.p10, 2)}-${formatMarkerNumber(point.p90, 2)}`
+        : '-',
+    duration: Number.isFinite(point.durationMin) ? `${formatMarkerNumber(point.durationMin, 0)} мин` : '-',
+    nPoints: Number.isFinite(point.nPoints) ? formatMarkerNumber(point.nPoints, 0) : '-',
+    cv: Number.isFinite(point.cv) ? `${formatMarkerNumber(point.cv, 1)}%` : '-',
+    qualityFlags: point.qualityFlags,
+    sourceFiles: point.sourceFiles,
+    sessionId: point.sessionId
+  }))
+}
+
+function getOznaMinBarWidthMs(visibleRange: VisibleDateRange | null | undefined): number {
+  const startMs = parseIsoDateMs(visibleRange?.startDate)
+  const endMs = parseIsoDateMs(visibleRange?.endDate)
+  const plotWidth = Math.max(1, chartSize.value.width - CHART_MARGIN_LEFT - CHART_MARGIN_RIGHT)
+
+  if (startMs === null || endMs === null || endMs <= startMs) {
+    return 0.035 * MS_PER_DAY
+  }
+
+  return ((endMs - startMs) / plotWidth) * OZNA_MIN_BAR_WIDTH_PX
+}
+
+function buildMainTraces(visibleRange?: VisibleDateRange | null) {
   const x = props.data.map((item) => item.date)
   const baseRange = buildStableRange(getPrimaryAxisValues())
 
-  const visibleSeries = props.activeSeries.map((seriesKey) => {
+  const visibleSeries = props.activeSeries.filter((seriesKey) => seriesKey !== 'water_cut_hal').map((seriesKey) => {
     const config = seriesConfig[seriesKey]
     const seriesX = isTrSeriesKey(seriesKey)
       ? props.trMonitoringData.map((item) => item.date)
@@ -1451,6 +1546,86 @@ function buildMainTraces() {
     const seriesY = isTrSeriesKey(seriesKey)
       ? props.trMonitoringData.map((item) => item[seriesKey])
       : props.data.map((item) => item[seriesKey])
+
+    if (isOznaSeriesKey(seriesKey)) {
+      const points = buildOznaPoints(seriesKey)
+      const customdata = buildOznaCustomData(points)
+      const hovertemplate =
+        '%{x}<br>%{y:.2f}<br>' +
+        'p10-p90: %{customdata.p10p90}<br>' +
+        'Точек: %{customdata.nPoints}<br>' +
+        'Длительность: %{customdata.duration}<br>' +
+        'CV: %{customdata.cv}<br>' +
+        'Флаги: %{customdata.qualityFlags}<br>' +
+        'Сессия: %{customdata.sessionId}<br>' +
+        'Файлы: %{customdata.sourceFiles}<extra>' +
+        config.label +
+        '</extra>'
+
+      if (config.chartType === 'bar') {
+        const minBarWidthMs = getOznaMinBarWidthMs(visibleRange)
+        return {
+          x: points.map((point) => point.date),
+          y: points.map((point) => point.value),
+          customdata,
+          type: 'bar',
+          name: config.label,
+          yaxis: config.axis,
+          width: points.map((point) => Math.max(((point.durationMin ?? 180) / 1440) * MS_PER_DAY, minBarWidthMs)),
+          offset: (config.barOffsetDays ?? 0) * MS_PER_DAY,
+          opacity: config.opacity ?? 0.58,
+          marker: {
+            color: config.color,
+            opacity: points.map((point) => (point.qualityFlags && point.qualityFlags !== '-' ? 0.44 : 0.72)),
+            line: {
+              color: config.markerLineColor ?? config.color,
+              width: 0.85
+            }
+          },
+          hovertemplate
+        }
+      }
+
+      const lineX: (string | null)[] = []
+      const lineY: (number | null)[] = []
+      const lineCustomData: (ReturnType<typeof buildOznaCustomData>[number] | null)[] = []
+      points.forEach((point, index) => {
+        const previous = points[index - 1]
+        if (previous && point.time - previous.time > MS_PER_DAY) {
+          lineX.push(null)
+          lineY.push(null)
+          lineCustomData.push(null)
+        }
+        lineX.push(point.date)
+        lineY.push(point.value)
+        lineCustomData.push(customdata[index] ?? null)
+      })
+
+      return {
+        x: lineX,
+        y: lineY,
+        customdata: lineCustomData,
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: config.label,
+        yaxis: config.axis,
+        connectgaps: false,
+        line: {
+          color: config.color,
+          width: config.width ?? 1.8,
+          dash: config.dash ?? 'solid'
+        },
+        marker: {
+          color: config.color,
+          size: config.markerSize ?? 6,
+          line: {
+            color: '#7c2d12',
+            width: 0.8
+          }
+        },
+        hovertemplate
+      }
+    }
 
     if (seriesKey === 'water_cut_algo') {
       const dailyPoints = buildDailyFiniteSeriesPoints(seriesX, seriesY)
@@ -1496,7 +1671,12 @@ function buildMainTraces() {
 
     if (config.chartType === 'markers') {
       const finiteMarkerPoints = seriesX
-        .map((date, index) => ({ date, value: seriesY[index] }))
+        .map((date, index) => ({
+          date,
+          time: parseIsoDateMs(date) ?? Number.NaN,
+          value: seriesY[index],
+          density: null
+        }))
         .filter((point) => Number.isFinite(point.value))
 
       return {
@@ -1576,6 +1756,40 @@ function buildMainTraces() {
         ]
       : []
 
+  const waterCutHalTrace =
+    props.activeSeries.includes('water_cut_hal') && waterCutHalPoints.value.length > 0
+      ? [
+          {
+            x: waterCutHalPoints.value.map((point) => point.date),
+            y: waterCutHalPoints.value.map((point) => point.value),
+            customdata: waterCutHalPoints.value.map((point) => ({
+              waterCut: `${Number(point.value).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`,
+              density: Number.isFinite(point.density) ? `пл воды ${Number(point.density).toFixed(0)}кг/м3` : 'пл воды -'
+            })),
+            type: 'scatter',
+            mode: 'markers',
+            name: seriesConfig.water_cut_hal.label,
+            yaxis: seriesConfig.water_cut_hal.axis,
+            connectgaps: false,
+            cliponaxis: false,
+            marker: {
+              symbol: 'circle-open',
+              size: seriesConfig.water_cut_hal.markerSize ?? 12,
+              opacity: 1,
+              color: seriesConfig.water_cut_hal.color,
+              line: {
+                color: seriesConfig.water_cut_hal.color,
+                width: 3.2
+              }
+            },
+            hovertemplate:
+              '%{x}<br>%{customdata.waterCut}, %{customdata.density}<extra>' +
+              seriesConfig.water_cut_hal.label +
+              '</extra>'
+          }
+        ]
+      : []
+
   const selectionHelper = {
     x,
     y: x.map(() => baseRange[0]),
@@ -1592,7 +1806,7 @@ function buildMainTraces() {
     }
   }
 
-  return [...visibleSeries, ...espWashTrace, selectionHelper]
+  return [...visibleSeries, ...espWashTrace, selectionHelper, ...waterCutHalTrace]
 }
 
 function buildFrequencySegmentTrace() {
@@ -3039,7 +3253,7 @@ function getNearestTelemetryValueByDate(date: string, key: TelemetrySeriesKey): 
   return nearestDistance <= NEAREST_TELEMETRY_VALUE_MAX_GAP_MS ? nearestValue : null
 }
 
-function getNearestWaterCutHalValueByDate(date: string): number | null {
+function getNearestWaterCutHalPointByDate(date: string): { value: number | null; density: number | null } | null {
   const targetMs = parseIsoDateMs(date)
   const points = waterCutHalPoints.value
 
@@ -3070,7 +3284,12 @@ function getNearestWaterCutHalValueByDate(date: string): number | null {
       return null
     }
     const fallbackDistance = Math.abs(fallbackPoint.time - targetMs)
-    return fallbackDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS ? Number(fallbackPoint.value) : null
+    return fallbackDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS
+      ? {
+          value: Number(fallbackPoint.value),
+          density: Number.isFinite(fallbackPoint.density) ? Number(fallbackPoint.density) : null
+        }
+      : null
   }
 
   const nextDistance = Math.abs(nextPoint.time - targetMs)
@@ -3078,7 +3297,16 @@ function getNearestWaterCutHalValueByDate(date: string): number | null {
   const closestPoint = previousDistance <= nextDistance ? previousPoint : nextPoint
   const closestDistance = Math.min(previousDistance, nextDistance)
 
-  return closestDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS ? Number(closestPoint.value) : null
+  return closestDistance <= NEAREST_WATER_CUT_HAL_MAX_GAP_MS
+    ? {
+        value: Number(closestPoint.value),
+        density: Number.isFinite(closestPoint.density) ? Number(closestPoint.density) : null
+      }
+    : null
+}
+
+function getNearestWaterCutHalValueByDate(date: string): number | null {
+  return getNearestWaterCutHalPointByDate(date)?.value ?? null
 }
 
 function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
@@ -3111,9 +3339,10 @@ function getTrStepPointByDate(date: string): TrMonitoringPoint | null {
 function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
   const trPoint = getTrStepPointByDate(date)
   const telemetryPoint = getNearestPointByDate(date)
+  const nearestWaterCutHalPoint = getNearestWaterCutHalPointByDate(date)
 
   return props.activeSeries
-    .map((key): HoverGuideMetric => {
+    .flatMap((key): HoverGuideMetric[] => {
       const telemetryValue = !isTrSeriesKey(key) && telemetryPoint ? telemetryPoint[key] : null
       const value = isTrSeriesKey(key)
         ? trPoint?.[key]
@@ -3121,12 +3350,28 @@ function buildHoverGuideMetrics(date: string): HoverGuideMetric[] {
           ? telemetryValue
           : getNearestTelemetryValueByDate(date, key)
 
-      return {
+      const metric = {
         key,
         label: seriesConfig[key].label,
         color: seriesConfig[key].color,
         value: formatMetricValue(value)
       }
+
+      if (key !== 'water_cut_hal') {
+        return [metric]
+      }
+
+      return [
+        metric,
+        {
+          key: 'water_cut_hal_density',
+          label: 'Плотность ХАЛ',
+          color: seriesConfig.water_cut_hal.color,
+          value: nearestWaterCutHalPoint?.density !== null && nearestWaterCutHalPoint?.density !== undefined
+            ? `${Number(nearestWaterCutHalPoint.density).toFixed(0)} кг/м3`
+            : '—'
+        }
+      ]
     })
 }
 
@@ -3789,7 +4034,7 @@ function renderChart() {
 
   chartRenderError.value = null
 
-  const hasGasProductionSeries = props.activeSeries.includes('qgas')
+  const hasGasProductionSeries = props.activeSeries.includes('qgas') || props.activeSeries.includes('ozna_qgas')
   const hasGasFactorSeries =
     props.activeSeries.includes('gas_factor') ||
     props.activeSeries.includes('gas_liquid_factor') ||
@@ -3800,7 +4045,7 @@ function renderChart() {
   const firstDate = props.data[0]?.date
   const lastDate = props.data[props.data.length - 1]?.date
   const mainAxisConfig = buildNiceAxis(getPrimaryAxisValues(), 6)
-  const gasAxisConfig = buildNiceAxis(getSeriesValues('qgas'), 5)
+  const gasAxisConfig = buildNiceAxis(getActiveSeriesValues(['qgas', 'ozna_qgas']), 5)
   const hasFreeGasSeries = props.activeSeries.includes('free_gas_pct')
   const percentAxisConfig = hasFreeGasSeries ? { range: [0, 100], tick0: 0, dtick: 20 } : buildNiceAxis([
     ...getSeriesValues('water_cut'),
@@ -4180,13 +4425,13 @@ function renderChart() {
   }
 
   try {
-    const traces = [...buildMainTraces(), ...buildTrackTraces()]
+    const traces = [...buildMainTraces(visibleRangeForLayout), ...buildTrackTraces()]
     void Plotly.react(chartEl.value, traces, layout, config).catch((error: unknown) => {
       console.error('Plotly render failed', error)
       chartRenderError.value = error instanceof Error ? error.message : 'Ошибка Plotly при отрисовке треков.'
       void Plotly.react(
         chartEl.value,
-        buildMainTraces(),
+        buildMainTraces(visibleRangeForLayout),
         {
           ...layout,
           yaxis: {
@@ -4204,7 +4449,7 @@ function renderChart() {
     chartRenderError.value = error instanceof Error ? error.message : 'Ошибка подготовки данных графика.'
     void Plotly.react(
       chartEl.value,
-      buildMainTraces(),
+      buildMainTraces(visibleRangeForLayout),
       {
         ...layout,
         yaxis: {
@@ -4394,10 +4639,10 @@ defineExpose({
 })
 
 onMounted(() => {
+  updateChartSize()
   renderChart()
   attachEventHandlers()
 
-  updateChartSize()
   if (chartEl.value) {
     chartResizeObserver = new ResizeObserver(updateChartSize)
     chartResizeObserver.observe(chartEl.value)
@@ -4437,6 +4682,9 @@ watch(
     props.selectedFrequencyBreakpointId,
     props.selectedFrequencySegmentIds,
     props.visibleDateRange,
+    localVisibleDateRange.value,
+    chartSize.value.width,
+    chartSize.value.height,
     selectedCandidateAutoIntervalId.value
   ],
   () => {

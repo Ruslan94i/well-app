@@ -12,6 +12,7 @@ import pandas as pd
 import polars as pl
 
 from app.core.config import settings
+from app.services.ozna import load_ozna_sessions
 from app.services.predicted_qliq import ensure_predicted_qliq_cache
 from app.services.water_cut_algorithm import add_water_cut_algorithm
 
@@ -99,6 +100,7 @@ NUMERIC_COLUMNS = [
     "load",
     "water_cut",
     "water_cut_hal",
+    "water_cut_hal_density",
     "water_cut_hal_daily",
     "water_cut_algo",
     "intake_pressure",
@@ -114,6 +116,18 @@ NUMERIC_COLUMNS = [
     "gas_liquid_factor",
     "free_gas_pct",
     "qliq_wfm",
+    "ozna_qliq",
+    "ozna_qliq_p10",
+    "ozna_qliq_p90",
+    "ozna_qliq_cv_pct",
+    "ozna_qoil",
+    "ozna_qoil_p10",
+    "ozna_qoil_p90",
+    "ozna_qoil_cv_pct",
+    "ozna_qgas",
+    "ozna_qgas_p10",
+    "ozna_qgas_p90",
+    "ozna_qgas_cv_pct",
 ]
 TELEMETRY_COLUMNS = [
     "buffer_pressure",
@@ -144,6 +158,7 @@ RESPONSE_COLUMNS = [
     "load",
     "water_cut",
     "water_cut_hal",
+    "water_cut_hal_density",
     "water_cut_hal_daily",
     "water_cut_algo",
     "water_cut_mode",
@@ -161,6 +176,23 @@ RESPONSE_COLUMNS = [
     "free_gas_pct",
     "qliq_wfm",
     "qliq_vfm",
+    "ozna_session_id",
+    "ozna_duration_min",
+    "ozna_n_points",
+    "ozna_quality_flags",
+    "ozna_source_files",
+    "ozna_qliq",
+    "ozna_qliq_p10",
+    "ozna_qliq_p90",
+    "ozna_qliq_cv_pct",
+    "ozna_qoil",
+    "ozna_qoil_p10",
+    "ozna_qoil_p90",
+    "ozna_qoil_cv_pct",
+    "ozna_qgas",
+    "ozna_qgas_p10",
+    "ozna_qgas_p90",
+    "ozna_qgas_cv_pct",
 ]
 FRAME_SCHEMA = {
     "well_id": pl.Utf8,
@@ -172,6 +204,7 @@ FRAME_SCHEMA = {
     "load": pl.Float64,
     "water_cut": pl.Float64,
     "water_cut_hal": pl.Float64,
+    "water_cut_hal_density": pl.Float64,
     "water_cut_hal_daily": pl.Float64,
     "water_cut_algo": pl.Float64,
     "water_cut_mode": pl.Utf8,
@@ -189,6 +222,23 @@ FRAME_SCHEMA = {
     "free_gas_pct": pl.Float64,
     "qliq_wfm": pl.Float64,
     "qliq_vfm": pl.Float64,
+    "ozna_session_id": pl.Utf8,
+    "ozna_duration_min": pl.Float64,
+    "ozna_n_points": pl.Int64,
+    "ozna_quality_flags": pl.Utf8,
+    "ozna_source_files": pl.Utf8,
+    "ozna_qliq": pl.Float64,
+    "ozna_qliq_p10": pl.Float64,
+    "ozna_qliq_p90": pl.Float64,
+    "ozna_qliq_cv_pct": pl.Float64,
+    "ozna_qoil": pl.Float64,
+    "ozna_qoil_p10": pl.Float64,
+    "ozna_qoil_p90": pl.Float64,
+    "ozna_qoil_cv_pct": pl.Float64,
+    "ozna_qgas": pl.Float64,
+    "ozna_qgas_p10": pl.Float64,
+    "ozna_qgas_p90": pl.Float64,
+    "ozna_qgas_cv_pct": pl.Float64,
 }
 
 
@@ -230,6 +280,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
     cleaned = _clean_cell(value)
     if cleaned in NULL_TOKENS:
         return None
+
+    iso_value = cleaned.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso_value)
+        if parsed.tzinfo is not None:
+            return parsed.replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        pass
 
     for date_format in (
         "%Y-%m-%d %H:%M:%S",
@@ -529,6 +588,9 @@ def _build_empty_timeseries_row(well_id: str, point_datetime: datetime) -> dict[
     for normalized_name in NUMERIC_COLUMNS:
         row[normalized_name] = None
     row["qliq_vfm"] = None
+    row["ozna_session_id"] = None
+    row["ozna_quality_flags"] = None
+    row["ozna_source_files"] = None
     return row
 
 
@@ -683,17 +745,28 @@ def _load_water_cut_hal_rows(csv_path: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     skipped_rows = 0
     with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-        reader = csv.DictReader(csv_file, delimiter=";")
+        reader = csv.DictReader(csv_file, delimiter=_detect_csv_delimiter(path))
+        headers = reader.fieldnames or []
+        well_column = _pick_csv_column(headers, ("well_id", "name"))
+        date_column = _pick_csv_column(headers, ("date", "sample_datetime"))
+        value_column = _pick_csv_column(headers, ("water_cut_hal", "water_cut", "hal"))
+        density_column = _pick_csv_column(headers, ("water_cut_hal_density", "water_density"))
+        if well_column is None or date_column is None or value_column is None:
+            logger.warning("Water cut HAL CSV %s is missing expected columns", path)
+            return rows
+
         for raw_row in reader:
-            well_id = _clean_cell(raw_row.get("well_id"))
-            point_datetime = _parse_datetime(raw_row.get("date"))
-            water_cut = _parse_float(raw_row.get("water_cut_hal"))
+            well_id = _clean_cell(raw_row.get(well_column))
+            point_datetime = _parse_datetime(raw_row.get(date_column))
+            water_cut = _parse_float(raw_row.get(value_column))
             if not _is_valid_well_id(well_id) or point_datetime is None or water_cut is None:
                 skipped_rows += 1
                 continue
 
             row = _build_empty_timeseries_row(well_id, point_datetime)
             row["water_cut_hal"] = water_cut
+            if density_column is not None:
+                row["water_cut_hal_density"] = _parse_float(raw_row.get(density_column))
             rows.append(_finalize_timeseries_row(row))
 
     logger.info(
@@ -738,6 +811,45 @@ def _load_predicted_qliq_rows(csv_path: str) -> list[dict[str, object]]:
         "Loaded %s rows from predicted Q liquid CSV %s%s",
         len(rows),
         path,
+        f"; skipped {skipped_rows} rows" if skipped_rows else "",
+    )
+    return rows
+
+
+def _load_ozna_session_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    skipped_rows = 0
+    for session in load_ozna_sessions():
+        well_id = _clean_cell(session.get("well_code"))
+        point_datetime = _parse_datetime(session.get("mid_at"))
+        if not _is_valid_well_id(well_id) or point_datetime is None:
+            skipped_rows += 1
+            continue
+
+        row = _build_empty_timeseries_row(well_id, point_datetime)
+        row["ozna_session_id"] = _clean_cell(session.get("session_id"))
+        row["ozna_duration_min"] = _parse_float(session.get("duration_min"))
+        n_points = _parse_float(session.get("n_points"))
+        row["ozna_n_points"] = int(n_points) if n_points is not None else None
+        row["ozna_quality_flags"] = _clean_cell(session.get("quality_flags")) or None
+        row["ozna_source_files"] = _clean_cell(session.get("source_files")) or None
+        row["ozna_qliq"] = _parse_float(session.get("qliq_median"))
+        row["ozna_qliq_p10"] = _parse_float(session.get("qliq_p10"))
+        row["ozna_qliq_p90"] = _parse_float(session.get("qliq_p90"))
+        row["ozna_qliq_cv_pct"] = _parse_float(session.get("qliq_cv_pct"))
+        row["ozna_qoil"] = _parse_float(session.get("qoil_tpd_median"))
+        row["ozna_qoil_p10"] = _parse_float(session.get("qoil_tpd_p10"))
+        row["ozna_qoil_p90"] = _parse_float(session.get("qoil_tpd_p90"))
+        row["ozna_qoil_cv_pct"] = _parse_float(session.get("qoil_tpd_cv_pct"))
+        row["ozna_qgas"] = _parse_float(session.get("qgas_median"))
+        row["ozna_qgas_p10"] = _parse_float(session.get("qgas_p10"))
+        row["ozna_qgas_p90"] = _parse_float(session.get("qgas_p90"))
+        row["ozna_qgas_cv_pct"] = _parse_float(session.get("qgas_cv_pct"))
+        rows.append(_finalize_timeseries_row(row))
+
+    logger.info(
+        "Loaded %s OZNA session rows%s",
+        len(rows),
         f"; skipped {skipped_rows} rows" if skipped_rows else "",
     )
     return rows
@@ -807,6 +919,7 @@ def _load_full_timeseries_frame_cached(
     extra_rows = [
         *(_load_water_cut_hal_rows(water_cut_hal_path) if water_cut_hal_path else []),
         *(_load_predicted_qliq_rows(predicted_qliq_path) if predicted_qliq_path else []),
+        *_load_ozna_session_rows(),
     ]
     if extra_rows:
         frame = pl.concat([frame, pl.DataFrame(extra_rows, schema=FRAME_SCHEMA, strict=False)], how="vertical_relaxed")
@@ -876,6 +989,14 @@ def _load_aggregated_timeseries_frame_cached(
         .with_columns(pl.col("qliq_wfm").alias("qliq_vfm"))
         .sort(["well_id", "date"])
     )
+    missing_columns = [column for column in FRAME_SCHEMA if column not in frame.columns]
+    if missing_columns:
+        frame = frame.with_columns([pl.lit(None, dtype=FRAME_SCHEMA[column]).alias(column) for column in missing_columns])
+
+    ozna_rows = _load_ozna_session_rows()
+    if ozna_rows:
+        frame = pl.concat([frame.select(list(FRAME_SCHEMA)), pl.DataFrame(ozna_rows, schema=FRAME_SCHEMA, strict=False)], how="vertical_relaxed")
+
     frame = _with_derived_gas_factor(frame)
     frame = add_water_cut_algorithm(frame)
     frame = _add_free_gas_pct(frame)
@@ -950,6 +1071,7 @@ def _load_timeseries_frame_cached(csv_mtime_ns: int, csv_size: int) -> pl.DataFr
         ]
         if predicted_rows:
             rows.extend(predicted_rows)
+    rows.extend([row for row in _load_ozna_session_rows() if str(row.get("well_id") or "") in base_well_ids])
 
     frame = _with_derived_gas_factor(pl.DataFrame(rows, schema=FRAME_SCHEMA, strict=False).sort(["well_id", "date"]))
     frame = add_water_cut_algorithm(frame)
@@ -1122,7 +1244,8 @@ def get_well_timeseries(
         date_to,
     )
     return (
-        frame.select(RESPONSE_COLUMNS)
+        frame.sort("date")
+        .select(RESPONSE_COLUMNS)
         .with_columns(pl.col("date").dt.strftime("%Y-%m-%dT%H:%M:%S"))
         .to_dicts()
     )

@@ -1442,6 +1442,7 @@ const baseWellGroupOptions: { label: string; value: WellGroupId }[] = knownField
 
 const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Дебит жидкости', value: 'qliq' },
+  { label: 'Дебит жидкости ОЗНА', value: 'ozna_qliq' },
   { label: 'Virtual Q liq', value: 'predicted_qliq' },
   { label: 'Давление буферное', value: 'buffer_pressure' },
   { label: 'Давление затрубное', value: 'casing_pressure' },
@@ -1457,7 +1458,9 @@ const seriesOptions: { label: string; value: SeriesKey }[] = [
   { label: 'Давление в коллекторе', value: 'collector_pressure' },
   { label: 'Полная мощность', value: 'full_power' },
   { label: 'Расход газа на сутки', value: 'qgas' },
+  { label: 'Расход газа за сутки ОЗНА', value: 'ozna_qgas' },
   { label: 'Расход нефти', value: 'qoil' },
+  { label: 'Расход нефти ОЗНА', value: 'ozna_qoil' },
   { label: 'Газовый фактор', value: 'gas_factor' },
   { label: 'Газожидкостный фактор', value: 'gas_liquid_factor' },
   { label: 'Свободный газ на приёме, %', value: 'free_gas_pct' },
@@ -2407,13 +2410,16 @@ const navigationGroupId = ref<WellGroupId | null>(getFieldGroupId(getWellFieldCo
 const dateRange = ref<[number, number] | null>(null)
 const defaultActiveSeries: SeriesKey[] = [
   'qliq',
+  'ozna_qliq',
   'predicted_qliq',
   'load',
   'water_cut_algo',
   'water_cut_hal',
   'intake_pressure',
   'esp_frequency',
-  'active_power'
+  'active_power',
+  'ozna_qoil',
+  'ozna_qgas'
 ]
 const activeSeries = ref<SeriesKey[]>(defaultActiveSeries)
 const chartData = ref<TimeSeriesPoint[]>([])

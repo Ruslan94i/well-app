@@ -7,6 +7,7 @@ export interface TimeSeriesPoint {
   load: number | null
   water_cut: number | null
   water_cut_hal: number | null
+  water_cut_hal_density: number | null
   water_cut_hal_daily: number | null
   water_cut_algo: number | null
   water_cut_mode: string | null
@@ -24,6 +25,23 @@ export interface TimeSeriesPoint {
   free_gas_pct: number | null
   qliq_wfm: number | null
   qliq_vfm: number | null
+  ozna_session_id: string | null
+  ozna_duration_min: number | null
+  ozna_n_points: number | null
+  ozna_quality_flags: string | null
+  ozna_source_files: string | null
+  ozna_qliq: number | null
+  ozna_qliq_p10: number | null
+  ozna_qliq_p90: number | null
+  ozna_qliq_cv_pct: number | null
+  ozna_qoil: number | null
+  ozna_qoil_p10: number | null
+  ozna_qoil_p90: number | null
+  ozna_qoil_cv_pct: number | null
+  ozna_qgas: number | null
+  ozna_qgas_p10: number | null
+  ozna_qgas_p90: number | null
+  ozna_qgas_cv_pct: number | null
 }
 
 export type TelemetrySeriesKey =
@@ -48,6 +66,9 @@ export type TelemetrySeriesKey =
   | 'gas_liquid_factor'
   | 'free_gas_pct'
   | 'qliq_wfm'
+  | 'ozna_qliq'
+  | 'ozna_qoil'
+  | 'ozna_qgas'
 
 export type TrMonitoringSeriesKey =
   | 'tr_reservoir_pressure'
